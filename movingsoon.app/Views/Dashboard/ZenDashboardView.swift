@@ -1,16 +1,34 @@
 // ZenDashboardView.swift — Brutally Minimalist Action Hub
 import SwiftUI
 import SwiftData
+import CoreLocation
 
 struct ZenDashboardView: View {
     let move: Move
     @Environment(\.modelContext) private var modelContext
     @State private var showingMailComposer = false
     @State private var selectedAgenticTask: ChecklistTask?
-    
+
     // Unsplash Integration
     @State private var unsplashService = UnsplashService()
     @State private var ambientImageURL: URL?
+
+    // Smart Location Reminders
+    @State private var locationManager = LocationManager()
+    @State private var consentCardDismissed = false
+
+    // MARK: - Consent card visibility predicate
+    private var shouldShowConsentCard: Bool {
+        // Never show again once consent has been granted (even after expiry)
+        guard move.locationConsentGrantedAt == nil else { return false }
+        // Only show when move is ≤14 days away
+        guard move.daysUntilMove <= 14 else { return false }
+        // Session-dismissed
+        guard !consentCardDismissed else { return false }
+        // Only show when permission is not yet granted
+        let status = locationManager.authorizationStatus
+        return status == .notDetermined || status == .denied
+    }
 
     // 1. Sort pending tasks by urgency (tMinusDays relative to anchorDate).
     // The lowest tMinusDays means it's due the earliest (e.g. -30 is due 30 days before move).
@@ -111,6 +129,23 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
                     
+                    // MARK: Location Consent Card
+                    if shouldShowConsentCard {
+                        LocationConsentCard(
+                            onAllow: {
+                                locationManager.move = move
+                                locationManager.requestPermissions()
+                            },
+                            onDismiss: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    consentCardDismissed = true
+                                }
+                            }
+                        )
+                        .padding(.horizontal, 20)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     Spacer()
 
                     // MARK: Hero Task
@@ -186,6 +221,17 @@ struct ZenDashboardView: View {
             if ambientImageURL == nil {
                 ambientImageURL = await unsplashService.fetchAmbientBackgroundURL(for: move.destinationZip, cityBucket: move.destinationCityBucket)
             }
+            // Wire the move into LocationManager and check consent expiry
+            locationManager.move = move
+            locationManager.checkConsentExpiry()
+            // If consent is already active, sync geofences
+            locationManager.syncGeofencesIfActive()
+        }
+        .onChange(of: locationManager.authorizationStatus) { _, newStatus in
+            // Persist locationConsentGrantedAt when authorization is granted
+            if newStatus == .authorizedAlways || newStatus == .authorizedWhenInUse {
+                try? modelContext.save()
+            }
         }
     }
 
@@ -196,6 +242,8 @@ struct ZenDashboardView: View {
         withAnimation {
             task.advanceStatus()
             try? modelContext.save()
+            // Remove geofence for this task if it has one
+            locationManager.taskStatusDidChange(task)
         }
     }
 

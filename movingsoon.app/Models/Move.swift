@@ -22,6 +22,9 @@ final class Move {
     @Relationship(deleteRule: .nullify)
     var lifestyleProfile: LifestyleProfile?
 
+    // Location consent — set when user grants 30-day location access
+    var locationConsentGrantedAt: Date?
+
     init(
         anchorDate: Date,
         originZip: String?,

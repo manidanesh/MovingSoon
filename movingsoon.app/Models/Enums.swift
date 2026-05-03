@@ -104,6 +104,18 @@ enum POICategory: String, Codable, CaseIterable {
     case postOffice = "Post Office"
     case pharmacy   = "Pharmacy"
     case other      = "Other"
+
+    var displayName: String {
+        switch self {
+        case .bank:       return "bank"
+        case .gym:        return "gym"
+        case .dmv:        return "DMV"
+        case .grocery:    return "grocery store"
+        case .postOffice: return "post office"
+        case .pharmacy:   return "pharmacy"
+        case .other:      return "location"
+        }
+    }
 }
 
 // MARK: - Move

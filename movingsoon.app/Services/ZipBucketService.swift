@@ -107,3 +107,65 @@ enum ZipBucketService {
         }
     }
 }
+
+// MARK: - Centroid lookup (offline, no network)
+
+import CoreLocation
+
+extension ZipBucketService {
+
+    /// Returns the approximate geographic centroid for a destination ZIP.
+    /// Used as the reference point for the SuppressionEngine distance gate
+    /// and as the search origin for MKLocalSearch in GeofenceCoordinator.
+    /// Falls back to the continental US centroid (39.5, -98.35) for unknown ZIPs.
+    static func centroid(zip: String) -> CLLocationCoordinate2D {
+        let (_, cityBucketKey) = bucket(zip: zip)
+
+        // Metro centroid table — keyed by city bucket string
+        let centroids: [String: CLLocationCoordinate2D] = [
+            "NEW_YORK_METRO": CLLocationCoordinate2D(latitude: 40.7128,  longitude: -74.0060),
+            "DC_METRO":       CLLocationCoordinate2D(latitude: 38.9072,  longitude: -77.0369),
+            "BALTIMORE":      CLLocationCoordinate2D(latitude: 39.2904,  longitude: -76.6122),
+            "RALEIGH":        CLLocationCoordinate2D(latitude: 35.7796,  longitude: -78.6382),
+            "CHARLOTTE":      CLLocationCoordinate2D(latitude: 35.2271,  longitude: -80.8431),
+            "ATLANTA":        CLLocationCoordinate2D(latitude: 33.7490,  longitude: -84.3880),
+            "MIAMI":          CLLocationCoordinate2D(latitude: 25.7617,  longitude: -80.1918),
+            "TAMPA":          CLLocationCoordinate2D(latitude: 27.9506,  longitude: -82.4572),
+            "BIRMINGHAM":     CLLocationCoordinate2D(latitude: 33.5186,  longitude: -86.8104),
+            "NASHVILLE":      CLLocationCoordinate2D(latitude: 36.1627,  longitude: -86.7816),
+            "COLUMBUS_OH":    CLLocationCoordinate2D(latitude: 39.9612,  longitude: -82.9988),
+            "CLEVELAND":      CLLocationCoordinate2D(latitude: 41.4993,  longitude: -81.6944),
+            "INDIANAPOLIS":   CLLocationCoordinate2D(latitude: 39.7684,  longitude: -86.1581),
+            "DETROIT":        CLLocationCoordinate2D(latitude: 42.3314,  longitude: -83.0458),
+            "MILWAUKEE":      CLLocationCoordinate2D(latitude: 43.0389,  longitude: -87.9065),
+            "MINNEAPOLIS":    CLLocationCoordinate2D(latitude: 44.9778,  longitude: -93.2650),
+            "CHICAGO":        CLLocationCoordinate2D(latitude: 41.8781,  longitude: -87.6298),
+            "ST_LOUIS":       CLLocationCoordinate2D(latitude: 38.6270,  longitude: -90.1994),
+            "KANSAS_CITY":    CLLocationCoordinate2D(latitude: 39.0997,  longitude: -94.5786),
+            "OMAHA":          CLLocationCoordinate2D(latitude: 41.2565,  longitude: -95.9345),
+            "NEW_ORLEANS":    CLLocationCoordinate2D(latitude: 29.9511,  longitude: -90.0715),
+            "OKLAHOMA_CITY":  CLLocationCoordinate2D(latitude: 35.4676,  longitude: -97.5164),
+            "DALLAS":         CLLocationCoordinate2D(latitude: 32.7767,  longitude: -96.7970),
+            "HOUSTON":        CLLocationCoordinate2D(latitude: 29.7604,  longitude: -95.3698),
+            "SAN_ANTONIO":    CLLocationCoordinate2D(latitude: 29.4241,  longitude: -98.4936),
+            "AUSTIN":         CLLocationCoordinate2D(latitude: 30.2672,  longitude: -97.7431),
+            "DENVER":         CLLocationCoordinate2D(latitude: 39.7392,  longitude: -104.9903),
+            "PHOENIX":        CLLocationCoordinate2D(latitude: 33.4484,  longitude: -112.0740),
+            "TUCSON":         CLLocationCoordinate2D(latitude: 32.2226,  longitude: -110.9747),
+            "LAS_VEGAS":      CLLocationCoordinate2D(latitude: 36.1699,  longitude: -115.1398),
+            "LOS_ANGELES":    CLLocationCoordinate2D(latitude: 34.0522,  longitude: -118.2437),
+            "SAN_DIEGO":      CLLocationCoordinate2D(latitude: 32.7157,  longitude: -117.1611),
+            "SAN_FRANCISCO":  CLLocationCoordinate2D(latitude: 37.7749,  longitude: -122.4194),
+            "SAN_JOSE":       CLLocationCoordinate2D(latitude: 37.3382,  longitude: -121.8863),
+            "PORTLAND":       CLLocationCoordinate2D(latitude: 45.5051,  longitude: -122.6750),
+            "SEATTLE":        CLLocationCoordinate2D(latitude: 47.6062,  longitude: -122.3321),
+        ]
+
+        if let key = cityBucketKey, let coord = centroids[key] {
+            return coord
+        }
+
+        // Rural or unknown ZIP — fall back to continental US centroid
+        return CLLocationCoordinate2D(latitude: 39.5, longitude: -98.35)
+    }
+}
