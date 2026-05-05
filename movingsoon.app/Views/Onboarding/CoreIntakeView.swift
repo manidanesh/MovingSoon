@@ -8,6 +8,7 @@ struct CoreIntakeView: View {
     
     @State private var anchorDate: Date = Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date()
     @State private var destinationZip: String = ""
+    @State private var originZip: String = ""
     
     var isValid: Bool {
         destinationZip.count == 5
@@ -39,6 +40,27 @@ struct CoreIntakeView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Where are you moving from?")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.textSecondary)
+                        .textCase(.uppercase)
+                        .tracking(2)
+                    
+                    TextField("Current ZIP (optional)", text: $originZip)
+                        .keyboardType(.numberPad)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                        .padding()
+                        .background(Theme.backgroundElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .onChange(of: originZip) { _, newValue in
+                            if newValue.count > 5 {
+                                originZip = String(newValue.prefix(5))
+                            }
+                        }
+                }
+
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Where are you moving to?")
                         .font(.system(size: 14, weight: .semibold))
@@ -93,7 +115,7 @@ struct CoreIntakeView: View {
         // Generate a Move with the newly refactored minimal schema
         let move = Move(
             anchorDate: anchorDate,
-            originZip: nil, // Optional, can be collected later
+            originZip: originZip.count == 5 ? originZip : nil,
             destinationZip: destinationZip,
             destinationStateBucket: state,
             destinationCityBucket: city

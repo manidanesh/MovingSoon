@@ -11,7 +11,7 @@ final class LifestyleViewModel {
     // Financial institutions
     var selectedInstitutions: Set<KnownInstitution> = []
 
-    init(originZip: String) { buildChips(originZip: originZip) }
+    init(originZip: String?) { buildChips(originZip: originZip ?? "") }
 
     func toggle(chip: BubbleChip, in screen: String) {
         guard let sections = chips[screen] else { return }
@@ -286,13 +286,6 @@ struct LifestyleInterviewView: View {
         let profile = LifestyleProfile()
         profile.move = move
         profile.activeFlags = vm.allActiveFlags
-
-        // Add isRenting based on move type
-        if move.moveTypeRaw == MoveType.rent.rawValue {
-            profile.set(.isRenting, to: true)
-        } else if move.moveTypeRaw == MoveType.buy.rawValue {
-            profile.set(.isOwning, to: true)
-        }
 
         modelContext.insert(profile)
         move.lifestyleProfile = profile

@@ -210,7 +210,7 @@ Implement a consent-based, proximity-aware notification system for movingsoon.ap
     - Test that when `Date()` exceeds `locationConsentGrantedAt + 30 days`, `GeofenceCoordinator.removeAllGeofences` is called (Req 2.3)
     - _Requirements: 2.3_
 
-- [ ] 12. Final checkpoint — Ensure all tests pass
+- [x] 12. Final checkpoint — Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
