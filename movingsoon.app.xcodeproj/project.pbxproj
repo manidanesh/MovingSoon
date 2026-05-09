@@ -251,8 +251,8 @@
 				DEVELOPMENT_TEAM = 3CXZWALQ26;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "We use your location to provide geofenced reminders for tasks.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to provide geofenced reminders for tasks.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "MovingSoon uses your location for 30 days to remind you when you are near a bank, DMV, or other place that needs your new address.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "MovingSoon uses your location to remind you when you are near a place that needs your new address.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -286,8 +286,8 @@
 				DEVELOPMENT_TEAM = 3CXZWALQ26;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "We use your location to provide geofenced reminders for tasks.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to provide geofenced reminders for tasks.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "MovingSoon uses your location for 30 days to remind you when you are near a bank, DMV, or other place that needs your new address.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "MovingSoon uses your location to remind you when you are near a place that needs your new address.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
