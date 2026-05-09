@@ -48,9 +48,10 @@ final class Move {
 
     var personaKey: PersonaKey {
         guard let profile = lifestyleProfile else { return .activeProfessional }
-        if profile.hasKids { return .familyWithKids }
-        if profile.isSenior { return .retiree }
-        if profile.isCollegeStudent { return .collegeGrad }
+        if profile.has(.hasChildren) { return .familyWithKids }
+        if profile.has(.isRetired) || profile.has(.hasMedicare) { return .retiree }
+        if profile.has(.hasStudentLoans) && !profile.has(.hasPartner) { return .collegeGrad }
+        if profile.has(.hasPartner) { return .youngCouple }
         return .activeProfessional
     }
 

@@ -2,6 +2,7 @@
 import SwiftUI
 import SwiftData
 import CoreLocation
+import MessageUI
 
 struct ZenDashboardView: View {
     let move: Move
@@ -51,6 +52,13 @@ struct ZenDashboardView: View {
         return Array(pendingTasks.filter { $0.id != hero.id }.prefix(2))
     }
 
+    private var daysUntilMoveLabel: String {
+        let days = move.daysUntilMove
+        if days > 0  { return "T-Minus \(days) Days" }
+        if days == 0 { return "Moving Day 🎉" }
+        return "Day \(abs(days)) in your new home"
+    }
+
     var body: some View {
         ZStack {
             // MARK: Ambient Background Layer
@@ -98,7 +106,7 @@ struct ZenDashboardView: View {
                     // MARK: Momentum Ring & Header
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("T-Minus \(move.daysUntilMove) Days")
+                            Text(daysUntilMoveLabel)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Theme.accentPrimary)
                                 .textCase(.uppercase)
@@ -259,6 +267,14 @@ struct ZenDashboardView: View {
     }
 
     private func triggerAgenticAction(for task: ChecklistTask) {
+        // Only open mail composer if the device can send mail
+        guard MFMailComposeViewController.canSendMail() else {
+            // Fallback: open the task's deep link directly if available
+            if let url = task.deepLinkURL {
+                UIApplication.shared.open(url)
+            }
+            return
+        }
         selectedAgenticTask = task
         showingMailComposer = true
     }

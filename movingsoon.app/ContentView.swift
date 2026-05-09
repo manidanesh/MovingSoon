@@ -32,6 +32,9 @@ struct ContentView: View {
                         withAnimation(.easeInOut(duration: 0.4)) { phase = .dashboard }
                     }
                     .transition(.opacity)
+                } else {
+                    // Move not yet persisted — wait for it
+                    Color.clear.onAppear { resolvePhase() }
                 }
 
             case .dashboard:
@@ -49,6 +52,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: moves.count) { _, _ in resolvePhase() }
+        .onAppear { resolvePhase() }
         .preferredColorScheme(.dark)
     }
 
