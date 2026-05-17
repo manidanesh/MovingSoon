@@ -11,7 +11,10 @@ import SwiftData
 @main
 struct movingsoon_appApp: App {
 
-    let container: ModelContainer = {
+    let container: ModelContainer
+    private let notificationDelegate: NotificationDelegate
+
+    init() {
         let schema = Schema([
             Move.self,
             ChecklistTask.self,
@@ -22,11 +25,14 @@ struct movingsoon_appApp: App {
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
-            return try ModelContainer(for: schema, configurations: [config])
+            let container = try ModelContainer(for: schema, configurations: [config])
+            self.container = container
+            self.notificationDelegate = NotificationDelegate(container: container)
+            UNUserNotificationCenter.current().delegate = self.notificationDelegate
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
-    }()
+    }
 
     var body: some Scene {
         WindowGroup {

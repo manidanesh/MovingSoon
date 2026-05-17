@@ -5,7 +5,7 @@ enum ZipBucketService {
 
     /// Returns (stateBucket, cityBucket?) from a 5-digit US zip code
     static func bucket(zip: String) -> (state: String, city: String?) {
-        guard zip.count == 5, let prefix = Int(zip.prefix(3)) else {
+        guard zip.count == 5, let prefix = Int(zip.prefix(2)) else {
             return ("US", nil)
         }
         let state = stateBucket(prefix: prefix)

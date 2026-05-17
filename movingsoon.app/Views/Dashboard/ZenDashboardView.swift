@@ -22,8 +22,6 @@ struct ZenDashboardView: View {
     private var shouldShowConsentCard: Bool {
         // Never show again once consent has been granted (even after expiry)
         guard move.locationConsentGrantedAt == nil else { return false }
-        // Only show when move is ≤14 days away
-        guard move.daysUntilMove <= 14 else { return false }
         // Session-dismissed
         guard !consentCardDismissed else { return false }
         // Only show when permission is not yet granted
@@ -154,6 +152,25 @@ struct ZenDashboardView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
+                    // MARK: Contextual Prompt Card
+                    if let contextualTask = locationManager.activeContextualTask {
+                        ContextualPromptCard(
+                            task: contextualTask,
+                            onYes: {
+                                completeTask(contextualTask)
+                                locationManager.activeContextualTask = nil
+                            },
+                            onRemindTomorrow: {
+                                snoozeContextualTask(contextualTask)
+                            },
+                            onDontRemindAgain: {
+                                muteContextualTask(contextualTask)
+                            }
+                        )
+                        .padding(.horizontal, 20)
+                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .scale(scale: 0.9).combined(with: .opacity)))
+                    }
+
                     Spacer()
 
                     // MARK: Hero Task
@@ -278,6 +295,27 @@ struct ZenDashboardView: View {
         selectedAgenticTask = task
         showingMailComposer = true
     }
+
+    private func snoozeContextualTask(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            task.snoozedUntil = Date().addingTimeInterval(86400)
+            try? modelContext.save()
+            locationManager.activeContextualTask = nil
+        }
+    }
+
+    private func muteContextualTask(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            task.isMuted = true
+            try? modelContext.save()
+            locationManager.activeContextualTask = nil
+            locationManager.taskStatusDidChange(task)
+        }
+    }
 }
 
 // MARK: - Zen Hero Card
@@ -359,6 +397,73 @@ struct ZenHeroCard: View {
                     // Secondary Skip Button
                     Button(action: onSkip) {
                         Text("Skip for Now")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Theme.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+// MARK: - Contextual Prompt Card
+struct ContextualPromptCard: View {
+    let task: ChecklistTask
+    let onYes: () -> Void
+    let onRemindTomorrow: () -> Void
+    let onDontRemindAgain: () -> Void
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(LinearGradient(colors: [Theme.accentPrimary.opacity(0.15), Theme.backgroundCard], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Theme.accentPrimary.opacity(0.3), lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    Label("Location Match", systemImage: "mappin.and.ellipse")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(Theme.accentPrimary)
+                        .textCase(.uppercase)
+                        .tracking(1.5)
+                    Spacer()
+                }
+
+                let displayName = task.institutionName ?? task.title
+                Text("We noticed you're near \(displayName). Have you updated your address on file?")
+                    .font(.system(size: 18, weight: .semibold, design: .serif))
+                    .foregroundColor(Theme.textPrimary)
+                    .lineSpacing(4)
+
+                VStack(spacing: 12) {
+                    Button(action: onYes) {
+                        Label("Yes, Mark Completed", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Theme.accentPrimary)
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Button(action: onRemindTomorrow) {
+                        Label("No, Remind Me Tomorrow", systemImage: "clock.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Theme.backgroundElevated)
+                            .foregroundColor(Theme.textPrimary)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Button(action: onDontRemindAgain) {
+                        Text("Don't remind me again")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(Theme.textSecondary)
                             .frame(maxWidth: .infinity)

@@ -13,7 +13,6 @@ enum SuppressionEngine {
         let cooldownStore: CooldownStore
         let now: Date
         let userLocation: CLLocation
-        let destinationCoordinate: CLLocationCoordinate2D
     }
 
     // MARK: - Main evaluator
@@ -32,13 +31,7 @@ enum SuppressionEngine {
         // 3. Time of day — no notifications outside 9am–7pm
         guard timeOfDayGatePasses(now: context.now) else { return false }
 
-        // 4. Distance — user must be near the destination, not still at origin
-        guard distanceGatePasses(
-            userLocation: context.userLocation,
-            destination: context.destinationCoordinate
-        ) else { return false }
-
-        // 5. Task relevance — must have a pending task for this POI type
+        // 4. Task relevance — must have a pending task for this POI type
         guard taskRelevanceGatePasses(
             tasks: context.move.tasks,
             category: context.poiCategory
@@ -75,27 +68,21 @@ enum SuppressionEngine {
         return hour >= 9 && hour < 19
     }
 
-    /// Gate 4: User must be within 8,000 metres of the destination coordinate.
-    static func distanceGatePasses(
-        userLocation: CLLocation,
-        destination: CLLocationCoordinate2D
-    ) -> Bool {
-        let destinationLocation = CLLocation(
-            latitude: destination.latitude,
-            longitude: destination.longitude
-        )
-        return userLocation.distance(from: destinationLocation) <= 8_000
-    }
-
-    /// Gate 5: At least one pending (.toDo) task must match the POI category.
+    /// Gate 4: At least one pending (.toDo) task must match the POI category.
     static func taskRelevanceGatePasses(
         tasks: [ChecklistTask],
         category: POICategory
     ) -> Bool {
-        tasks.contains { $0.status == .toDo && $0.poiCategory == category }
+        let now = Date()
+        return tasks.contains { task in
+            task.status == .toDo &&
+            task.poiCategory == category &&
+            !task.isMuted &&
+            (task.snoozedUntil == nil || task.snoozedUntil! < now)
+        }
     }
 
-    /// Gate 6: No notification for this category has been fired today.
+    /// Gate 5: No notification for this category has been fired today.
     static func cooldownGatePasses(
         store: CooldownStore,
         category: POICategory,

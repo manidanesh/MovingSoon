@@ -13,6 +13,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
     var currentLocation: CLLocation?
+    var activeContextualTask: ChecklistTask?
 
     // MARK: - Injected dependencies
 
@@ -67,6 +68,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         currentLocation = locations.last
+        evaluateForegroundContext()
     }
 
     // MARK: - CLLocationManagerDelegate — geofence entry
@@ -86,15 +88,12 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             return
         }
 
-        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
-
         let context = SuppressionEngine.Context(
             move: move,
             poiCategory: poiCategory,
             cooldownStore: cooldownStore,
             now: Date(),
-            userLocation: userLocation,
-            destinationCoordinate: destinationCoordinate
+            userLocation: userLocation
         )
 
         guard SuppressionEngine.shouldFire(context: context) else {
@@ -137,12 +136,12 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         guard let grantedAt = move.locationConsentGrantedAt,
               SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: Date()) else { return }
 
-        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
+        let currentLocation = manager.location?.coordinate
 
         Task {
             await geofenceCoordinator.syncGeofences(
                 for: move.tasks,
-                destinationCoordinate: destinationCoordinate,
+                currentLocation: currentLocation,
                 manager: manager
             )
         }
@@ -153,5 +152,44 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     func taskStatusDidChange(_ task: ChecklistTask) {
         guard task.status == .completed || task.status == .pendingVerification else { return }
         geofenceCoordinator.removeGeofence(for: task, manager: manager)
+        if activeContextualTask?.id == task.id {
+            activeContextualTask = nil
+        }
+    }
+
+    // MARK: - Foreground Context Evaluator
+
+    func evaluateForegroundContext(now: Date = Date()) {
+        guard let move else {
+            activeContextualTask = nil
+            return
+        }
+        guard let userLocation = currentLocation else {
+            activeContextualTask = nil
+            return
+        }
+
+        for region in manager.monitoredRegions {
+            guard let circularRegion = region as? CLCircularRegion else { continue }
+            guard circularRegion.contains(userLocation.coordinate) else { continue }
+
+            guard let task = move.tasks.first(where: { $0.id.uuidString == circularRegion.identifier }),
+                  let poiCategory = task.poiCategory else { continue }
+
+            let context = SuppressionEngine.Context(
+                move: move,
+                poiCategory: poiCategory,
+                cooldownStore: cooldownStore,
+                now: now,
+                userLocation: userLocation
+            )
+
+            if SuppressionEngine.shouldFire(context: context) {
+                activeContextualTask = task
+                return
+            }
+        }
+
+        activeContextualTask = nil
     }
 }

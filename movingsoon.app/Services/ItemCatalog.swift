@@ -11,11 +11,11 @@ enum ItemCatalog {
         CatalogItem(id: "usps", title: "USPS Mail Forwarding", emoji: "📬",
                     category: .postal, priority: .critical, tMinusDays: -30,
                     deepLinkURL: URL(string: "https://moversguide.usps.com"),
-                    brandColorHex: "#004B87", isHeroItem: true, alwaysInclude: true),
+                    brandColorHex: "#004B87", isHeroItem: true, alwaysInclude: true, poiCategory: .postOffice),
         CatalogItem(id: "dmv_license", title: "Driver's License / State ID", emoji: "🪪",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://dmv.org"),
-                    brandColorHex: "#7D3C98", alwaysInclude: true),
+                    brandColorHex: "#7D3C98", alwaysInclude: true, poiCategory: .dmv),
         CatalogItem(id: "voter", title: "Voter Registration", emoji: "🗳️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://vote.gov"),
@@ -31,7 +31,7 @@ enum ItemCatalog {
         CatalogItem(id: "dmv_vehicle", title: "Vehicle Registration (DMV)", emoji: "🚗",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://dmv.org"),
-                    brandColorHex: "#7D3C98", requiresAny: [.hasCar, .hasMotorcycle, .hasMultipleCars]),
+                    brandColorHex: "#7D3C98", requiresAny: [.hasCar, .hasMotorcycle, .hasMultipleCars], poiCategory: .dmv),
         CatalogItem(id: "passport", title: "US Passport (address on file)", emoji: "🛂",
                     category: .government, priority: .low, tMinusDays: 30,
                     deepLinkURL: URL(string: "https://travel.state.gov"),
@@ -84,6 +84,9 @@ enum ItemCatalog {
         CatalogItem(id: "airline_loyalty", title: "Airline Loyalty (Delta, United, etc.)", emoji: "✈️",
                     category: .subscriptions, priority: .low, tMinusDays: 14,
                     brandColorHex: "#003087", requires: [.hasAirlineLoyalty]),
+        CatalogItem(id: "vehicle_warranty", title: "Vehicle Extended Warranty", emoji: "🚘",
+                    category: .insurance, priority: .medium, tMinusDays: 7,
+                    brandColorHex: "#E74C3C", requires: [.hasVehicleWarranty]),
     ]
 
     // MARK: - 🏠 HOUSING / UTILITIES
@@ -116,6 +119,15 @@ enum ItemCatalog {
         CatalogItem(id: "parking_permit", title: "Parking Authorities & Residential Permits", emoji: "🅿️",
                     category: .other, priority: .critical, tMinusDays: -14,
                     brandColorHex: "#C0392B", requires: [.needsParkingPermit]),
+        CatalogItem(id: "home_warranty", title: "Appliance & Home Warranties", emoji: "🛠️",
+                    category: .insurance, priority: .medium, tMinusDays: 7,
+                    brandColorHex: "#34495E", requires: [.hasHomeWarranties]),
+        CatalogItem(id: "furniture_warranty", title: "Furniture Protection Plans", emoji: "🛋️",
+                    category: .insurance, priority: .low, tMinusDays: 14,
+                    brandColorHex: "#8E44AD", requires: [.hasHomeWarranties]),
+        CatalogItem(id: "inform_neighbors", title: "Introduce & Share Info with Neighbors", emoji: "👋",
+                    category: .other, priority: .low, tMinusDays: 7,
+                    brandColorHex: "#27AE60", requires: [.livesInHouseOrTownhouse]),
     ]
 
     // MARK: - 💳 FINANCIAL (always shown — institution-specific tasks added separately)

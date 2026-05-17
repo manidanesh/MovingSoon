@@ -19,6 +19,8 @@ final class ChecklistTask {
     // Agentic & Location fields
     var actionTypeRaw: String = "Manual Deep Link"
     var poiCategoryRaw: String?
+    var isMuted: Bool = false
+    var snoozedUntil: Date?
 
     // Institution identity (nil for non-financial tasks)
     var institutionName: String?
@@ -52,6 +54,8 @@ final class ChecklistTask {
         self.signalEmitted       = false
         self.actionTypeRaw       = ActionType.manualDeepLink.rawValue
         self.poiCategoryRaw      = nil
+        self.isMuted             = false
+        self.snoozedUntil        = nil
         self.institutionName     = nil
         self.institutionInitials = nil
         self.institutionColorHex = nil

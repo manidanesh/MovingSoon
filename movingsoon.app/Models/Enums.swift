@@ -103,6 +103,10 @@ enum POICategory: String, Codable, CaseIterable {
     case grocery    = "Grocery"
     case postOffice = "Post Office"
     case pharmacy   = "Pharmacy"
+    case bookstore  = "Bookstore"
+    case outdoorGear = "Outdoor Gear"
+    case hardwareStore = "Hardware Store"
+    case doctor     = "Doctor's Office"
     case other      = "Other"
 
     var displayName: String {
@@ -113,6 +117,10 @@ enum POICategory: String, Codable, CaseIterable {
         case .grocery:    return "grocery store"
         case .postOffice: return "post office"
         case .pharmacy:   return "pharmacy"
+        case .bookstore:  return "bookstore"
+        case .outdoorGear: return "outdoor gear store"
+        case .hardwareStore: return "hardware store"
+        case .doctor:     return "doctor's office"
         case .other:      return "location"
         }
     }

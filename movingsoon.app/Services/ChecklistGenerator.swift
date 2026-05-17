@@ -27,6 +27,9 @@ enum ChecklistGenerator {
             task.institutionName     = institution.name
             task.institutionInitials = institution.initials
             task.institutionColorHex = institution.colorHex
+            if institution.institutionType == .bank || institution.institutionType == .creditUnion {
+                task.poiCategory = .bank
+            }
             tasks.append(task)
         }
 
@@ -70,6 +73,7 @@ enum ChecklistGenerator {
         t.institutionColorHex = item.brandColorHex
         // Store emoji as institutionInitials (repurposed for display)
         t.institutionInitials = item.emoji
+        t.poiCategory = item.poiCategory
         return t
     }
 

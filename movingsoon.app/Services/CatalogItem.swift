@@ -19,6 +19,8 @@ struct CatalogItem: Identifiable {
     let excludes: Set<LifestyleFlag>
     /// Always show regardless of flags
     let alwaysInclude: Bool
+    /// Used for geofencing reminders
+    let poiCategory: POICategory?
 
     init(
         id: String,
@@ -33,7 +35,8 @@ struct CatalogItem: Identifiable {
         requires: Set<LifestyleFlag> = [],
         requiresAny: Set<LifestyleFlag> = [],
         excludes: Set<LifestyleFlag> = [],
-        alwaysInclude: Bool = false
+        alwaysInclude: Bool = false,
+        poiCategory: POICategory? = nil
     ) {
         self.id             = id
         self.title          = title
@@ -48,5 +51,6 @@ struct CatalogItem: Identifiable {
         self.requiresAny    = requiresAny
         self.excludes       = excludes
         self.alwaysInclude  = alwaysInclude
+        self.poiCategory    = poiCategory
     }
 }

@@ -11,7 +11,7 @@ final class LifestyleViewModel {
     // Financial institutions
     var selectedInstitutions: Set<KnownInstitution> = []
 
-    init(originZip: String?) { buildChips(originZip: originZip ?? "") }
+    init(destinationZip: String?) { buildChips(destinationZip: destinationZip ?? "") }
 
     func toggle(chip: BubbleChip, in screen: String) {
         guard let sections = chips[screen] else { return }
@@ -46,8 +46,8 @@ final class LifestyleViewModel {
 
     // MARK: - Chip definitions
 
-    private func buildChips(originZip: String) {
-        let regional = RegionalIntelligenceService.availableRegionalChips(forZip: originZip)
+    private func buildChips(destinationZip: String) {
+        let regional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
         let regionalIDs = RegionalIntelligenceService.regionalChipIDs
         
         func isAvailable(_ id: String) -> Bool {
@@ -61,6 +61,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "hasEV",          label: "Electric Vehicle",emoji: "⚡", flag: .hasElectricVehicle),
                 BubbleChip(id: "hasMotorcycle",  label: "Motorcycle",     emoji: "🏍️", flag: .hasMotorcycle),
                 BubbleChip(id: "hasMultipleCars",label: "Multiple Cars",  emoji: "🚙", flag: .hasMultipleCars),
+                BubbleChip(id: "hasVehicleWarranty", label: "Vehicle Warranty", emoji: "🚗", flag: .hasVehicleWarranty),
             ]),
             ChipSection(title: "Commute & Travel", chips: [
                 BubbleChip(id: "hasBike",        label: "E-Bike / Scooter",emoji:"🛴", flag: .hasBike),
@@ -86,6 +87,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "autoShipPet",  label: "Auto-Ship Pet Food",   emoji: "📦", flag: .usesAutoShipPetFood),
             ]),
             ChipSection(title: "Living Situation", chips: [
+                BubbleChip(id: "livesInHouse", label: "House / Townhouse", emoji: "🏡", flag: .livesInHouseOrTownhouse),
                 BubbleChip(id: "hasRoommates", label: "Roommates",            emoji: "🏠", flag: .hasRoommates),
                 BubbleChip(id: "workFromHome", label: "Work from Home",       emoji: "💻", flag: .workFromHome),
             ])
@@ -107,6 +109,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "kroger",          label: "Kroger / King Soopers", emoji: "🛒", flag: .usesKroger),
                 BubbleChip(id: "safeway",         label: "Safeway / Vons", emoji: "🛒", flag: .usesSafeway),
                 BubbleChip(id: "albertsons",      label: "Albertsons",    emoji: "🛒", flag: .usesAlbertsons),
+                BubbleChip(id: "barnesandnoble",  label: "Barnes & Noble", emoji: "📚", flag: .usesBarnesAndNoble),
             ].filter { isAvailable($0.id) }),
             
             ChipSection(title: "Food Delivery", chips: [
@@ -191,6 +194,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "hasHOA",         label: "HOA",                emoji: "🏘️", flag: .hasHOA),
                 BubbleChip(id: "hasHomeSecurity",label: "Home Security",      emoji: "🔒", flag: .hasHomeSecurity),
                 BubbleChip(id: "hasLifeIns",     label: "Life Insurance",     emoji: "🛡️", flag: .hasLifeInsurance),
+                BubbleChip(id: "hasHomeWarranties", label: "Home Warranty",   emoji: "🛡️", flag: .hasHomeWarranties),
             ]),
             ChipSection(title: "Professional & Financial", chips: [
                 BubbleChip(id: "isSelfEmployed", label: "Self-Employed",      emoji: "💼", flag: .isSelfEmployed),
@@ -225,8 +229,8 @@ struct LifestyleInterviewView: View {
     init(move: Move, onComplete: @escaping () -> Void) {
         self.move = move
         self.onComplete = onComplete
-        // Initialize vm with the move's origin zip code to drive regional intelligence
-        self._vm = State(initialValue: LifestyleViewModel(originZip: move.originZip))
+        // Initialize vm with the move's destination zip code to drive regional intelligence
+        self._vm = State(initialValue: LifestyleViewModel(destinationZip: move.destinationZip))
     }
 
     private let screenKeys = ["transport", "household", "shopping", "streaming", "fitness", "more"]

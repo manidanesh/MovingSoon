@@ -27,6 +27,10 @@ final class GeofenceCoordinator {
         case .grocery:    return "grocery store supermarket"
         case .postOffice: return "post office USPS"
         case .pharmacy:   return "pharmacy drugstore"
+        case .bookstore:  return "bookstore Barnes & Noble"
+        case .outdoorGear: return "outdoor gear REI"
+        case .hardwareStore: return "hardware store Home Depot Lowe's"
+        case .doctor:     return "doctor physician clinic"
         case .other:      return "address update"
         }
     }
@@ -38,7 +42,7 @@ final class GeofenceCoordinator {
     /// caps at 20 regions (iOS system limit).
     func syncGeofences(
         for tasks: [ChecklistTask],
-        destinationCoordinate: CLLocationCoordinate2D,
+        currentLocation: CLLocationCoordinate2D?,
         manager: CLLocationManager
     ) async {
         // Filter to pending tasks that have a physical POI category
@@ -52,10 +56,10 @@ final class GeofenceCoordinator {
             guard !registeredRegionIDs.contains(task.id.uuidString) else { continue }
 
             let query = Self.searchQuery(for: category)
-            let coordinate = await resolveCoordinate(query: query, near: destinationCoordinate)
+            let coordinate = await resolveCoordinate(query: query, near: currentLocation)
 
             guard let coordinate else {
-                logger.debug("GeofenceCoordinator: MKLocalSearch returned no results for '\(query)' near destination — skipping task \(task.id.uuidString)")
+                logger.debug("GeofenceCoordinator: MKLocalSearch returned no results for '\(query)' near current location — skipping task \(task.id.uuidString)")
                 continue
             }
 
@@ -97,16 +101,18 @@ final class GeofenceCoordinator {
 
     private func resolveCoordinate(
         query: String,
-        near coordinate: CLLocationCoordinate2D
+        near coordinate: CLLocationCoordinate2D?
     ) async -> CLLocationCoordinate2D? {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
-        // Bias search toward the destination area with a ~10km span
-        request.region = MKCoordinateRegion(
-            center: coordinate,
-            latitudinalMeters: 10_000,
-            longitudinalMeters: 10_000
-        )
+        // Bias search toward the current location with a ~10km span
+        if let coordinate {
+            request.region = MKCoordinateRegion(
+                center: coordinate,
+                latitudinalMeters: 10_000,
+                longitudinalMeters: 10_000
+            )
+        }
 
         do {
             let search = MKLocalSearch(request: request)

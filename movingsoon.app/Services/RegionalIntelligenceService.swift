@@ -11,85 +11,82 @@ enum RegionalIntelligenceService {
         var available: Set<String> = []
 
         // MARK: - Fitness
-        
-        // LA Fitness is absent in CO, UT, WY, MT, ND, SD, VT, ME
-        let noLAFitnessStates: Set<String> = ["CO", "UT", "WY", "MT", "ND", "SD", "VT", "ME"]
-        if !noLAFitnessStates.contains(state) {
-            available.insert("lafitness")
-        }
 
-        // 24 Hour Fitness (CA, CO, TX, WA, OR, NV, HI, NY, NJ, FL, MD, VA)
-        let states24H: Set<String> = ["CA", "CO", "TX", "WA", "OR", "NV", "HI", "NY", "NJ", "FL", "MD", "VA"]
+        // LA Fitness (25 states)
+        let statesLAFitness: Set<String> = ["CA", "FL", "TX", "IL", "GA", "PA", "WA", "NY", "NJ", "AZ", "OH", "MD", "VA", "MI", "MA", "IN", "MN", "TN", "NC", "WI", "CT", "SC", "OR", "DE", "RI"]
+        if statesLAFitness.contains(state) { available.insert("lafitness") }
+
+        // 24 Hour Fitness (9 states)
+        let states24H: Set<String> = ["CA", "CO", "HI", "NV", "NJ", "NY", "OR", "TX", "WA"]
         if states24H.contains(state) { available.insert("24hourfitness") }
 
-        // Life Time Fitness (Major hubs)
-        let statesLifeTime: Set<String> = ["MN", "TX", "IL", "CA", "CO", "NY", "NJ", "FL", "GA", "NC", "OH", "MI", "VA", "PA", "AZ", "NV", "UT", "WA"]
+        // Life Time Fitness (32 states)
+        let statesLifeTime: Set<String> = ["TX", "MN", "IL", "NY", "FL", "NJ", "GA", "CO", "AZ", "CA", "MI", "NC", "OH", "VA", "PA", "NV", "UT", "WA", "MA", "MD", "TN", "IN", "MO", "KS", "IA", "NE", "WI", "OK", "AL", "ID", "CT", "DE"]
         if statesLifeTime.contains(state) { available.insert("lifetime") }
 
-        // Equinox (NY, CA, IL, MA, DC, FL, TX)
-        let statesEquinox: Set<String> = ["NY", "CA", "IL", "MA", "DC", "FL", "TX"]
+        // Equinox (12 states + DC)
+        let statesEquinox: Set<String> = ["NY", "CA", "FL", "IL", "TX", "MA", "CT", "DC", "NJ", "PA", "WA", "MI", "TN"]
         if statesEquinox.contains(state) { available.insert("equinox") }
 
-        // VASA Fitness (CO, UT, AZ, OK, IN, WI, IL)
-        let statesVASA: Set<String> = ["CO", "UT", "AZ", "OK", "IN", "WI", "IL"]
+        // VASA Fitness (8 states)
+        let statesVASA: Set<String> = ["AZ", "CO", "IL", "IN", "NE", "OK", "UT", "WI"]
         if statesVASA.contains(state) { available.insert("vasa") }
 
-        // EoS Fitness (AZ, CA, CO, FL, NV, TX, UT)
-        let statesEoS: Set<String> = ["AZ", "CA", "CO", "FL", "NV", "TX", "UT"]
+        // EoS Fitness (7 states)
+        let statesEoS: Set<String> = ["AZ", "CA", "FL", "GA", "NV", "TX", "UT"]
         if statesEoS.contains(state) { available.insert("eos") }
 
-        // Chuze Fitness (CA, CO, NM, AZ, FL, TX, GA)
-        let statesChuze: Set<String> = ["CA", "CO", "NM", "AZ", "FL", "TX", "GA"]
+        // Chuze Fitness (7 states)
+        let statesChuze: Set<String> = ["AZ", "CA", "CO", "FL", "GA", "NM", "TX"]
         if statesChuze.contains(state) { available.insert("chuze") }
 
-        // JCC (Urban metros, prevalent nationally, but we'll include it in major states)
-        let statesJCC: Set<String> = ["NY", "NJ", "PA", "MD", "DC", "VA", "FL", "GA", "IL", "MI", "OH", "TX", "CO", "AZ", "NV", "CA", "WA", "MA"]
+        // JCC (Broad urban presence across 34 states/districts)
+        let statesJCC: Set<String> = ["NY", "NJ", "PA", "MD", "DC", "VA", "FL", "GA", "IL", "MI", "OH", "TX", "CO", "AZ", "NV", "CA", "WA", "MA", "MN", "MO", "WI", "IN", "NC", "SC", "TN", "KY", "AL", "LA", "OK", "UT", "OR", "CT", "RI", "DE"]
         if statesJCC.contains(state) { available.insert("jcc") }
 
 
         // MARK: - Grocery
-        
-        // Publix (FL, GA, AL, SC, NC, TN, VA)
-        let statesPublix: Set<String> = ["FL", "GA", "AL", "SC", "NC", "TN", "VA"]
+
+        // Publix (8 states)
+        let statesPublix: Set<String> = ["FL", "GA", "AL", "SC", "NC", "TN", "VA", "KY"]
         if statesPublix.contains(state) { available.insert("publix") }
 
-        // H-E-B (TX)
+        // H-E-B (1 state)
         if state == "TX" { available.insert("heb") }
 
-        // Meijer (MI, OH, IN, IL, KY, WI)
-        let statesMeijer: Set<String> = ["MI", "OH", "IN", "IL", "KY", "WI"]
+        // Meijer (6 states)
+        let statesMeijer: Set<String> = ["MI", "OH", "IN", "IL", "WI", "KY"]
         if statesMeijer.contains(state) { available.insert("meijer") }
 
-        // Wegmans (NY, PA, NJ, VA, MD, MA, NC)
-        let statesWegmans: Set<String> = ["NY", "PA", "NJ", "VA", "MD", "MA", "NC"]
+        // Wegmans (9 states + DC)
+        let statesWegmans: Set<String> = ["NY", "PA", "NJ", "VA", "MD", "MA", "NC", "DE", "CT", "DC"]
         if statesWegmans.contains(state) { available.insert("wegmans") }
 
-        // Kroger (King Soopers, Ralphs, Fry's, Smith's, Fred Meyer)
-        // Kroger operates everywhere, but under different names. We'll show "Kroger / King Soopers / Ralphs" broadly.
-        // It's mostly absent from the Northeast (NY, NJ, PA, New England)
-        let noKrogerStates: Set<String> = ["NY", "NJ", "PA", "CT", "MA", "RI", "ME", "NH", "VT"]
+        // Kroger (35 states, mostly absent in Northeast/New England)
+        let noKrogerStates: Set<String> = ["NY", "NJ", "PA", "CT", "MA", "RI", "ME", "NH", "VT", "HI"]
         if !noKrogerStates.contains(state) { available.insert("kroger") }
 
-        // Safeway / Albertsons (West, SW, PNW, Mid-Atlantic)
-        let statesSafeway: Set<String> = ["CA", "WA", "OR", "CO", "AZ", "NM", "NV", "ID", "MT", "WY", "TX", "MD", "VA", "DC"]
-        if statesSafeway.contains(state) {
-            available.insert("safeway")
-            available.insert("albertsons")
-        }
+        // Safeway (18 states + DC)
+        let statesSafeway: Set<String> = ["AK", "AZ", "CA", "CO", "DE", "DC", "HI", "ID", "MD", "MT", "NE", "NV", "NM", "OR", "SD", "VA", "WA", "WY"]
+        if statesSafeway.contains(state) { available.insert("safeway") }
+
+        // Albertsons (16 states)
+        let statesAlbertsons: Set<String> = ["CA", "TX", "ID", "AZ", "AR", "CO", "LA", "MT", "NV", "NM", "ND", "OK", "OR", "UT", "WA", "WY"]
+        if statesAlbertsons.contains(state) { available.insert("albertsons") }
 
 
         // MARK: - ISPs / TV
-        
-        // Optimum (NY, NJ, CT, TX, NC)
-        let statesOptimum: Set<String> = ["NY", "NJ", "CT", "TX", "NC"]
+
+        // Optimum (21 states)
+        let statesOptimum: Set<String> = ["AZ", "AR", "CA", "CT", "ID", "KS", "KY", "LA", "MS", "MO", "NV", "NJ", "NM", "NY", "NC", "OH", "OK", "PA", "TX", "VA", "WV"]
         if statesOptimum.contains(state) { available.insert("optimum") }
 
-        // Verizon Fios (NY, NJ, PA, MD, VA, MA, DC, RI, DE)
+        // Verizon Fios (9 states + DC)
         let statesFios: Set<String> = ["NY", "NJ", "PA", "MD", "VA", "MA", "DC", "RI", "DE"]
         if statesFios.contains(state) { available.insert("verizon") }
 
-        // Cox (AZ, CA, NV, VA, LA, OK, NE, FL, GA, AR)
-        let statesCox: Set<String> = ["AZ", "CA", "NV", "VA", "LA", "OK", "NE", "FL", "GA", "AR"]
+        // Cox (19 states + DC)
+        let statesCox: Set<String> = ["AZ", "AR", "CA", "CT", "FL", "GA", "ID", "IA", "KS", "LA", "MA", "MO", "NE", "NV", "NC", "OH", "OK", "RI", "VA", "DC"]
         if statesCox.contains(state) { available.insert("cox") }
 
         return available

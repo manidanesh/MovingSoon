@@ -127,6 +127,10 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasAirlineLoyalty
     case hasPension
     case usesMailOrderPharmacy
+    case usesBarnesAndNoble
+    case hasHomeWarranties
+    case hasVehicleWarranty
+    case livesInHouseOrTownhouse
 }
 
 // MARK: - Lifestyle Profile (SwiftData model)
