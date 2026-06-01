@@ -11,7 +11,9 @@ final class LifestyleViewModel {
     // Financial institutions
     var selectedInstitutions: Set<KnownInstitution> = []
 
-    init(destinationZip: String?) { buildChips(destinationZip: destinationZip ?? "") }
+    init(originZip: String?, destinationZip: String?) { 
+        buildChips(originZip: originZip ?? "", destinationZip: destinationZip ?? "") 
+    }
 
     func toggle(chip: BubbleChip, in screen: String) {
         guard let sections = chips[screen] else { return }
@@ -46,12 +48,16 @@ final class LifestyleViewModel {
 
     // MARK: - Chip definitions
 
-    private func buildChips(destinationZip: String) {
-        let regional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
+    private func buildChips(originZip: String, destinationZip: String) {
+        // Destination ZIP: what's available at the new location (set up tasks)
+        let destinationRegional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
+        // Origin ZIP: what the user currently has (cancel/transfer tasks)
+        let originRegional = originZip.isEmpty ? destinationRegional : RegionalIntelligenceService.availableRegionalChips(forZip: originZip)
         let regionalIDs = RegionalIntelligenceService.regionalChipIDs
-        
+
+        // Show a chip if it's available at EITHER origin OR destination
         func isAvailable(_ id: String) -> Bool {
-            !regionalIDs.contains(id) || regional.contains(id)
+            !regionalIDs.contains(id) || destinationRegional.contains(id) || originRegional.contains(id)
         }
         
         // 1. Transport
@@ -140,13 +146,16 @@ final class LifestyleViewModel {
                 BubbleChip(id: "appletv",     label: "Apple TV+",        emoji: "🍎", flag: .usesAppleTVPlus),
                 BubbleChip(id: "paramount",   label: "Paramount+",       emoji: "⭐", flag: .usesParamountPlus),
                 BubbleChip(id: "peacock",     label: "Peacock",          emoji: "🦚", flag: .usesPeacock),
+                BubbleChip(id: "sling",       label: "Sling TV",         emoji: "📺", flag: .usesSling),
             ]),
-            ChipSection(title: "Audio & Gaming", chips: [
+            ChipSection(title: "Audio, Gaming & Apps", chips: [
                 BubbleChip(id: "spotify",     label: "Spotify",          emoji: "🎵", flag: .usesSpotify),
                 BubbleChip(id: "applemusic",  label: "Apple Music",      emoji: "🎶", flag: .usesAppleMusic),
                 BubbleChip(id: "siriusxm",    label: "SiriusXM",         emoji: "📻", flag: .usesSiriusXM),
                 BubbleChip(id: "ytpremium",   label: "YouTube Premium",  emoji: "▶️", flag: .usesYouTubePremium),
                 BubbleChip(id: "gaming",      label: "Gaming (Xbox/PS)", emoji: "🎮", flag: .usesGamingSubs),
+                BubbleChip(id: "appleAppStore", label: "Apple App Store", emoji: "📱", flag: .usesAppleAppStore),
+                BubbleChip(id: "googlePlay",  label: "Google Play",      emoji: "🤖", flag: .usesGooglePlay),
             ]),
             ChipSection(title: "Internet & Cable", chips: [
                 BubbleChip(id: "xfinity",     label: "Xfinity",          emoji: "📺", flag: .usesXfinity),
@@ -196,6 +205,12 @@ final class LifestyleViewModel {
                 BubbleChip(id: "hasLifeIns",     label: "Life Insurance",     emoji: "🛡️", flag: .hasLifeInsurance),
                 BubbleChip(id: "hasHomeWarranties", label: "Home Warranty",   emoji: "🛡️", flag: .hasHomeWarranties),
             ]),
+            ChipSection(title: "Digital Wallets & Billing", chips: [
+                BubbleChip(id: "applePay",       label: "Apple Pay / Wallet", emoji: "💳", flag: .usesApplePay),
+                BubbleChip(id: "googlePay",      label: "Google Pay",         emoji: "💳", flag: .usesGooglePay),
+                BubbleChip(id: "shopPay",        label: "Shop Pay / Affirm",  emoji: "🛍️", flag: .usesShopPay),
+                BubbleChip(id: "patreonSubstack",label: "Patreon / Substack", emoji: "📰", flag: .usesPatreonSubstack),
+            ]),
             ChipSection(title: "Professional & Financial", chips: [
                 BubbleChip(id: "isSelfEmployed", label: "Self-Employed",      emoji: "💼", flag: .isSelfEmployed),
                 BubbleChip(id: "runsBusiness",   label: "Runs Business",      emoji: "🏢", flag: .runsBusiness),
@@ -230,7 +245,7 @@ struct LifestyleInterviewView: View {
         self.move = move
         self.onComplete = onComplete
         // Initialize vm with the move's destination zip code to drive regional intelligence
-        self._vm = State(initialValue: LifestyleViewModel(destinationZip: move.destinationZip))
+        self._vm = State(initialValue: LifestyleViewModel(originZip: move.originZip, destinationZip: move.destinationZip))
     }
 
     private let screenKeys = ["transport", "household", "shopping", "streaming", "fitness", "more"]
@@ -289,7 +304,38 @@ struct LifestyleInterviewView: View {
         // 1. Save lifestyle profile
         let profile = LifestyleProfile()
         profile.move = move
-        profile.activeFlags = vm.allActiveFlags
+        
+        var finalFlags = vm.allActiveFlags
+        
+        // Auto-detect Regional Flags
+        func applyRegionalFlags(for zip: String) {
+            let cleanZip = zip.replacingOccurrences(of: " ", with: "").uppercased()
+            if cleanZip.count == 6 && cleanZip.first!.isLetter {
+                finalFlags.insert(.isCanadian)
+                switch cleanZip.first! {
+                case "A": finalFlags.insert(.inNewfoundland)
+                case "B": finalFlags.insert(.inNovaScotia)
+                case "C": finalFlags.insert(.inPEI)
+                case "E": finalFlags.insert(.inNewBrunswick)
+                case "G", "H", "J": finalFlags.insert(.inQuebec)
+                case "K", "L", "M", "N", "P": finalFlags.insert(.inOntario)
+                case "R": finalFlags.insert(.inManitoba)
+                case "S": finalFlags.insert(.inSaskatchewan)
+                case "T": finalFlags.insert(.inAlberta)
+                case "V": finalFlags.insert(.inBritishColumbia)
+                case "X": finalFlags.insert(.inNorthwestTerritories)
+                case "Y": finalFlags.insert(.inYukon)
+                default: break
+                }
+            } else if cleanZip.count >= 5, Int(cleanZip.prefix(2)) != nil {
+                finalFlags.insert(.isAmerican)
+            }
+        }
+        
+        if let origin = move.originZip { applyRegionalFlags(for: origin) }
+        applyRegionalFlags(for: move.destinationZip)
+        
+        profile.activeFlags = finalFlags
 
         modelContext.insert(profile)
         move.lifestyleProfile = profile

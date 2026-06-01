@@ -3,13 +3,23 @@ import Foundation
 
 enum ZipBucketService {
 
-    /// Returns (stateBucket, cityBucket?) from a 5-digit US zip code
+    /// Returns (stateBucket, cityBucket?) from a 5-digit US zip code or 6-char Canadian postal code.
     static func bucket(zip: String) -> (state: String, city: String?) {
-        guard zip.count == 5, let prefix = Int(zip.prefix(2)) else {
+        let cleanZip = zip.replacingOccurrences(of: " ", with: "").uppercased()
+        
+        // 1. Canadian Postal Code Check (e.g., V6B 1A1 -> length 6, first char is letter)
+        if cleanZip.count == 6 && cleanZip.first!.isLetter {
+            let province = canadianProvince(prefix: String(cleanZip.first!))
+            return (province, nil) // We don't have city buckets for Canada yet
+        }
+        
+        // 2. US Zip Code Check
+        guard cleanZip.count >= 5, let prefix = Int(cleanZip.prefix(2)) else {
             return ("US", nil)
         }
+        
         let state = stateBucket(prefix: prefix)
-        let city  = cityBucket(zip: zip)
+        let city  = cityBucket(zip: String(cleanZip.prefix(5)))
         return (state, city)
     }
 
@@ -57,6 +67,26 @@ enum ZipBucketService {
         case 97...97: return "OR"
         case 98...99: return "WA"
         default:      return "US"
+        }
+    }
+
+    // MARK: - Canadian Province mapping (first letter → 2-letter province)
+
+    private static func canadianProvince(prefix: String) -> String {
+        switch prefix {
+        case "A": return "NL"
+        case "B": return "NS"
+        case "C": return "PE"
+        case "E": return "NB"
+        case "G", "H", "J": return "QC"
+        case "K", "L", "M", "N", "P": return "ON"
+        case "R": return "MB"
+        case "S": return "SK"
+        case "T": return "AB"
+        case "V": return "BC"
+        case "X": return "NT" // NT / NU
+        case "Y": return "YT"
+        default: return "CA"  // Generic Canada
         }
     }
 

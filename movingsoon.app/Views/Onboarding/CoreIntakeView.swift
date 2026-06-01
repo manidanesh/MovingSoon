@@ -41,13 +41,19 @@ struct CoreIntakeView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Where are you moving from?")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.textSecondary)
-                        .textCase(.uppercase)
-                        .tracking(2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Where are you moving from?")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Theme.textSecondary)
+                            .textCase(.uppercase)
+                            .tracking(2)
+                        Text("We'll add tasks to cancel your current gym, internet, and local services.")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Theme.textTertiary)
+                            .lineSpacing(2)
+                    }
                     
-                    TextField("Current ZIP (optional)", text: $originZip)
+                    TextField("Current ZIP", text: $originZip)
                         .keyboardType(.numberPad)
                         .font(.system(size: 24, weight: .medium))
                         .foregroundColor(Theme.textPrimary)

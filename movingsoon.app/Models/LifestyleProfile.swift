@@ -131,6 +131,150 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasHomeWarranties
     case hasVehicleWarranty
     case livesInHouseOrTownhouse
+
+    // MARK: - Media, Apps & Digital Wallets
+    case usesSling
+    case usesAppleAppStore
+    case usesGooglePlay
+    case usesApplePay
+    case usesGooglePay
+    case usesShopPay
+    case usesPatreonSubstack
+
+    // MARK: - ✈️ Airline Loyalty Programs (US)
+    case hasDeltaSkyMiles
+    case hasUnitedMileagePlus
+    case hasAmericanAAdvantage
+    case hasSouthwestRapidRewards
+    case hasAlaskaMileagePlan
+    case hasJetBlueTrueBlue
+    case hasSpiritFreeSpirit
+    case hasFrontierMiles
+
+    // MARK: - ✈️ Airline Loyalty (Canadian)
+    case hasAirCanadaAeroplan
+    case hasWestJetRewards
+    case hasPorterVIPorter
+
+    // MARK: - ✈️ Airline Loyalty (International)
+    case hasBritishAirwaysExecClub
+    case hasFlyingBlue           // Air France / KLM
+    case hasMilesAndMore         // Lufthansa
+    case hasEmirateSkywards
+    case hasQantasFrequentFlyer
+    case hasKrisFlyer            // Singapore Airlines
+
+    // MARK: - 🏨 Hotel Loyalty Programs
+    case hasMarriottBonvoy
+    case hasHiltonHonors
+    case hasWorldOfHyatt
+    case hasIHGOneRewards
+    case hasWyndhamRewards
+    case hasChoicePrivileges
+    case hasBestWesternRewards
+
+    // MARK: - 🚗 Rental Car Loyalty
+    case hasHertzGold
+    case hasEnterpriseNationalPlus
+    case hasAvisBudgetPreferred
+
+    // MARK: - 🚇 Transit Cards
+    case hasPrestoCard           // Ontario / TTC
+    case hasCompassCard          // Metro Vancouver
+    case hasMetroCard            // NYC
+    case hasClipperCard          // Bay Area
+    case hasVentraCard           // Chicago
+    case hasBreezCard            // Atlanta MARTA
+    case hasOtherTransitCard
+
+    // MARK: - 🛡️ Insurance — Vehicle Subtypes
+    case hasAutoInsurance
+    case hasMotorcycleInsurance
+    case hasRVInsurance
+    case hasBoatInsurance
+
+    // MARK: - 🛡️ Insurance — Property Subtypes
+    case hasHomeownersInsurance
+    case hasRentersInsurance
+    case hasLandlordInsurance    // Investment property
+    case hasCondoInsurance
+
+    // MARK: - 🛡️ Insurance — Specialty
+    case hasJewelryInsurance
+    case hasIDTheftProtection    // LifeLock etc.
+    case hasDisabilityInsurance
+
+    // MARK: - 📦 Subscription Boxes
+    case usesBeautyBox           // Birchbox, IPSY, Allure
+    case usesFabFitFun
+    case usesBespokePost
+    case usesWineClub            // Winc, Firstleaf
+    case usesCoffeeSubscription  // Trade, Atlas, Peet's
+    case usesKidsCrateBox        // KiwiCo, Little Passports
+    case usesBookOfTheMonth
+    case usesSnackBox            // Graze, NatureBox
+    case usesClothingBox         // Stitch Fix, Trunk Club
+
+    // MARK: - 📰 News & Magazines
+    case usesNewYorkTimes
+    case usesWashingtonPost
+    case usesWallStreetJournal
+    case usesLocalNewspaper
+    case usesMagazineSubscription  // Vogue, GQ, Wired, etc.
+
+    // MARK: - 🏡 Estate & Legal Planning
+    case hasTrust                // Living Trust
+    case hasPowerOfAttorney
+    case hasHealthcareDirective
+    case hasSafeDepositBox
+    case hasRentalProperty       // Investment / Landlord
+
+    // MARK: - 🌐 Digital Identity
+    case hasPersonalWebsite
+    case hasGoogleBusinessProfile
+    case usesDomainRegistrar     // GoDaddy, Namecheap, etc.
+    case usesPasswordManager     // 1Password, LastPass
+    case hasProfessionalOnlineProfile  // LinkedIn, Behance, etc.
+
+    // MARK: - 🌿 Community & Faith
+    case attendsReligiousInstitution
+    case belongsToSocialClub
+    case donatesCharitably
+    case hasPoliticalContributions
+
+    // MARK: - 🏠 Smart Home
+    case hasSmartThermostat      // Nest, Ecobee
+    case hasSmartLocks
+    case hasVideoDoorbells
+    case hasPoolSpa
+    case hasLawnCareService
+    case hasPestControlService
+    case hasCleaningService
+
+    // MARK: - 🛺 Home Services (Physical Recurring)
+    case hasSnowRemovalService
+    case hasWindowWashingService
+    case hasSepticTank
+    case hasWell
+
+    // MARK: - 🍁 Country & Region
+    case isCanadian              // Master flag — swaps US catalog for Canada catalog
+    case isAmerican              // Explicit US flag (default if neither set)
+
+    // MARK: - 🍁 Canadian Provinces & Territories
+    case inOntario               // ServiceOntario, Hydro One, Enbridge, TTC/Presto
+    case inBritishColumbia       // ICBC, BC Hydro, FortisBC, TransLink/Compass
+    case inQuebec                // SAAQ, RAMQ, Hydro-Québec, Énergir, Videotron, STM/OPUS
+    case inAlberta               // Service Alberta, ATCO/ENMAX/EPCOR, AHS
+    case inManitoba              // MPI, Manitoba Hydro
+    case inSaskatchewan          // SGI, SaskPower, SaskEnergy, eHealth SK
+    case inNovaScotia            // Access Nova Scotia, NS Power, MSI
+    case inNewBrunswick          // SNB, NB Power
+    case inNewfoundland          // SNL, Newfoundland Power, NL Health Services
+    case inPEI                   // Access PEI, Maritime Electric
+    case inNorthwestTerritories
+    case inNunavut
+    case inYukon
 }
 
 // MARK: - Lifestyle Profile (SwiftData model)

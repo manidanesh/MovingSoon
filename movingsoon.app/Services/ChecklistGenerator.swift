@@ -42,6 +42,9 @@ enum ChecklistGenerator {
     // MARK: - Filter Logic
 
     private static func shouldInclude(_ item: CatalogItem, flags: Set<LifestyleFlag>) -> Bool {
+        // Excludes ALWAYS trumps everything else (even alwaysInclude)
+        if !item.excludes.isEmpty && !item.excludes.isDisjoint(with: flags) { return false }
+
         if item.alwaysInclude { return true }
 
         // Must have ALL required flags
@@ -49,9 +52,6 @@ enum ChecklistGenerator {
 
         // Must have ANY of requiresAny (if specified)
         if !item.requiresAny.isEmpty && item.requiresAny.isDisjoint(with: flags) { return false }
-
-        // Must not have any excluded flags
-        if !item.excludes.isEmpty && !item.excludes.isDisjoint(with: flags) { return false }
 
         // If no constraints at all, include
         if item.requires.isEmpty && item.requiresAny.isEmpty { return true }

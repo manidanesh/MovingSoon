@@ -50,7 +50,11 @@ final class SmartReminderService {
         let content = UNMutableNotificationContent()
         content.title = "Address update nearby"
         content.body = "You're near a \(poiCategory.displayName) — update your address while you're here."
-        content.userInfo = ["taskID": task.id.uuidString]
+        var userInfo: [AnyHashable: Any] = ["taskID": task.id.uuidString]
+        if let url = task.deepLinkURL {
+            userInfo["url"] = url.absoluteString
+        }
+        content.userInfo = userInfo
         content.sound = .default
         content.categoryIdentifier = "TaskReminder"
 
@@ -80,7 +84,11 @@ final class SmartReminderService {
         let content = UNMutableNotificationContent()
         content.title = "Critical Action Required"
         content.body = "You have an urgent pending task: \(task.title). Please update this immediately."
-        content.userInfo = ["taskID": task.id.uuidString]
+        var userInfo: [AnyHashable: Any] = ["taskID": task.id.uuidString]
+        if let url = task.deepLinkURL {
+            userInfo["url"] = url.absoluteString
+        }
+        content.userInfo = userInfo
         content.sound = .default
         content.categoryIdentifier = "TaskReminder"
         
@@ -122,7 +130,11 @@ final class SmartReminderService {
             
             let displayName = task.institutionName ?? task.title
             content.body = "You have 3 days left to update your address with \(displayName)."
-            content.userInfo = ["taskID": task.id.uuidString]
+            var userInfo: [AnyHashable: Any] = ["taskID": task.id.uuidString]
+            if let url = task.deepLinkURL {
+                userInfo["url"] = url.absoluteString
+            }
+            content.userInfo = userInfo
             content.sound = .default
             content.categoryIdentifier = "TaskReminder"
             

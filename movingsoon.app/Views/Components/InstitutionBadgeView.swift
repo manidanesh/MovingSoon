@@ -47,6 +47,9 @@ struct CategoryIconView: View {
         case .insurance:     return Color(hex: "#27AE60")
         case .legal:         return Color(hex: "#8E44AD")
         case .employer:      return Color(hex: "#2C3E50")
+        case .travel:        return Color(hex: "#005DAA")
+        case .estate:        return Color(hex: "#212F3D")
+        case .digital:       return Color(hex: "#4285F4")
         case .other:         return Color(hex: "#626567")
         }
     }

@@ -4,52 +4,52 @@ import Foundation
 enum ItemCatalog {
 
     // MARK: - All items merged
-    static var all: [CatalogItem] { government + transport + housing + financial + allLifestyle }
+    static var all: [CatalogItem] { government + transport + housing + financial + allLifestyle + allTravel + allInsurance + allDigital }
 
     // MARK: - 🏛️ GOVERNMENT (always shown)
     static let government: [CatalogItem] = [
         CatalogItem(id: "usps", title: "USPS Mail Forwarding", emoji: "📬",
                     category: .postal, priority: .critical, tMinusDays: -30,
                     deepLinkURL: URL(string: "https://moversguide.usps.com"),
-                    brandColorHex: "#004B87", isHeroItem: true, alwaysInclude: true, poiCategory: .postOffice),
+                    brandColorHex: "#004B87", isHeroItem: true, excludes: [.isCanadian], alwaysInclude: true, poiCategory: .postOffice),
         CatalogItem(id: "dmv_license", title: "Driver's License / State ID", emoji: "🪪",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://dmv.org"),
-                    brandColorHex: "#7D3C98", alwaysInclude: true, poiCategory: .dmv),
+                    brandColorHex: "#7D3C98", excludes: [.isCanadian], alwaysInclude: true, poiCategory: .dmv),
         CatalogItem(id: "voter", title: "Voter Registration", emoji: "🗳️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://vote.gov"),
-                    brandColorHex: "#1A5276", alwaysInclude: true),
+                    brandColorHex: "#1A5276", excludes: [.isCanadian], alwaysInclude: true),
         CatalogItem(id: "irs", title: "IRS Address (Form 8822)", emoji: "🏛️",
                     category: .government, priority: .high, tMinusDays: -7,
                     deepLinkURL: URL(string: "https://www.irs.gov/forms-pubs/about-form-8822"),
-                    brandColorHex: "#1B4F72", alwaysInclude: true),
+                    brandColorHex: "#1B4F72", excludes: [.isCanadian], alwaysInclude: true),
         CatalogItem(id: "ssa", title: "Social Security Administration", emoji: "🛡️",
                     category: .government, priority: .high, tMinusDays: -7,
                     deepLinkURL: URL(string: "https://www.ssa.gov"),
-                    brandColorHex: "#154360", alwaysInclude: true),
+                    brandColorHex: "#154360", excludes: [.isCanadian], alwaysInclude: true),
         CatalogItem(id: "dmv_vehicle", title: "Vehicle Registration (DMV)", emoji: "🚗",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://dmv.org"),
-                    brandColorHex: "#7D3C98", requiresAny: [.hasCar, .hasMotorcycle, .hasMultipleCars], poiCategory: .dmv),
+                    brandColorHex: "#7D3C98", requiresAny: [.hasCar, .hasMotorcycle, .hasMultipleCars], excludes: [.isCanadian], poiCategory: .dmv),
         CatalogItem(id: "passport", title: "US Passport (address on file)", emoji: "🛂",
                     category: .government, priority: .low, tMinusDays: 30,
                     deepLinkURL: URL(string: "https://travel.state.gov"),
-                    brandColorHex: "#1A5276", alwaysInclude: true),
+                    brandColorHex: "#1A5276", excludes: [.isCanadian], alwaysInclude: true),
         CatalogItem(id: "medicare", title: "Medicare / Medicaid", emoji: "⚕️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www.medicare.gov"),
-                    brandColorHex: "#1A237E", requiresAny: [.hasMedicare, .isRetired]),
+                    brandColorHex: "#1A237E", requiresAny: [.hasMedicare, .isRetired], excludes: [.isCanadian]),
         CatalogItem(id: "va", title: "VA Benefits", emoji: "🎖️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www.va.gov"),
-                    brandColorHex: "#003087", requires: [.isVeteran]),
+                    brandColorHex: "#003087", requires: [.isVeteran], excludes: [.isCanadian]),
         CatalogItem(id: "prof_license", title: "Professional License (state board)", emoji: "📋",
                     category: .legal, priority: .high, tMinusDays: -14,
                     brandColorHex: "#8E44AD", requires: [.hasProfessionalLicenses]),
         CatalogItem(id: "tsa_precheck", title: "TSA PreCheck / Global Entry / CLEAR", emoji: "✈️",
                     category: .government, priority: .high, tMinusDays: -7,
-                    brandColorHex: "#004B87", requires: [.hasTSAPreCheck]),
+                    brandColorHex: "#004B87", requires: [.hasTSAPreCheck], excludes: [.isCanadian]),
     ]
 
     // MARK: - 🚗 TRANSPORT

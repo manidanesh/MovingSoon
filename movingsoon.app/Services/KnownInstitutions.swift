@@ -20,11 +20,11 @@ enum KnownInstitutions {
     static var all: [KnownInstitution] { banks + creditUnions + creditCards + investments + studentLoans + mortgages }
 
     static let banks: [KnownInstitution] = [
-        .init(name: "Chase",            initials: "CH", colorHex: "#117ACA", type: .bank,        websiteURL: URL(string: "https://www.chase.com")),
-        .init(name: "Bank of America",  initials: "BA", colorHex: "#C0392B", type: .bank,        websiteURL: URL(string: "https://www.bankofamerica.com")),
-        .init(name: "Wells Fargo",      initials: "WF", colorHex: "#B7410E", type: .bank,        websiteURL: URL(string: "https://www.wellsfargo.com")),
-        .init(name: "Citibank",         initials: "CI", colorHex: "#154360", type: .bank,        websiteURL: URL(string: "https://www.citi.com")),
-        .init(name: "Capital One",      initials: "C1", colorHex: "#D03027", type: .bank,        websiteURL: URL(string: "https://www.capitalone.com")),
+        .init(name: "Chase",            initials: "CH", colorHex: "#117ACA", type: .bank,        websiteURL: URL(string: "https://secure01c.chase.com/web/auth/#/logon/logon/chaseOnline")),
+        .init(name: "Bank of America",  initials: "BA", colorHex: "#C0392B", type: .bank,        websiteURL: URL(string: "https://secure.bankofamerica.com/login/sign-in/signOnV2Screen.go")),
+        .init(name: "Wells Fargo",      initials: "WF", colorHex: "#B7410E", type: .bank,        websiteURL: URL(string: "https://connect.secure.wellsfargo.com/auth/login/present")),
+        .init(name: "Citibank",         initials: "CI", colorHex: "#154360", type: .bank,        websiteURL: URL(string: "https://online.citi.com/US/login.do")),
+        .init(name: "Capital One",      initials: "C1", colorHex: "#D03027", type: .bank,        websiteURL: URL(string: "https://verified.capitalone.com/auth/signin")),
         .init(name: "US Bank",          initials: "US", colorHex: "#1B4F72", type: .bank,        websiteURL: URL(string: "https://www.usbank.com")),
         .init(name: "TD Bank",          initials: "TD", colorHex: "#1E8449", type: .bank,        websiteURL: URL(string: "https://www.td.com")),
         .init(name: "PNC Bank",         initials: "PN", colorHex: "#D35400", type: .bank,        websiteURL: URL(string: "https://www.pnc.com")),
@@ -39,6 +39,17 @@ enum KnownInstitutions {
         .init(name: "SoFi",             initials: "SF", colorHex: "#3D5A80", type: .bank,        websiteURL: URL(string: "https://www.sofi.com")),
         .init(name: "Marcus (Goldman)", initials: "MG", colorHex: "#212F3D", type: .bank,        websiteURL: URL(string: "https://www.marcus.com")),
         .init(name: "Chime",            initials: "CM", colorHex: "#1ABC9C", type: .bank,        websiteURL: URL(string: "https://www.chime.com")),
+        
+        // MARK: - Canadian Banks
+        .init(name: "RBC Royal Bank",   initials: "RB", colorHex: "#0051A5", type: .bank,        websiteURL: URL(string: "https://www.rbcroyalbank.com/")),
+        .init(name: "TD Canada Trust",  initials: "TD", colorHex: "#008A00", type: .bank,        websiteURL: URL(string: "https://www.td.com/ca/en/personal-banking")),
+        .init(name: "Scotiabank",       initials: "SB", colorHex: "#ED0000", type: .bank,        websiteURL: URL(string: "https://www.scotiabank.com/")),
+        .init(name: "BMO (Bank of Montreal)", initials: "BM", colorHex: "#0079C1", type: .bank,  websiteURL: URL(string: "https://www.bmo.com/")),
+        .init(name: "CIBC",             initials: "CB", colorHex: "#C41F3E", type: .bank,        websiteURL: URL(string: "https://www.cibc.com/")),
+        .init(name: "National Bank of Canada", initials: "NB", colorHex: "#C1282D", type: .bank, websiteURL: URL(string: "https://www.nbc.ca/")),
+        .init(name: "Tangerine",        initials: "TA", colorHex: "#F26922", type: .bank,        websiteURL: URL(string: "https://www.tangerine.ca/")),
+        .init(name: "Simplii Financial",initials: "SF", colorHex: "#E40046", type: .bank,        websiteURL: URL(string: "https://www.simplii.com/")),
+
         .init(name: "Other Bank",       initials: "OT", colorHex: "#626567", type: .bank,        websiteURL: nil),
     ]
 

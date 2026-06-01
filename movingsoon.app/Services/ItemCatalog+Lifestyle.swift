@@ -4,7 +4,7 @@ import Foundation
 extension ItemCatalog {
 
     static var allLifestyle: [CatalogItem] {
-        shopping + foodDelivery + streaming + fitness + memberships + pets + healthcare + employer + education + legal
+        shopping + foodDelivery + streaming + digitalWallets + fitness + memberships + pets + healthcare + employer + education + legal
     }
 
     // MARK: - 🛍️ SHOPPING
@@ -198,6 +198,37 @@ extension ItemCatalog {
                     category: .subscriptions, priority: .high, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www.optimum.net/moving/"),
                     brandColorHex: "#00B2E2", requires: [.usesOptimum]),
+        CatalogItem(id: "sling", title: "Sling TV Billing Address", emoji: "📺",
+                    category: .subscriptions, priority: .low, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.sling.com/account"),
+                    brandColorHex: "#1565C0", requires: [.usesSling]),
+        CatalogItem(id: "apple_app_store", title: "Apple App Store & Subscriptions", emoji: "📱",
+                    category: .subscriptions, priority: .medium, tMinusDays: 0,
+                    deepLinkURL: URL(string: "https://appleid.apple.com"),
+                    brandColorHex: "#555555", requires: [.usesAppleAppStore]),
+        CatalogItem(id: "google_play", title: "Google Play Subscriptions", emoji: "🤖",
+                    category: .subscriptions, priority: .medium, tMinusDays: 0,
+                    deepLinkURL: URL(string: "https://play.google.com/store/account/subscriptions"),
+                    brandColorHex: "#34A853", requires: [.usesGooglePlay]),
+    ]
+
+    // MARK: - 💳 DIGITAL WALLETS & BILLING
+    static let digitalWallets: [CatalogItem] = [
+        CatalogItem(id: "apple_pay", title: "Apple Pay / Wallet Billing Address", emoji: "💳",
+                    category: .financial, priority: .high, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://appleid.apple.com"),
+                    brandColorHex: "#000000", requires: [.usesApplePay]),
+        CatalogItem(id: "google_pay", title: "Google Pay Billing Address", emoji: "💳",
+                    category: .financial, priority: .high, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://pay.google.com"),
+                    brandColorHex: "#4285F4", requires: [.usesGooglePay]),
+        CatalogItem(id: "shop_pay", title: "Shop Pay / Affirm Billing Address", emoji: "🛍️",
+                    category: .financial, priority: .medium, tMinusDays: 0,
+                    deepLinkURL: URL(string: "https://shop.app/pay"),
+                    brandColorHex: "#5A31F4", requires: [.usesShopPay]),
+        CatalogItem(id: "patreon_substack", title: "Patreon / Substack Subscriptions", emoji: "📰",
+                    category: .subscriptions, priority: .low, tMinusDays: 7,
+                    brandColorHex: "#FF424D", requires: [.usesPatreonSubstack]),
     ]
 
     // MARK: - 💪 FITNESS
@@ -208,11 +239,11 @@ extension ItemCatalog {
                     brandColorHex: "#8B1DBA", requires: [.usesPlanetFitness], poiCategory: .gym),
         CatalogItem(id: "equinox", title: "Equinox Membership Address", emoji: "🏋️",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
-                    deepLinkURL: URL(string: "https://www.equinox.com"),
+                    deepLinkURL: URL(string: "https://www.equinox.com/login"),
                     brandColorHex: "#2C3E50", requires: [.usesEquinox]),
         CatalogItem(id: "lafitness", title: "LA Fitness Membership", emoji: "🏋️",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
-                    deepLinkURL: URL(string: "https://www.lafitness.com"),
+                    deepLinkURL: URL(string: "https://www.lafitness.com/Pages/login.aspx"),
                     brandColorHex: "#003366", requires: [.usesLAFitness]),
         CatalogItem(id: "peloton", title: "Peloton Account Address", emoji: "🚴",
                     category: .subscriptions, priority: .medium, tMinusDays: -14,
@@ -224,6 +255,7 @@ extension ItemCatalog {
                     brandColorHex: "#FF5A5F", requires: [.usesClassPass]),
         CatalogItem(id: "crossfit", title: "CrossFit Gym Membership", emoji: "🏋️",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://account.crossfit.com/"),
                     brandColorHex: "#000000", requires: [.usesCrossFit]),
         CatalogItem(id: "orangetheory", title: "Orangetheory Membership", emoji: "🔥",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
@@ -235,27 +267,33 @@ extension ItemCatalog {
                     brandColorHex: "#003087", requires: [.usesYMCA]),
         CatalogItem(id: "24hourfitness", title: "24 Hour Fitness Membership", emoji: "💪",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.24hourfitness.com/members/account"),
                     brandColorHex: "#D32F2F", requires: [.uses24HourFitness]),
         CatalogItem(id: "lifetime", title: "Life Time Fitness Membership", emoji: "🏊",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://my.lifetime.life/"),
                     brandColorHex: "#000000", requires: [.usesLifeTime]),
         CatalogItem(id: "jcc", title: "JCC Membership", emoji: "🏃",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
                     brandColorHex: "#0055A4", requires: [.usesJCC]),
         CatalogItem(id: "vasa", title: "VASA Fitness Membership", emoji: "🏋️",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://members.vasafitness.com/"),
                     brandColorHex: "#C41230", requires: [.usesVASA]),
         CatalogItem(id: "eos", title: "EoS Fitness Membership", emoji: "🏋️",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://eosfitness.com/member-login/"),
                     brandColorHex: "#009BDF", requires: [.usesEoS]),
         CatalogItem(id: "chuze", title: "Chuze Fitness Membership", emoji: "🧘",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
                     brandColorHex: "#F2A900", requires: [.usesChuze]),
         CatalogItem(id: "crunch", title: "Crunch Fitness Membership", emoji: "💪",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://members.crunch.com/members/sign_in"),
                     brandColorHex: "#0055A4", requires: [.usesCrunch]),
         CatalogItem(id: "anytimefitness", title: "Anytime Fitness Membership", emoji: "🏃",
                     category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.anytimefitness.com/login/"),
                     brandColorHex: "#4C1C6C", requires: [.usesAnytimeFitness]),
     ]
 

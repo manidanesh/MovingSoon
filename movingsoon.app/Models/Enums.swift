@@ -65,6 +65,9 @@ enum TaskCategory: String, Codable, CaseIterable {
     case insurance     = "Insurance"
     case legal         = "Legal"
     case employer      = "Employer"
+    case travel        = "Travel & Loyalty"
+    case estate        = "Estate & Legal Planning"
+    case digital       = "Digital Identity"
     case other         = "Other"
 
     var icon: String {
@@ -79,9 +82,77 @@ enum TaskCategory: String, Codable, CaseIterable {
         case .insurance:     return "shield.fill"
         case .legal:         return "doc.text.fill"
         case .employer:      return "briefcase.fill"
+        case .travel:        return "airplane"
+        case .estate:        return "scroll.fill"
+        case .digital:       return "globe"
         case .other:         return "ellipsis.circle.fill"
         }
     }
+}
+
+// MARK: - Task Subcategory
+
+enum TaskSubcategory: String, Codable, CaseIterable {
+    // Postal
+    case mailForwarding       = "Mail Forwarding"
+    // Government
+    case federalID            = "Federal Identification"
+    case taxCivic             = "Tax & Civic"
+    case benefitsPrograms     = "Benefits & Programs"
+    case travelSecurity       = "Travel & Security Programs"
+    // Financial
+    case everydayBanking      = "Everyday Banking"
+    case creditLending        = "Credit & Lending"
+    case investmentsWealth    = "Investments & Wealth"
+    case digitalPayments      = "Digital Payments"
+    // Insurance
+    case vehicleInsurance     = "Vehicle Insurance"
+    case propertyInsurance    = "Property Insurance"
+    case healthLifeInsurance  = "Health & Life Insurance"
+    case specialtyInsurance   = "Specialty Protection"
+    // Housing
+    case coreUtilities        = "Core Utilities"
+    case telecomConnectivity  = "Telecom & Connectivity"
+    case smartHomeOps         = "Smart Home & Security"
+    case homeServices         = "Recurring Home Services"
+    // Shopping
+    case appStoresEcosystems  = "App Stores & Ecosystems"
+    case ecommerceWholesale   = "E-Commerce & Wholesale"
+    case subscriptionBoxes    = "Subscription Boxes & Clubs"
+    case onDemandDelivery     = "On-Demand Delivery"
+    case mealKits             = "Meal Kits"
+    case newsMagazines        = "News & Magazines"
+    // Travel
+    case airlineLoyalty       = "Airline Loyalty Programs"
+    case hotelLoyalty         = "Hotel Loyalty Programs"
+    case rentalCarPrograms    = "Rental Car Programs"
+    case transitCommuting     = "Transit & Commuting"
+    case vehiclePrograms      = "Auto Programs"
+    // Health
+    case medicalPractitioners = "Medical Practitioners"
+    case pharmacyRx           = "Pharmacy & Prescriptions"
+    case animalCare           = "Veterinary & Animal Care"
+    case pediatricFamily      = "Pediatrics & Family"
+    // Employer & Education
+    case careerPayroll        = "Career & Payroll"
+    case professionalLicenses = "Professional Licensing"
+    case businessOps          = "Business Operations"
+    case selfEducation        = "Education (Self)"
+    case kidsEducation        = "Education (Kids)"
+    // Estate & Legal
+    case estatePlanning       = "Estate Planning Documents"
+    case beneficiaries        = "Beneficiary Designations"
+    case legalRecords         = "Legal Records & Storage"
+    // Digital Identity
+    case browserDevice        = "Browser & Device AutoFill"
+    case socialMedia          = "Social Media & Maps"
+    case onlineDirectories    = "Online Directories"
+    case domainHosting        = "Domain & Hosting"
+    // Lifestyle
+    case fitnessWellness      = "Fitness & Wellness"
+    case socialCommunity      = "Community & Faith"
+    case charityPhilanthropy  = "Charity & Philanthropy"
+    case other                = "Other"
 }
 
 enum VerificationMethod: String, Codable {
@@ -97,31 +168,37 @@ enum ActionType: String, Codable, CaseIterable {
 }
 
 enum POICategory: String, Codable, CaseIterable {
-    case bank       = "Bank"
-    case gym        = "Gym"
-    case dmv        = "DMV"
-    case grocery    = "Grocery"
-    case postOffice = "Post Office"
-    case pharmacy   = "Pharmacy"
-    case bookstore  = "Bookstore"
-    case outdoorGear = "Outdoor Gear"
+    case bank          = "Bank"
+    case gym           = "Gym"
+    case dmv           = "DMV"
+    case grocery       = "Grocery"
+    case postOffice    = "Post Office"
+    case pharmacy      = "Pharmacy"
+    case bookstore     = "Bookstore"
+    case outdoorGear   = "Outdoor Gear"
     case hardwareStore = "Hardware Store"
-    case doctor     = "Doctor's Office"
-    case other      = "Other"
+    case doctor        = "Doctor's Office"
+    case airport       = "Airport"
+    case hotel         = "Hotel"
+    case rentalCar     = "Rental Car Agency"
+    case other         = "Other"
 
     var displayName: String {
         switch self {
-        case .bank:       return "bank"
-        case .gym:        return "gym"
-        case .dmv:        return "DMV"
-        case .grocery:    return "grocery store"
-        case .postOffice: return "post office"
-        case .pharmacy:   return "pharmacy"
-        case .bookstore:  return "bookstore"
-        case .outdoorGear: return "outdoor gear store"
+        case .bank:          return "bank"
+        case .gym:           return "gym"
+        case .dmv:           return "DMV"
+        case .grocery:       return "grocery store"
+        case .postOffice:    return "post office"
+        case .pharmacy:      return "pharmacy"
+        case .bookstore:     return "bookstore"
+        case .outdoorGear:   return "outdoor gear store"
         case .hardwareStore: return "hardware store"
-        case .doctor:     return "doctor's office"
-        case .other:      return "location"
+        case .doctor:        return "doctor's office"
+        case .airport:       return "airport"
+        case .hotel:         return "hotel"
+        case .rentalCar:     return "rental car agency"
+        case .other:         return "location"
         }
     }
 }

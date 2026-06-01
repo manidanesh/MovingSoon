@@ -1,7 +1,7 @@
-// NotificationDelegate.swift — Handles actionable push notifications
 import Foundation
 import UserNotifications
 import SwiftData
+import UIKit
 
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     
@@ -24,10 +24,15 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         
+        let urlString = userInfo["url"] as? String
+        
         switch response.actionIdentifier {
-        case "UPDATE_NOW":
-            // Action to open the app; deep linking can be handled here if needed.
-            break
+        case "UPDATE_NOW", UNNotificationDefaultActionIdentifier:
+            if let urlString = urlString, let url = URL(string: urlString) {
+                DispatchQueue.main.async {
+                    UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                }
+            }
             
         case "SNOOZE":
             snoozeNotification(response.notification.request)

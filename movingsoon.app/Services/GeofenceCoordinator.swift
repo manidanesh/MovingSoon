@@ -21,17 +21,20 @@ final class GeofenceCoordinator {
 
     private static func searchQuery(for category: POICategory) -> String {
         switch category {
-        case .bank:       return "bank"
-        case .gym:        return "gym"
-        case .dmv:        return "DMV department of motor vehicles"
-        case .grocery:    return "grocery store supermarket"
-        case .postOffice: return "post office USPS"
-        case .pharmacy:   return "pharmacy drugstore"
-        case .bookstore:  return "bookstore Barnes & Noble"
-        case .outdoorGear: return "outdoor gear REI"
+        case .bank:          return "bank"
+        case .gym:           return "gym fitness"
+        case .dmv:           return "DMV department of motor vehicles"
+        case .grocery:       return "grocery store supermarket"
+        case .postOffice:    return "post office USPS"
+        case .pharmacy:      return "pharmacy drugstore"
+        case .bookstore:     return "bookstore Barnes & Noble"
+        case .outdoorGear:   return "outdoor gear REI"
         case .hardwareStore: return "hardware store Home Depot Lowe's"
-        case .doctor:     return "doctor physician clinic"
-        case .other:      return "address update"
+        case .doctor:        return "doctor physician clinic"
+        case .airport:       return "airport terminal"
+        case .hotel:         return "hotel resort"
+        case .rentalCar:     return "car rental Hertz Enterprise Avis"
+        case .other:         return "address update"
         }
     }
 
