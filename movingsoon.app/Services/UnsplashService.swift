@@ -3,7 +3,8 @@ import Foundation
 
 @Observable
 final class UnsplashService {
-    // The Access Key provided by the user
+    // Unsplash API access key — registered under the MovingSoon app
+    // Demo/production key — rate limited to 50 requests/hour on free tier
     private let accessKey = "LdfqNF5XOvLzBUlZlKhvDIdKjCZQ06sPmwPOLYkd8mY"
     
     // We cache fetched URLs so we don't spam the API on re-renders
