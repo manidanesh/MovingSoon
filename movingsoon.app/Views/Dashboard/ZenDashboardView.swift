@@ -261,7 +261,6 @@ struct ZenDashboardView: View {
             }
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pendingTasks)
         }
-        }
         .sheet(isPresented: $showingMailComposer) {
             if let task = selectedAgenticTask {
                 MailComposeView(
