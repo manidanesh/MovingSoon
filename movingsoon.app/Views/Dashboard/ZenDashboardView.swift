@@ -256,11 +256,12 @@ struct ZenDashboardView: View {
 
                     // MARK: Achievement Milestones & Master Checklist
                     AchievementMilestoneSection(move: move)
-                }
-                .padding(.top, 20)
-            }
-            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pendingTasks)
-        }
+                    } // end VStack
+                    .padding(.top, 20)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pendingTasks)
+                } // end ScrollView
+            } // end else
+        } // end ZStack
         .sheet(isPresented: $showingMailComposer) {
             if let task = selectedAgenticTask {
                 MailComposeView(
