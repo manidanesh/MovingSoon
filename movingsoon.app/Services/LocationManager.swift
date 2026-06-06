@@ -88,12 +88,15 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             return
         }
 
+        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
+
         let context = SuppressionEngine.Context(
             move: move,
             poiCategory: poiCategory,
             cooldownStore: cooldownStore,
             now: Date(),
-            userLocation: userLocation
+            userLocation: userLocation,
+            destinationCoordinate: destinationCoordinate
         )
 
         guard SuppressionEngine.shouldFire(context: context) else {
@@ -169,6 +172,8 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             return
         }
 
+        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
+
         for region in manager.monitoredRegions {
             guard let circularRegion = region as? CLCircularRegion else { continue }
             guard circularRegion.contains(userLocation.coordinate) else { continue }
@@ -181,7 +186,8 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
                 poiCategory: poiCategory,
                 cooldownStore: cooldownStore,
                 now: now,
-                userLocation: userLocation
+                userLocation: userLocation,
+                destinationCoordinate: destinationCoordinate
             )
 
             if SuppressionEngine.shouldFire(context: context) {

@@ -69,7 +69,7 @@ Implement a consent-based, proximity-aware notification system for movingsoon.ap
     - For any `Date`, `timeOfDayGatePasses` returns `true` iff the local hour satisfies `9 ≤ hour < 19`
     - **Validates: Requirements 4.6**
 
-- [ ] 4. Checkpoint — Ensure all SuppressionEngine and CooldownStore tests pass
+- [x] 4. Checkpoint — Ensure all SuppressionEngine and CooldownStore tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 5. Add centroid lookup to `ZipBucketService`
@@ -159,7 +159,7 @@ Implement a consent-based, proximity-aware notification system for movingsoon.ap
     - Test that `content.sound` is `.default` (Req 6.4)
     - _Requirements: 6.1, 6.4_
 
-- [ ] 9. Checkpoint — Ensure all service-layer tests pass
+- [x] 9. Checkpoint — Ensure all service-layer tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 10. Implement `LocationConsentCard` view

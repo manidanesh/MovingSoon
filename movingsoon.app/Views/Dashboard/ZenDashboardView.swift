@@ -331,7 +331,11 @@ struct ZenDashboardView: View {
         generator.impactOccurred()
         
         withAnimation {
+            // Advance twice to jump toDo → pendingVerification → completed in one tap
             task.advanceStatus()
+            if task.status == .pendingVerification {
+                task.advanceStatus()
+            }
             try? modelContext.save()
             // Remove geofence for this task if it has one
             locationManager.taskStatusDidChange(task)
@@ -391,86 +395,115 @@ struct ZenHeroCard: View {
     let onAgenticAction: () -> Void
     let onSkip: () -> Void
 
+    /// Human-readable due date label derived from tMinusDays relative to move anchor.
+    private var dueDateLabel: String? {
+        guard let move = task.move else { return nil }
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+        let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: dueDate).day ?? 0
+        if daysLeft > 1  { return "Due in \(daysLeft) days" }
+        if daysLeft == 1 { return "Due tomorrow" }
+        if daysLeft == 0 { return "Due today" }
+        return "Overdue"
+    }
+
+    private var isOverdue: Bool {
+        guard let move = task.move else { return false }
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+        return dueDate < Date()
+    }
+
     var body: some View {
         ZStack {
-            // Subtle urgency gradient
-            let gradientColor = task.priority == .critical ? Color.red.opacity(0.15) : Theme.accentPrimary.opacity(0.1)
-            
+            let gradientColor = task.priority == .critical ? Color.red.opacity(0.15) : Theme.accentPrimary.opacity(0.08)
+
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(LinearGradient(colors: [gradientColor, Theme.backgroundCard], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(LinearGradient(
+                    colors: [gradientColor, Theme.backgroundCard],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
                 )
 
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(alignment: .top) {
-                    Text(task.title)
-                        .font(.system(size: 24, weight: .semibold, design: .serif))
-                        .foregroundColor(Theme.textPrimary)
-                    Spacer()
-                    if task.actionType == .agenticUpdate {
-                        Image(systemName: "sparkles")
-                            .foregroundColor(Theme.accentPrimary)
-                            .font(.system(size: 20))
-                    }
-                }
+            VStack(alignment: .leading, spacing: 20) {
 
-                HStack {
-                    Label(task.category.rawValue, systemImage: task.category.icon)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Theme.backgroundElevated)
-                        .clipShape(Capsule())
-
-                    if let poi = task.poiCategory {
-                        Label(poi.rawValue, systemImage: "mappin.circle.fill")
-                            .font(.system(size: 13, weight: .medium))
+                // MARK: Question + due date
+                VStack(alignment: .leading, spacing: 8) {
+                    // Category + due date row
+                    HStack(spacing: 8) {
+                        Label(task.category.rawValue, systemImage: task.category.icon)
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(Theme.textSecondary)
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, 5)
                             .background(Theme.backgroundElevated)
                             .clipShape(Capsule())
+
+                        Spacer()
+
+                        if let label = dueDateLabel {
+                            Text(label)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08))
+                                .clipShape(Capsule())
+                        }
+
+                        if task.actionType == .agenticUpdate {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(Theme.accentPrimary)
+                                .font(.system(size: 18))
+                        }
                     }
+
+                    // The question
+                    Text("Have you updated your address with **\(task.title)**?")
+                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .foregroundColor(Theme.textPrimary)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                VStack(spacing: 12) {
+                // MARK: Actions
+                VStack(spacing: 10) {
                     if task.actionType == .agenticUpdate {
                         Button(action: onAgenticAction) {
-                            Label("Auto-Update", systemImage: "paperplane.fill")
+                            Label("Auto-Update Address", systemImage: "paperplane.fill")
                                 .font(.system(size: 16, weight: .bold))
                                 .frame(maxWidth: .infinity)
-                                .padding()
+                                .padding(.vertical, 16)
                                 .background(Theme.accentPrimary)
                                 .foregroundColor(.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .shadow(color: Theme.accentPrimary.opacity(0.4), radius: 10, x: 0, y: 5)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
                         }
+                        .buttonStyle(.plain)
                     } else {
                         Button(action: onComplete) {
-                            Label("Mark Completed", systemImage: "checkmark")
-                                .font(.system(size: 16, weight: .semibold))
+                            Text("Mark as Done")
+                                .font(.system(size: 16, weight: .bold))
                                 .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Theme.backgroundElevated)
-                                .foregroundColor(Theme.textPrimary)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .padding(.vertical, 16)
+                                .background(Theme.accentPrimary)
+                                .foregroundColor(.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
                         }
+                        .buttonStyle(.plain)
                     }
-                    
-                    // Secondary Skip Button — smaller, right-aligned, not full-width
-                    HStack {
-                        Spacer()
-                        Button(action: onSkip) {
-                            Text("Skip for Now")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.textTertiary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 6)
-                        }
+
+                    Button(action: onSkip) {
+                        Text("I'll set this up later")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Theme.textTertiary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(24)
@@ -511,7 +544,7 @@ struct ContextualPromptCard: View {
 
                 HStack(spacing: 10) {
                     Button(action: onRemindTomorrow) {
-                        Text("Not yet")
+                        Text("Remind me tomorrow")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
@@ -521,7 +554,7 @@ struct ContextualPromptCard: View {
                     .buttonStyle(.plain)
 
                     Button(action: onYes) {
-                        Label("Done ✓", systemImage: "checkmark.circle.fill")
+                        Text("Yes, I updated it")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
