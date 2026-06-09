@@ -360,6 +360,7 @@ struct LifestyleInterviewView: View {
         }
         move.tasks = tasks
 
+        try? modelContext.save()
         withAnimation(.easeInOut(duration: 0.4)) { onComplete() }
     }
 }

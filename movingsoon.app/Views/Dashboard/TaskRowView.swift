@@ -10,7 +10,13 @@ struct TaskRowView: View {
 
             // MARK: Momentum ring
             Button {
-                withAnimation(.spring(duration: 0.35)) { task.advanceStatus() }
+                withAnimation(.spring(duration: 0.35)) {
+                    task.advanceStatus()
+                    // Jump straight to completed — pendingVerification is invisible to the user
+                    if task.status == .pendingVerification {
+                        task.advanceStatus()
+                    }
+                }
                 if task.status == .completed {
                     showingUndo = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showingUndo = false }

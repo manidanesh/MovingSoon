@@ -29,6 +29,8 @@ struct movingsoon_appApp: App {
             self.container = container
             self.notificationDelegate = NotificationDelegate(container: container)
             UNUserNotificationCenter.current().delegate = self.notificationDelegate
+            // Request notification permission at launch so location notifications can fire
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }

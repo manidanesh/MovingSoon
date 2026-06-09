@@ -88,6 +88,25 @@ enum TaskCategory: String, Codable, CaseIterable {
         case .other:         return "ellipsis.circle.fill"
         }
     }
+
+    var emoji: String {
+        switch self {
+        case .postal:        return "📬"
+        case .government:    return "🏛️"
+        case .financial:     return "💳"
+        case .utilities:     return "⚡"
+        case .subscriptions: return "🔄"
+        case .healthcare:    return "🏥"
+        case .education:     return "🎓"
+        case .insurance:     return "🛡️"
+        case .legal:         return "📄"
+        case .employer:      return "💼"
+        case .travel:        return "✈️"
+        case .estate:        return "📜"
+        case .digital:       return "🌐"
+        case .other:         return "📌"
+        }
+    }
 }
 
 // MARK: - Task Subcategory

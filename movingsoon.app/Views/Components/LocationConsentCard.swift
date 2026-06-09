@@ -1,9 +1,11 @@
 // LocationConsentCard.swift — 30-day location consent prompt shown on ZenDashboardView
 import SwiftUI
+import CoreLocation
 
 struct LocationConsentCard: View {
     let onAllow: () -> Void
     let onDismiss: () -> Void
+    let locationStatus: CLAuthorizationStatus
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -52,20 +54,41 @@ struct LocationConsentCard: View {
 
             // MARK: Actions
             HStack(spacing: 10) {
-                // Primary — Allow
-                Button(action: onAllow) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "location.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Allow 30 Days")
-                            .font(.system(size: 14, weight: .semibold))
+                // Primary — Allow (only when not denied)
+                if locationStatus != .denied {
+                    Button(action: onAllow) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Allow 30 Days")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Theme.accentPrimary, in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Theme.accentPrimary, in: RoundedRectangle(cornerRadius: 12))
+                    .buttonStyle(.plain)
+                } else {
+                    // Denied — prompt to open Settings
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "gear")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Open Settings")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Theme.accentPrimary, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 // Secondary — Not Now
                 Button(action: onDismiss) {
@@ -96,7 +119,8 @@ struct LocationConsentCard: View {
         Color.black.ignoresSafeArea()
         LocationConsentCard(
             onAllow: { print("Allow tapped") },
-            onDismiss: { print("Dismiss tapped") }
+            onDismiss: { print("Dismiss tapped") },
+            locationStatus: .notDetermined
         )
         .padding(24)
     }

@@ -25,6 +25,9 @@ struct ZenDashboardView: View {
     // Reminders
     @State private var reminderService = SmartReminderService()
 
+    // Session-skipped task IDs — hero items deferred until next launch
+    @State private var sessionSkippedTaskIDs: Set<UUID> = []
+
     // MARK: - Consent card visibility predicate
     private var shouldShowConsentCard: Bool {
         // Never show again once consent has been granted (even after expiry)
@@ -41,12 +44,12 @@ struct ZenDashboardView: View {
     // The lowest tMinusDays means it's due the earliest (e.g. -30 is due 30 days before move).
     private var pendingTasks: [ChecklistTask] {
         move.tasks
-            .filter { $0.status == .toDo }
+            .filter { $0.status == .toDo && !sessionSkippedTaskIDs.contains($0.id) }
             .sorted { $0.tMinusDays < $1.tMinusDays }
     }
 
     private var heroTask: ChecklistTask? {
-        // If USPS is uncompleted, always force it as Hero.
+        // USPS (isHeroItem) gets priority — unless user has session-skipped it
         if let usps = pendingTasks.first(where: { $0.isHeroItem }) {
             return usps
         }
@@ -66,52 +69,12 @@ struct ZenDashboardView: View {
     }
 
     var body: some View {
-        ZStack {
-            // MARK: Ambient Background Layer
-            if let url = ambientImageURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .ignoresSafeArea()
-                            .transition(.opacity.animation(.easeInOut(duration: 1.0)))
-                    } else {
-                        // While loading, use a subtle skeleton or solid color
-                        Theme.backgroundPrimary.ignoresSafeArea()
-                    }
-                }
-            } else {
-                // Local fallback while fetching or if network fails
-                let backgroundAsset = CityBackgroundMapper.getBackgroundAsset(forZip: move.destinationZip, cityBucket: move.destinationCityBucket)
-                Image(backgroundAsset)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .ignoresSafeArea()
-            }
-            
-            LinearGradient(
-                colors: [Theme.backgroundPrimary.opacity(0.85), Theme.backgroundPrimary],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 40) {
 
-            if pendingTasks.isEmpty {
-                // All done state
-                VStack(spacing: 20) {
-                    Text("All Caught Up.")
-                        .font(.system(size: 32, weight: .bold, design: .serif))
-                        .foregroundColor(Theme.textPrimary)
-                    Text("Your move is fully orchestrated.")
-                        .foregroundColor(Theme.textSecondary)
-                }
-            } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 40) {
-                    
                     // MARK: Momentum Ring & Header
-                    HStack {
+                    HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(daysUntilMoveLabel)
                                 .font(.system(size: 13, weight: .medium))
@@ -124,7 +87,7 @@ struct ZenDashboardView: View {
                                 .foregroundColor(Theme.textPrimary)
                         }
                         Spacer()
-                        
+
                         // Sleek Momentum Ring
                         ZStack {
                             Circle()
@@ -134,16 +97,25 @@ struct ZenDashboardView: View {
                                 .stroke(Theme.accentPrimary, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .animation(.spring(), value: move.completionFraction)
-                            
                             Text("\(Int(move.completionFraction * 100))%")
                                 .font(.system(size: 12, weight: .bold, design: .rounded))
                                 .foregroundColor(Theme.textPrimary)
                         }
                         .frame(width: 50, height: 50)
+
+                        // Settings button
+                        Button { showingEditMove = true } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+                                .frame(width: 36, height: 36)
+                                .background(Theme.backgroundElevated, in: Circle())
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
-                    
+
                     // MARK: Location Consent Card
                     if shouldShowConsentCard {
                         LocationConsentCard(
@@ -155,7 +127,8 @@ struct ZenDashboardView: View {
                                 withAnimation(.easeInOut(duration: 0.25)) {
                                     consentCardDismissed = true
                                 }
-                            }
+                            },
+                            locationStatus: locationManager.authorizationStatus
                         )
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -174,13 +147,24 @@ struct ZenDashboardView: View {
                             }
                         )
                         .padding(.horizontal, 20)
-                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .scale(scale: 0.9).combined(with: .opacity)))
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .scale(scale: 0.9).combined(with: .opacity)
+                        ))
                     }
 
-                    Spacer()
-
                     // MARK: Hero Task
-                    if let hero = heroTask {
+                    if pendingTasks.isEmpty {
+                        VStack(spacing: 20) {
+                            Text("All Caught Up.")
+                                .font(.system(size: 32, weight: .bold, design: .serif))
+                                .foregroundColor(Theme.textPrimary)
+                            Text("Your move is fully orchestrated.")
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                    } else if let hero = heroTask {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Current Objective")
                                 .font(.system(size: 12, weight: .semibold))
@@ -195,12 +179,13 @@ struct ZenDashboardView: View {
                                 onAgenticAction: { triggerAgenticAction(for: hero) },
                                 onSkip: { skipTask(hero) }
                             )
-                                .padding(.horizontal, 20)
-                                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .scale(scale: 0.9).combined(with: .opacity)))
+                            .padding(.horizontal, 20)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .scale(scale: 0.9).combined(with: .opacity)
+                            ))
                         }
                     }
-
-                    Spacer()
 
                     // MARK: Next Up Drawer
                     if !nextUpTasks.isEmpty {
@@ -218,7 +203,6 @@ struct ZenDashboardView: View {
                                     ZenDrawerRow(task: task)
                                         .padding(.horizontal, 24)
                                         .padding(.vertical, 16)
-                                    
                                     if task.id != nextUpTasks.last?.id {
                                         Rectangle()
                                             .fill(Theme.backgroundElevated)
@@ -235,9 +219,7 @@ struct ZenDashboardView: View {
                     }
 
                     // MARK: View All Tasks
-                    Button {
-                        showingAllTasks = true
-                    } label: {
+                    Button { showingAllTasks = true } label: {
                         HStack(spacing: 6) {
                             Text("View All \(move.totalCount) Tasks")
                                 .font(.system(size: 14, weight: .semibold))
@@ -254,14 +236,51 @@ struct ZenDashboardView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 20)
 
-                    // MARK: Achievement Milestones & Master Checklist
+                    // MARK: Achievement Milestones
                     AchievementMilestoneSection(move: move)
-                    } // end VStack
-                    .padding(.top, 20)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pendingTasks)
-                } // end ScrollView
-            } // end else
-        } // end ZStack
+
+                } // end VStack
+                .frame(width: geo.size.width) // ← pins content to exact screen width
+                .padding(.bottom, 40)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pendingTasks)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .background {
+                // Background layer — completely outside layout flow
+                ZStack {
+                    let backgroundAsset = CityBackgroundMapper.getBackgroundAsset(
+                        forZip: move.destinationZip,
+                        cityBucket: move.destinationCityBucket
+                    )
+                    Image(backgroundAsset)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+
+                    if let url = ambientImageURL {
+                        AsyncImage(url: url) { phase in
+                            if let image = phase.image {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geo.size.width, height: geo.size.height)
+                                    .clipped()
+                                    .transition(.opacity.animation(.easeInOut(duration: 1.0)))
+                            }
+                        }
+                    }
+
+                    LinearGradient(
+                        colors: [Theme.backgroundPrimary.opacity(0.85), Theme.backgroundPrimary],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .ignoresSafeArea(edges: .top)
         .sheet(isPresented: $showingMailComposer) {
             if let task = selectedAgenticTask {
                 MailComposeView(
@@ -290,16 +309,7 @@ struct ZenDashboardView: View {
             EditMoveView(move: move)
                 .preferredColorScheme(.dark)
         }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingEditMove = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundColor(Theme.textSecondary)
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             // Fetch live background from Unsplash on load
             if ambientImageURL == nil {
@@ -345,11 +355,10 @@ struct ZenDashboardView: View {
     private func skipTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        
         withAnimation {
-            // Push the task 7 days further out so it drops in urgency
-            task.tMinusDays += 7
-            try? modelContext.save()
+            // Session-skip: hide from hero view until next launch
+            // Does not persist — task will return on next app open
+            sessionSkippedTaskIDs.insert(task.id)
         }
     }
 
@@ -429,42 +438,37 @@ struct ZenHeroCard: View {
 
             VStack(alignment: .leading, spacing: 20) {
 
-                // MARK: Question + due date
-                VStack(alignment: .leading, spacing: 8) {
-                    // Category + due date row
+                // MARK: Question + title
+                VStack(alignment: .leading, spacing: 12) {
+                    // Due date + agentic badge row
                     HStack(spacing: 8) {
-                        Label(task.category.rawValue, systemImage: task.category.icon)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Theme.textSecondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Theme.backgroundElevated)
-                            .clipShape(Capsule())
-
-                        Spacer()
-
                         if let label = dueDateLabel {
                             Text(label)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.vertical, 4)
                                 .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08))
                                 .clipShape(Capsule())
                         }
-
+                        Spacer()
                         if task.actionType == .agenticUpdate {
                             Image(systemName: "sparkles")
                                 .foregroundColor(Theme.accentPrimary)
-                                .font(.system(size: 18))
+                                .font(.system(size: 16))
                         }
                     }
 
-                    // The question
-                    Text("Have you updated your address with **\(task.title)**?")
-                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                    // Small question label
+                    Text("Have you updated your address with")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(Theme.textSecondary)
+
+                    // Large emoji + task title
+                    Text("\(task.category.emoji) \(task.title)")
+                        .font(.system(size: 26, weight: .bold, design: .serif))
                         .foregroundColor(Theme.textPrimary)
-                        .lineSpacing(3)
+                        .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -688,6 +692,7 @@ enum AchievementClusterType: String, CaseIterable {
 struct AchievementMilestoneSection: View {
     let move: Move
     @State private var expandedClusters: Set<AchievementClusterType> = []
+    @State private var selectedTask: ChecklistTask? = nil
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
@@ -779,7 +784,11 @@ struct AchievementMilestoneSection: View {
                                             .padding(.top, 8)
 
                                         ForEach(pendingTasks) { task in
-                                            ZenMilestoneTaskRow(task: task, onComplete: { completeTask(task) })
+                                            ZenMilestoneTaskRow(
+                                                task: task,
+                                                onTap: { selectedTask = task },
+                                                onComplete: { completeTask(task) }
+                                            )
                                         }
                                     }
 
@@ -794,7 +803,11 @@ struct AchievementMilestoneSection: View {
                                             .padding(.top, 8)
 
                                         ForEach(completedTasks) { task in
-                                            ZenMilestoneTaskRow(task: task, onComplete: { completeTask(task) })
+                                            ZenMilestoneTaskRow(
+                                                task: task,
+                                                onTap: { selectedTask = task },
+                                                onComplete: { completeTask(task) }
+                                            )
                                         }
                                     }
                                 }
@@ -812,6 +825,28 @@ struct AchievementMilestoneSection: View {
             .padding(.horizontal, 20)
         }
         .padding(.bottom, 40)
+        .sheet(item: $selectedTask) { task in
+            TaskActionSheet(
+                task: task,
+                onAlreadyDone: {
+                    completeTask(task)
+                    selectedTask = nil
+                },
+                onUpdateNow: {
+                    if let url = task.deepLinkURL {
+                        UIApplication.shared.open(url)
+                    }
+                    completeTask(task)
+                    selectedTask = nil
+                },
+                onLater: {
+                    selectedTask = nil
+                }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
+        }
     }
 
     private func completeTask(_ task: ChecklistTask) {
@@ -831,14 +866,18 @@ struct AchievementMilestoneSection: View {
 // MARK: - Zen Milestone Task Row
 struct ZenMilestoneTaskRow: View {
     let task: ChecklistTask
+    let onTap: () -> Void
     let onComplete: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
-            Button(action: onComplete) {
+            // Circle tap → show action sheet (or undo if already completed)
+            Button(action: task.status == .completed ? onComplete : onTap) {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(task.status == .completed ? Theme.accentSuccess : Theme.textSecondary.opacity(0.5))
+                    .contentShape(Rectangle())
+                    .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
 
@@ -868,17 +907,88 @@ struct ZenMilestoneTaskRow: View {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14))
                         .foregroundColor(Theme.accentPrimary)
-                } else if let url = task.deepLinkURL {
-                    Link(destination: url) {
-                        Image(systemName: "arrow.up.right.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(Theme.accentPrimary.opacity(0.8))
-                    }
+                } else if task.deepLinkURL != nil {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(Theme.accentPrimary.opacity(0.8))
                 }
             }
         }
         .padding(12)
         .background(Theme.backgroundElevated.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture {
+            if task.status != .completed { onTap() }
+        }
+    }
+}
+
+// MARK: - Task Action Sheet
+struct TaskActionSheet: View {
+    let task: ChecklistTask
+    let onAlreadyDone: () -> Void
+    let onUpdateNow: () -> Void
+    let onLater: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Handle + title
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Have you updated your address?")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(Theme.textSecondary)
+                Text("\(task.category.emoji) \(task.title)")
+                    .font(.system(size: 20, weight: .bold, design: .serif))
+                    .foregroundColor(Theme.textPrimary)
+            }
+            .padding(.top, 8)
+
+            VStack(spacing: 10) {
+                // Primary: already done
+                Button(action: onAlreadyDone) {
+                    Text("Yes, already done ✓")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(Theme.accentSuccess)
+                        .foregroundColor(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+
+                // Secondary: update now (only if deep link exists)
+                if task.deepLinkURL != nil {
+                    Button(action: onUpdateNow) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("Update now")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(Theme.backgroundElevated)
+                        .foregroundColor(Theme.textPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Tertiary: later
+                Button(action: onLater) {
+                    Text("I'll do this later")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Theme.textTertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.backgroundCard)
     }
 }

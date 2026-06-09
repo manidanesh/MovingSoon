@@ -75,11 +75,16 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         guard let circularRegion = region as? CLCircularRegion else { return }
-        guard let move else { return }
+        guard let move else {
+            logger.error("LocationManager: didEnterRegion fired but move is nil")
+            return
+        }
         guard let userLocation = currentLocation else {
             logger.debug("LocationManager: didEnterRegion fired but currentLocation is nil — suppressing")
             return
         }
+
+        logger.debug("LocationManager: entered region \(circularRegion.identifier)")
 
         // Look up the task by region identifier (task.id.uuidString)
         guard let task = move.tasks.first(where: { $0.id.uuidString == circularRegion.identifier }),
@@ -87,6 +92,8 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             logger.debug("LocationManager: no matching task for region \(circularRegion.identifier)")
             return
         }
+
+        logger.debug("LocationManager: matched task '\(task.title)' category '\(poiCategory.rawValue)'")
 
         let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
 
@@ -100,14 +107,14 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         )
 
         guard SuppressionEngine.shouldFire(context: context) else {
-            logger.debug("LocationManager: suppression engine blocked notification for \(poiCategory.rawValue)")
+            logger.debug("LocationManager: suppression engine blocked notification for '\(poiCategory.rawValue)' — consent=\(move.locationConsentGrantedAt != nil) completion=\(move.completionFraction) hour=\(Calendar.current.component(.hour, from: Date()))")
             return
         }
 
         // All gates passed — fire the notification and record the cooldown
         reminderService.fireLocationNotification(task: task, poiCategory: poiCategory)
         cooldownStore.record(category: poiCategory, date: Date())
-        logger.debug("LocationManager: fired notification for \(poiCategory.rawValue)")
+        logger.debug("LocationManager: ✅ fired notification for '\(poiCategory.rawValue)'")
     }
 
     // MARK: - CLLocationManagerDelegate — monitoring errors

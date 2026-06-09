@@ -4,7 +4,7 @@ import Foundation
 enum ItemCatalog {
 
     // MARK: - All items merged
-    static var all: [CatalogItem] { government + transport + housing + financial + allLifestyle + allTravel + allInsurance + allDigital }
+    static var all: [CatalogItem] { government + transport + housing + financial + allLifestyle + allTravel + allInsurance + allDigital + allCanada }
 
     // MARK: - 🏛️ GOVERNMENT (always shown)
     static let government: [CatalogItem] = [

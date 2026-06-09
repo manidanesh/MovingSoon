@@ -57,18 +57,22 @@ struct HeroUSPSView: View {
                         Button {
                             withAnimation(.spring(duration: 0.35)) {
                                 task.advanceStatus(method: .manualConfirm)
+                                // Jump to completed in one tap
+                                if task.status == .pendingVerification {
+                                    task.advanceStatus(method: .manualConfirm)
+                                }
                             }
                         } label: {
                             Label(
-                                task.status == .toDo ? "Mark Started" : "Mark Done ✓",
-                                systemImage: task.status == .toDo ? "clock.fill" : "checkmark.circle.fill"
+                                "Mark Done ✓",
+                                systemImage: "checkmark.circle.fill"
                             )
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(task.status == .toDo ? Theme.accentPending : Theme.accentSuccess)
+                            .foregroundColor(Theme.accentSuccess)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(
-                                (task.status == .toDo ? Theme.accentPending : Theme.accentSuccess).opacity(0.15),
+                                Theme.accentSuccess.opacity(0.15),
                                 in: RoundedRectangle(cornerRadius: 10)
                             )
                         }

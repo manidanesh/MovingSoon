@@ -12,13 +12,13 @@ enum SuppressionEngine {
         let poiCategory: POICategory
         let cooldownStore: CooldownStore
         let now: Date
-        let userLocation: CLLocation
-        let destinationCoordinate: CLLocationCoordinate2D
+        let userLocation: CLLocation          // kept for foreground evaluator
+        let destinationCoordinate: CLLocationCoordinate2D  // kept for foreground evaluator
     }
 
     // MARK: - Main evaluator
 
-    /// Returns true only when all six gates pass (fail-fast order).
+    /// Returns true only when all five gates pass (fail-fast order).
     static func shouldFire(context: Context) -> Bool {
         // 1. Consent expiry — cheapest check, no location math needed
         guard consentExpiryGatePasses(
@@ -32,20 +32,14 @@ enum SuppressionEngine {
         // 3. Time of day — no notifications outside 9am–7pm
         guard timeOfDayGatePasses(now: context.now) else { return false }
 
-        // 4. Distance — user must be within 8 km of the destination area
-        guard distanceGatePasses(
-            userLocation: context.userLocation,
-            destination: context.destinationCoordinate
-        ) else { return false }
-
-        // 5. Task relevance — must have a pending task for this POI type
+        // 4. Task relevance — must have a pending task for this POI type
         guard taskRelevanceGatePasses(
             tasks: context.move.tasks,
             category: context.poiCategory,
             now: context.now
         ) else { return false }
 
-        // 6. Cooldown — max 1 notification per category per calendar day
+        // 5. Cooldown — max 1 notification per category per calendar day
         guard cooldownGatePasses(
             store: context.cooldownStore,
             category: context.poiCategory,

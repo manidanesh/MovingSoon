@@ -39,15 +39,8 @@ struct ContentView: View {
 
             case .dashboard:
                 if let move = activeMove {
-                    NavigationStack {
-                        ZenDashboardView(move: move)
-                            #if os(iOS)
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbarBackground(Theme.backgroundPrimary, for: .navigationBar)
-                            .toolbarColorScheme(.dark, for: .navigationBar)
-                            #endif
-                    }
-                    .transition(.opacity)
+                    ZenDashboardView(move: move)
+                        .transition(.opacity)
                 }
             }
         }

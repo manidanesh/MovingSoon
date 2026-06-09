@@ -73,8 +73,8 @@ final class SmartReminderService {
     /// and ONLY if it is a Critical Priority.
     func scheduleHeroTaskReminder(heroTask: ChecklistTask?) {
         let center = UNUserNotificationCenter.current()
-        // Clear previous reminders to ensure we only nag about the current Hero Task
-        center.removeAllPendingNotificationRequests()
+        // Only remove the previous hero task reminder — not ALL pending notifications
+        center.removePendingNotificationRequests(withIdentifiers: ["HeroTaskReminder"])
 
         guard let task = heroTask, task.status == .toDo else { return }
         
@@ -138,8 +138,9 @@ final class SmartReminderService {
             content.sound = .default
             content.categoryIdentifier = "TaskReminder"
             
-            // Schedule for 9:00 AM on the day that is 3 days before due
-            var triggerDate = calendar.dateComponents([.year, .month, .day], from: Date())
+            // Schedule for 9:00 AM on the day that is 3 days before the due date
+            guard let fireDay = calendar.date(byAdding: .day, value: -3, to: dueDate) else { continue }
+            var triggerDate = calendar.dateComponents([.year, .month, .day], from: fireDay)
             triggerDate.hour = 9
             triggerDate.minute = 0
             

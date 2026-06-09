@@ -61,14 +61,16 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     }
     
     private func muteTask(taskID: UUID) {
-        let context = ModelContext(modelContainer)
-        let descriptor = FetchDescriptor<ChecklistTask>(predicate: #Predicate { $0.id == taskID })
-        if let tasks = try? context.fetch(descriptor), let task = tasks.first {
-            task.isMuted = true
-            try? context.save()
-            // Remove any pending time-based reminders for this task to clean up the queue
-            let center = UNUserNotificationCenter.current()
-            center.removePendingNotificationRequests(withIdentifiers: ["TMinus-\(taskID.uuidString)", "HeroTaskReminder"])
+        // SwiftData mutations must happen on the main thread
+        DispatchQueue.main.async {
+            let context = ModelContext(self.modelContainer)
+            let descriptor = FetchDescriptor<ChecklistTask>(predicate: #Predicate { $0.id == taskID })
+            if let tasks = try? context.fetch(descriptor), let task = tasks.first {
+                task.isMuted = true
+                try? context.save()
+                let center = UNUserNotificationCenter.current()
+                center.removePendingNotificationRequests(withIdentifiers: ["TMinus-\(taskID.uuidString)", "HeroTaskReminder"])
+            }
         }
     }
     

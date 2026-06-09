@@ -18,7 +18,7 @@ enum ChecklistGenerator {
         // 2. Institution-specific tasks (per bank / card / investment)
         for institution in institutions {
             let task = ChecklistTask(
-                title: "Update address with \(institution.name)",
+                title: institution.name,
                 category: .financial,
                 priority: priorityFor(institution.institutionType),
                 tMinusDays: tMinusFor(institution.institutionType),
