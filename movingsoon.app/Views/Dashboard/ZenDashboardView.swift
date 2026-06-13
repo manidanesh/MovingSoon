@@ -225,6 +225,9 @@ struct ZenDashboardView: View {
                         onViewAll: { showingAllTasks = true }
                     )
 
+                    // MARK: Move Timeline — when do things need to happen
+                    MoveTimelineSection(move: move)
+
                 } // end VStack
                 .frame(width: geo.size.width) // ← pins content to exact screen width
                 .padding(.bottom, 40)
@@ -784,7 +787,169 @@ struct UpcomingTaskRow: View {
     }
 }
 
-// MARK: - Achievement Milestones & Master Checklist
+// MARK: - Move Timeline Section
+
+struct MoveTimelineSection: View {
+    let move: Move
+
+    /// Generate weekly buckets from T-5 weeks to T+2 weeks
+    private struct WeekBucket: Identifiable {
+        let id: Int               // offset in weeks from move date
+        let label: String
+        let startDate: Date
+        let endDate: Date
+        var tasks: [ChecklistTask] = []
+        let isMovWeek: Bool
+        let isPast: Bool
+        let isCurrent: Bool
+    }
+
+    private var buckets: [WeekBucket] {
+        let cal = Calendar.current
+        let moveDay = cal.startOfDay(for: move.anchorDate)
+        let today = cal.startOfDay(for: Date())
+
+        return (-5...2).map { offset in
+            let start = cal.date(byAdding: .weekOfYear, value: offset, to: moveDay)!
+            let end = cal.date(byAdding: .day, value: 6, to: start)!
+
+            let label: String
+            if offset == 0 {
+                label = "Move\nWeek"
+            } else if offset < 0 {
+                label = "\(abs(offset))w\nbefore"
+            } else {
+                label = "\(offset)w\nafter"
+            }
+
+            let weekTasks = move.tasks.filter { task in
+                guard let dueDate = cal.date(byAdding: .day, value: task.tMinusDays, to: moveDay) else { return false }
+                return dueDate >= start && dueDate <= end
+            }
+
+            let isPast = end < today
+            let isCurrent = today >= start && today <= end
+
+            var bucket = WeekBucket(id: offset, label: label, startDate: start, endDate: end,
+                                     isMovWeek: offset == 0, isPast: isPast, isCurrent: isCurrent)
+            bucket.tasks = weekTasks
+            return bucket
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Move Timeline")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Theme.textSecondary)
+                .textCase(.uppercase)
+                .tracking(2)
+                .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
+                        HStack(spacing: 0) {
+                            // Connecting line
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(bucket.isPast ? Theme.accentSuccess.opacity(0.4) : Theme.backgroundElevated)
+                                    .frame(width: 20, height: 2)
+                                    .padding(.top, 18)
+                            }
+
+                            VStack(spacing: 6) {
+                                // Week node
+                                ZStack {
+                                    Circle()
+                                        .fill(bucket.isMovWeek ? Theme.accentPrimary :
+                                              bucket.isCurrent ? Theme.accentPrimary.opacity(0.3) :
+                                              bucket.isPast ? Theme.accentSuccess.opacity(0.2) :
+                                              Theme.backgroundElevated)
+                                        .frame(width: 38, height: 38)
+                                        .overlay(
+                                            Circle().stroke(
+                                                bucket.isMovWeek ? Theme.accentPrimary :
+                                                bucket.isCurrent ? Theme.accentPrimary :
+                                                Color.clear, lineWidth: 2
+                                            )
+                                        )
+
+                                    if bucket.isMovWeek {
+                                        Text("🏠").font(.system(size: 18))
+                                    } else if bucket.isPast {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(Theme.accentSuccess)
+                                    } else {
+                                        // Task count dot
+                                        let pending = bucket.tasks.filter { $0.status == .toDo }.count
+                                        if pending > 0 {
+                                            Text("\(pending)")
+                                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                                .foregroundColor(bucket.isCurrent ? Theme.accentPrimary : Theme.textSecondary)
+                                        } else {
+                                            Image(systemName: "minus")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(Theme.textTertiary)
+                                        }
+                                    }
+                                }
+
+                                // Week label
+                                Text(bucket.label)
+                                    .font(.system(size: 9, weight: bucket.isCurrent || bucket.isMovWeek ? .bold : .regular))
+                                    .foregroundColor(bucket.isMovWeek ? Theme.accentPrimary :
+                                                     bucket.isCurrent ? Theme.textPrimary :
+                                                     bucket.isPast ? Theme.textTertiary :
+                                                     Theme.textSecondary)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 48)
+
+                                // Task category dots
+                                let pendingTasks = bucket.tasks.filter { $0.status == .toDo }
+                                if !pendingTasks.isEmpty && !bucket.isPast {
+                                    HStack(spacing: 2) {
+                                        ForEach(Array(Set(pendingTasks.compactMap { $0.poiCategory != nil ? "📍" : nil }
+                                            + pendingTasks.prefix(4).map { $0.category.emoji })).prefix(4), id: \.self) { emoji in
+                                            Text(emoji).font(.system(size: 8))
+                                        }
+                                    }
+                                    .frame(width: 48)
+                                }
+                            }
+                            .frame(width: 48)
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 8)
+            }
+
+            // Legend
+            HStack(spacing: 16) {
+                HStack(spacing: 4) {
+                    Circle().fill(Theme.accentSuccess.opacity(0.2)).frame(width: 8, height: 8)
+                    Text("Done").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                }
+                HStack(spacing: 4) {
+                    Circle().fill(Theme.accentPrimary.opacity(0.3)).frame(width: 8, height: 8)
+                    Text("This week").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                }
+                HStack(spacing: 4) {
+                    Circle().fill(Theme.backgroundElevated).frame(width: 8, height: 8)
+                    Text("Upcoming").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
+        }
+        .padding(.bottom, 32)
+    }
+}
+
+// MARK: - Achievement Milestones & Master Checklist (kept for reference, not rendered on main dashboard)
 
 enum AchievementClusterType: String, CaseIterable {
     case utilities = "🔌 Utility & Housing Grid"
