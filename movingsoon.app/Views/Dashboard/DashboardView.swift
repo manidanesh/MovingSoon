@@ -1,211 +1,341 @@
-// DashboardView.swift — Main action hub
+// DashboardView.swift — All Tasks sheet, unified with main dashboard UX
 import SwiftUI
 import SwiftData
 
 struct DashboardView: View {
     let move: Move
-    @State private var expandedBuckets: Set<TaskPriority> = [.critical, .high]
+    @Environment(\.modelContext) private var modelContext
+    @State private var filter: TaskFilter = .pending
+    @State private var searchText: String = ""
 
-    private var heroTask: ChecklistTask? {
-        move.tasks.first { $0.isHeroItem }
+    enum TaskFilter: String, CaseIterable {
+        case pending   = "Pending"
+        case overdue   = "Overdue"
+        case critical  = "Critical"
+        case completed = "Completed"
     }
 
-    private var nonHeroTasks: [ChecklistTask] {
-        move.tasks.filter { !$0.isHeroItem }
-    }
+    private var allTasks: [ChecklistTask] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
 
-    private var tasksByPriority: [(priority: TaskPriority, tasks: [ChecklistTask])] {
-        TaskPriority.allCases.compactMap { priority in
-            let tasks = nonHeroTasks
-                .filter { $0.priority == priority }
-                .sorted { $0.tMinusDays < $1.tMinusDays }
-            return tasks.isEmpty ? nil : (priority, tasks)
+        var tasks: [ChecklistTask]
+        switch filter {
+        case .pending:
+            tasks = move.tasks.filter { $0.status != .completed }
+        case .overdue:
+            tasks = move.tasks.filter { task in
+                guard task.status != .completed else { return false }
+                let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+                return calendar.startOfDay(for: due) < today
+            }
+        case .critical:
+            tasks = move.tasks.filter { $0.priority == .critical && $0.status != .completed }
+        case .completed:
+            tasks = move.tasks.filter { $0.status == .completed }
         }
+
+        // Search filter
+        if !searchText.isEmpty {
+            tasks = tasks.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                ($0.institutionName?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+                $0.category.rawValue.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        return tasks.sorted { $0.tMinusDays < $1.tMinusDays }
     }
 
     var body: some View {
         ZStack {
             Theme.backgroundPrimary.ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
+            VStack(spacing: 0) {
 
-                    // MARK: Header
-                    DashboardHeaderView(move: move)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-
-                    // MARK: USPS Hero — only shown while incomplete
-                    if let hero = heroTask, hero.status != .completed {
-                        HeroUSPSView(task: hero)
-                            .padding(.horizontal, 20)
-                    }
-
-                    // MARK: Task buckets
-                    ForEach(tasksByPriority, id: \.priority) { bucket in
-                        TaskBucketSection(
-                            priority: bucket.priority,
-                            tasks: bucket.tasks,
-                            isExpanded: expandedBuckets.contains(bucket.priority)
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                if expandedBuckets.contains(bucket.priority) {
-                                    expandedBuckets.remove(bucket.priority)
-                                } else {
-                                    expandedBuckets.insert(bucket.priority)
-                                }
+                // MARK: Progress Header
+                VStack(spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(move.personaKey.tagline)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Theme.accentPrimary)
+                            Text("\(move.completedCount) of \(move.totalCount) updated")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundColor(Theme.textPrimary)
+                        }
+                        Spacer()
+                        ZStack {
+                            Circle()
+                                .stroke(Theme.backgroundElevated, lineWidth: 5)
+                            Circle()
+                                .trim(from: 0, to: move.completionFraction)
+                                .stroke(Theme.accentSuccess,
+                                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                                .animation(.easeInOut(duration: 0.5), value: move.completionFraction)
+                            VStack(spacing: 0) {
+                                Text("\(Int(move.completionFraction * 100))%")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundColor(Theme.textPrimary)
+                                Text("done")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(Theme.textTertiary)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .frame(width: 54, height: 54)
                     }
 
-                    Spacer(minLength: 40)
+                    // Progress bar
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.backgroundElevated).frame(height: 5)
+                            Capsule()
+                                .fill(LinearGradient(
+                                    colors: [Theme.accentPrimary, Theme.accentSuccess],
+                                    startPoint: .leading, endPoint: .trailing))
+                                .frame(width: geo.size.width * move.completionFraction, height: 5)
+                                .animation(.easeInOut(duration: 0.5), value: move.completionFraction)
+                        }
+                    }
+                    .frame(height: 5)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+
+                // MARK: Search
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(Theme.textTertiary)
+                        .font(.system(size: 14))
+                    TextField("Search tasks...", text: $searchText)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+
+                // MARK: Filter tabs
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(TaskFilter.allCases, id: \.self) { tab in
+                            let count = countFor(tab)
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { filter = tab }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(tab.rawValue)
+                                        .font(.system(size: 13, weight: filter == tab ? .semibold : .regular))
+                                    if count > 0 {
+                                        Text("\(count)")
+                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 2)
+                                            .background(filter == tab ? Color.black.opacity(0.25) : Theme.backgroundElevated,
+                                                        in: Capsule())
+                                    }
+                                }
+                                .foregroundColor(filter == tab ? .black : Theme.textSecondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(filter == tab ? Theme.accentPrimary : Theme.backgroundElevated,
+                                            in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.bottom, 12)
+
+                Rectangle().fill(Theme.hairline).frame(height: 0.5)
+
+                // MARK: Task List
+                if allTasks.isEmpty {
+                    VStack(spacing: 12) {
+                        Text(emptyStateEmoji)
+                            .font(.system(size: 40))
+                        Text(emptyStateMessage)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Theme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(40)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(allTasks) { task in
+                                UnifiedTaskRow(
+                                    task: task,
+                                    moveDate: move.anchorDate,
+                                    onComplete: { toggleTask(task) }
+                                )
+                                Rectangle().fill(Theme.hairline).frame(height: 0.5)
+                                    .padding(.leading, 68)
+                            }
+                        }
+                        .padding(.bottom, 40)
+                    }
                 }
             }
         }
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.backgroundPrimary, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        #endif
+    }
+
+    // MARK: - Helpers
+
+    private func countFor(_ tab: TaskFilter) -> Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        switch tab {
+        case .pending:   return move.tasks.filter { $0.status != .completed }.count
+        case .overdue:
+            return move.tasks.filter { task in
+                guard task.status != .completed else { return false }
+                let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+                return calendar.startOfDay(for: due) < today
+            }.count
+        case .critical:  return move.tasks.filter { $0.priority == .critical && $0.status != .completed }.count
+        case .completed: return move.tasks.filter { $0.status == .completed }.count
+        }
+    }
+
+    private var emptyStateEmoji: String {
+        switch filter {
+        case .pending:   return "✅"
+        case .overdue:   return "🎉"
+        case .critical:  return "✅"
+        case .completed: return "📋"
+        }
+    }
+
+    private var emptyStateMessage: String {
+        switch filter {
+        case .pending:   return searchText.isEmpty ? "All caught up!" : "No tasks match \"\(searchText)\""
+        case .overdue:   return "No overdue tasks — great work!"
+        case .critical:  return "No critical tasks remaining"
+        case .completed: return "No completed tasks yet"
+        }
+    }
+
+    private func toggleTask(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        withAnimation {
+            if task.status == .completed {
+                task.resetStatus()
+            } else {
+                task.advanceStatus()
+                if task.status == .pendingVerification { task.advanceStatus() }
+            }
+            try? modelContext.save()
+        }
     }
 }
 
-// MARK: - Dashboard Header
+// MARK: - Unified Task Row
 
-struct DashboardHeaderView: View {
-    let move: Move
+struct UnifiedTaskRow: View {
+    let task: ChecklistTask
+    let moveDate: Date
+    let onComplete: () -> Void
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(move.personaKey.tagline)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Theme.accentPrimary)
-
-                    Text(daysLabel)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(Theme.textPrimary)
-                }
-
-                Spacer()
-
-                // Overall completion ring
-                ZStack {
-                    Circle()
-                        .stroke(Theme.backgroundElevated, lineWidth: 6)
-                    Circle()
-                        .trim(from: 0, to: move.completionFraction)
-                        .stroke(Theme.accentSuccess, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.easeInOut(duration: 0.5), value: move.completionFraction)
-                    VStack(spacing: 0) {
-                        Text("\(Int(move.completionFraction * 100))%")
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundColor(Theme.textPrimary)
-                        Text("done")
-                            .font(.system(size: 9))
-                            .foregroundColor(Theme.textTertiary)
-                    }
-                }
-                .frame(width: 64, height: 64)
-            }
-
-            // Progress bar
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.backgroundElevated).frame(height: 6)
-                    Capsule()
-                        .fill(
-                            LinearGradient(colors: [Theme.accentPrimary, Theme.accentSuccess],
-                                           startPoint: .leading, endPoint: .trailing)
-                        )
-                        .frame(width: geo.size.width * move.completionFraction, height: 6)
-                        .animation(.easeInOut(duration: 0.5), value: move.completionFraction)
-                }
-            }
-            .frame(height: 6)
-
-            Text("\(move.completedCount) of \(move.totalCount) updates complete")
-                .font(.system(size: 13))
-                .foregroundColor(Theme.textSecondary)
-        }
-        .padding(18)
-        .background(Color.clear)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.hairline).frame(height: 0.5)
-        }
+    private var dueLabel: String? {
+        let cal = Calendar.current
+        let dueDate = cal.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: Date()),
+                                       to: cal.startOfDay(for: dueDate)).day ?? 0
+        if task.status == .completed { return nil }
+        if days < 0  { return "Overdue" }
+        if days == 0 { return "Today" }
+        if days == 1 { return "Tomorrow" }
+        if days <= 7 { return "In \(days)d" }
+        return nil
     }
 
-    private var daysLabel: String {
-        let days = move.daysUntilMove
-        if days > 0  { return "T-minus \(days) days" }
-        if days == 0 { return "Moving day! 🎉" }
-        return "Day \(abs(days)) in your new home"
-    }
-}
-
-// MARK: - Task Bucket Section
-
-struct TaskBucketSection: View {
-    let priority: TaskPriority
-    let tasks: [ChecklistTask]
-    let isExpanded: Bool
-    let onToggle: () -> Void
-
-    private var incomplete: Int { tasks.filter { $0.status != .completed }.count }
-    private var priorityColor: Color {
-        switch priority {
-        case .critical: return Theme.priorityCritical
-        case .high:     return Theme.priorityHigh
-        case .medium:   return Theme.priorityMedium
-        case .low:      return Theme.priorityLow
-        }
+    private var isOverdue: Bool {
+        guard task.status != .completed else { return false }
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        return dueDate < Calendar.current.startOfDay(for: Date())
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            Button(action: onToggle) {
-                HStack {
-                    Circle()
-                        .fill(priorityColor)
-                        .frame(width: 8, height: 8)
+        HStack(spacing: 14) {
 
-                    Text(priority.bucketLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.textPrimary)
-
-                    Spacer()
-
-                    Text("\(incomplete) left")
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.textTertiary)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Theme.textTertiary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+            // Completion ring
+            Button(action: onComplete) {
+                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundColor(task.status == .completed ? Theme.accentSuccess :
+                                     isOverdue ? Theme.accentPrimary :
+                                     Theme.textSecondary.opacity(0.4))
+                    .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
-                Divider().background(Theme.backgroundElevated)
-
-                VStack(spacing: 8) {
-                    ForEach(tasks) { task in
-                        TaskRowView(task: task)
-                    }
+            // Icon
+            if let emoji = task.institutionInitials, task.institutionName == nil {
+                Text(emoji).font(.system(size: 22)).frame(width: 36, height: 36)
+            } else if task.institutionName != nil {
+                InstitutionBadgeView(
+                    initials: task.institutionInitials ?? "?",
+                    colorHex: task.institutionColorHex ?? "#626567",
+                    size: 36
+                )
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(Color(hex: task.institutionColorHex ?? "#626567").opacity(0.15))
+                    Text(task.category.emoji).font(.system(size: 16))
                 }
-                .padding(12)
+                .frame(width: 36, height: 36)
+            }
+
+            // Title + subtitle
+            VStack(alignment: .leading, spacing: 3) {
+                Text(task.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(task.status == .completed ? Theme.textTertiary : Theme.textPrimary)
+                    .strikethrough(task.status == .completed, color: Theme.textTertiary)
+                    .lineLimit(2)
+                Text(task.institutionName ?? task.category.rawValue)
+                    .font(.system(size: 12))
+                    .foregroundColor(task.status == .completed ? Theme.accentSuccess.opacity(0.6) : Theme.textTertiary)
+            }
+
+            Spacer()
+
+            // Due label
+            if let label = dueLabel {
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08), in: Capsule())
+            }
+
+            // Deep link
+            if let url = task.deepLinkURL, task.status != .completed {
+                Button {
+                    UIApplication.shared.open(url)
+                } label: {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(Theme.accentPrimary.opacity(0.7))
+                }
+                .buttonStyle(.plain)
             }
         }
-        .background(Color.clear)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.hairline).frame(height: 0.5)
-        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(task.isHeroItem && task.status != .completed ? Theme.uspsBlue.opacity(0.08) : Color.clear)
     }
 }
