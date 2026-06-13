@@ -35,8 +35,8 @@ struct DashboardView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 20)
 
-                    // MARK: USPS Hero
-                    if let hero = heroTask {
+                    // MARK: USPS Hero — only shown while incomplete
+                    if let hero = heroTask, hero.status != .completed {
                         HeroUSPSView(task: hero)
                             .padding(.horizontal, 20)
                     }

@@ -3,7 +3,6 @@ import SwiftUI
 
 struct TaskRowView: View {
     @Bindable var task: ChecklistTask
-    @State private var showingUndo = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -11,15 +10,16 @@ struct TaskRowView: View {
             // MARK: Momentum ring
             Button {
                 withAnimation(.spring(duration: 0.35)) {
-                    task.advanceStatus()
-                    // Jump straight to completed — pendingVerification is invisible to the user
-                    if task.status == .pendingVerification {
+                    if task.status == .completed {
+                        // Already done — tap again to uncheck
+                        task.resetStatus()
+                    } else {
                         task.advanceStatus()
+                        // Jump straight to completed — pendingVerification is invisible to the user
+                        if task.status == .pendingVerification {
+                            task.advanceStatus()
+                        }
                     }
-                }
-                if task.status == .completed {
-                    showingUndo = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showingUndo = false }
                 }
             } label: {
                 MomentumRingView(status: task.status, size: 32)
@@ -81,13 +81,6 @@ struct TaskRowView: View {
                 Rectangle().fill(Theme.hairline).frame(height: 0.5)
             }
         }
-        .overlay(alignment: .bottom) {
-            if showingUndo {
-                UndoChip { withAnimation { task.resetStatus(); showingUndo = false } }
-                    .padding(.bottom, -36)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
     }
 
     private var statusSubtitleColor: Color {
@@ -99,17 +92,4 @@ struct TaskRowView: View {
     }
 }
 
-private struct UndoChip: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Label("Undo", systemImage: "arrow.uturn.backward")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Theme.backgroundElevated, in: Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
+

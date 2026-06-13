@@ -218,26 +218,12 @@ struct ZenDashboardView: View {
                         .padding(.bottom, 40)
                     }
 
-                    // MARK: View All Tasks
-                    Button { showingAllTasks = true } label: {
-                        HStack(spacing: 6) {
-                            Text("View All \(move.totalCount) Tasks")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Theme.textSecondary)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Theme.textTertiary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Theme.backgroundCard.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 20)
-
-                    // MARK: Achievement Milestones
-                    AchievementMilestoneSection(move: move)
+                    // MARK: Today's Priorities — urgent tasks, not a flat list of 68
+                    TodaysPrioritiesSection(
+                        move: move,
+                        onTaskComplete: { task in completeTask(task) },
+                        onViewAll: { showingAllTasks = true }
+                    )
 
                 } // end VStack
                 .frame(width: geo.size.width) // ← pins content to exact screen width
@@ -486,7 +472,39 @@ struct ZenHeroCard: View {
                                 .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
                         }
                         .buttonStyle(.plain)
+                    } else if let url = task.deepLinkURL {
+                        // Primary: open the service directly
+                        Button {
+                            UIApplication.shared.open(url)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Update Now")
+                                    .font(.system(size: 16, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Theme.accentPrimary)
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Secondary: already done
+                        Button(action: onComplete) {
+                            Text("I already updated this ✓")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Theme.backgroundElevated)
+                                .foregroundColor(Theme.accentSuccess)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
                     } else {
+                        // No deep link — just mark done
                         Button(action: onComplete) {
                             Text("Mark as Done")
                                 .font(.system(size: 16, weight: .bold))
@@ -582,8 +600,7 @@ struct ZenDrawerRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Theme.textSecondary) // Dimmer than Hero
-                
+                    .foregroundColor(Theme.textSecondary)
                 Text(task.category.rawValue)
                     .font(.system(size: 12))
                     .foregroundColor(Theme.textSecondary.opacity(0.5))
@@ -592,11 +609,178 @@ struct ZenDrawerRow: View {
             if task.actionType == .agenticUpdate {
                 Image(systemName: "sparkles")
                     .foregroundColor(Theme.accentPrimary.opacity(0.5))
-            } else {
-                Image(systemName: "lock.fill")
-                    .foregroundColor(Theme.textSecondary.opacity(0.2))
+            } else if task.deepLinkURL != nil {
+                Image(systemName: "arrow.up.right.circle")
+                    .font(.system(size: 16))
+                    .foregroundColor(Theme.textTertiary.opacity(0.4))
             }
         }
+    }
+}
+
+// MARK: - Today's Priorities Section
+struct TodaysPrioritiesSection: View {
+    let move: Move
+    let onTaskComplete: (ChecklistTask) -> Void
+    let onViewAll: () -> Void
+    @Environment(\.modelContext) private var modelContext
+
+    /// Tasks due soonest that aren't the hero item — up to 5
+    private var urgentTasks: [ChecklistTask] {
+        move.tasks
+            .filter { $0.status == .toDo && !$0.isHeroItem }
+            .sorted { $0.tMinusDays < $1.tMinusDays }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    private var overdueTasks: [ChecklistTask] {
+        let today = Date()
+        return move.tasks.filter { task in
+            task.status == .toDo && !task.isHeroItem &&
+            (Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? Date()) < today
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+
+            // Section header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Coming Up")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Theme.textSecondary)
+                        .textCase(.uppercase)
+                        .tracking(2)
+                    if !overdueTasks.isEmpty {
+                        Text("\(overdueTasks.count) overdue")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Theme.accentPrimary)
+                    }
+                }
+                Spacer()
+                Button(action: onViewAll) {
+                    HStack(spacing: 4) {
+                        Text("All \(move.totalCount - move.completedCount) remaining")
+                            .font(.system(size: 12, weight: .medium))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(Theme.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+
+            // Task cards
+            if urgentTasks.isEmpty {
+                Text("All tasks complete or in progress.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 24)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(urgentTasks) { task in
+                        UpcomingTaskRow(
+                            task: task,
+                            moveDate: move.anchorDate,
+                            onComplete: { onTaskComplete(task) }
+                        )
+                        if task.id != urgentTasks.last?.id {
+                            Rectangle()
+                                .fill(Theme.backgroundElevated)
+                                .frame(height: 0.5)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .background(Theme.backgroundCard.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 20)
+            }
+        }
+        .padding(.bottom, 40)
+    }
+}
+
+// MARK: - Upcoming Task Row
+struct UpcomingTaskRow: View {
+    let task: ChecklistTask
+    let moveDate: Date
+    let onComplete: () -> Void
+
+    private var dueLabel: String {
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
+                                                    to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
+        if days < 0  { return "Overdue" }
+        if days == 0 { return "Due today" }
+        if days == 1 { return "Due tomorrow" }
+        return "Due in \(days)d"
+    }
+
+    private var isOverdue: Bool {
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        return dueDate < Calendar.current.startOfDay(for: Date())
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            // Tap to complete
+            Button(action: onComplete) {
+                Image(systemName: "circle")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textSecondary.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+
+            // Emoji icon
+            if let emoji = task.institutionInitials, task.institutionName == nil {
+                Text(emoji).font(.system(size: 20))
+            } else if task.institutionName != nil {
+                InstitutionBadgeView(
+                    initials: task.institutionInitials ?? "?",
+                    colorHex: task.institutionColorHex ?? "#626567",
+                    size: 32
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(task.category.rawValue)
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.textTertiary)
+            }
+
+            Spacer()
+
+            // Due label
+            Text(dueLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08))
+                .clipShape(Capsule())
+
+            // Deep link arrow
+            if let url = task.deepLinkURL {
+                Button {
+                    UIApplication.shared.open(url)
+                } label: {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(Theme.accentPrimary.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }
 

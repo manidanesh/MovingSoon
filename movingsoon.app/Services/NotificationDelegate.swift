@@ -28,18 +28,28 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         
         switch response.actionIdentifier {
         case "UPDATE_NOW", UNNotificationDefaultActionIdentifier:
+            // Check if this is a digest notification — just open the app (no deep link)
+            let action = userInfo["action"] as? String
+            if action == "openDashboard" {
+                // App opens to dashboard automatically — nothing extra needed
+                break
+            }
             if let urlString = urlString, let url = URL(string: urlString) {
                 DispatchQueue.main.async {
                     UIApplication.shared.open(url, options: [:], completionHandler: nil)
                 }
             }
-            
+
+        case "REVIEW_NOW":
+            // Digest notification tapped — app opens to dashboard automatically
+            break
+
         case "SNOOZE":
             snoozeNotification(response.notification.request)
-            
+
         case "MUTE":
             muteTask(taskID: taskID)
-            
+
         default:
             break
         }
