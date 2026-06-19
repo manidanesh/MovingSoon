@@ -21,22 +21,9 @@
 		3CEF20AC2FD7E51300B1DA91 /* movingsoon.appTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = movingsoon.appTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		3CEF20A72FD7DF3300B1DA91 /* Exceptions for "movingsoon.app" folder in "movingsoon.app" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"movingsoon-app-Info.plist",
-			);
-			target = 3C49C9D62F9D9AAC009092E2 /* movingsoon.app */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3C49C9D92F9D9AAC009092E2 /* movingsoon.app */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				3CEF20A72FD7DF3300B1DA91 /* Exceptions for "movingsoon.app" folder in "movingsoon.app" target */,
-			);
 			path = movingsoon.app;
 			sourceTree = "<group>";
 		};

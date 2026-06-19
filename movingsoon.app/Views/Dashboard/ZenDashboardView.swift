@@ -28,6 +28,9 @@ struct ZenDashboardView: View {
     // Session-skipped task IDs — hero items deferred until next launch
     @State private var sessionSkippedTaskIDs: Set<UUID> = []
 
+    // Celebration
+    @State private var celebrationTask: ChecklistTask? = nil
+
     // MARK: - Consent card visibility predicate
     private var shouldShowConsentCard: Bool {
         // Never show again once consent has been granted (even after expiry)
@@ -68,6 +71,15 @@ struct ZenDashboardView: View {
         return "Day \(abs(days)) in your new home"
     }
 
+    private var dashboardTitle: String {
+        let city = move.destinationCityBucket?
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+        let state = move.destinationStateBucket
+        if let city = city { return "Moving to \(city)" }
+        return "Moving to \(state)"
+    }
+
     var body: some View {
         GeometryReader { geo in
             ScrollView(showsIndicators: false) {
@@ -82,9 +94,13 @@ struct ZenDashboardView: View {
                                 .textCase(.uppercase)
                                 .tracking(1.5)
 
-                            Text("Your Action Hub")
+                            Text(dashboardTitle)
                                 .font(.system(size: 28, weight: .bold, design: .serif))
                                 .foregroundColor(Theme.textPrimary)
+
+                            Text("\(Int(move.completionFraction * 100))% complete")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(Theme.textSecondary)
                         }
                         Spacer()
 
@@ -299,6 +315,13 @@ struct ZenDashboardView: View {
                 .preferredColorScheme(.dark)
         }
         .toolbar(.hidden, for: .navigationBar)
+        .overlay {
+            TaskCompletionCelebration(
+                taskTitle: celebrationTask?.title ?? "",
+                isVisible: celebrationTask != nil,
+                onDismiss: { celebrationTask = nil }
+            )
+        }
         .task {
             // Fetch live background from Unsplash on load
             if ambientImageURL == nil {
@@ -328,16 +351,21 @@ struct ZenDashboardView: View {
     private func completeTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
-        
+
         withAnimation {
-            // Advance twice to jump toDo → pendingVerification → completed in one tap
             task.advanceStatus()
             if task.status == .pendingVerification {
                 task.advanceStatus()
             }
             try? modelContext.save()
-            // Remove geofence for this task if it has one
             locationManager.taskStatusDidChange(task)
+        }
+
+        // Show celebration for any completed task
+        if task.status == .completed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                celebrationTask = task
+            }
         }
     }
 

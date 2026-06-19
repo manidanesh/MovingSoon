@@ -1,41 +1,59 @@
-// LifestyleInterviewView.swift — 6-screen lifestyle interview + financial account picker
+// LifestyleInterviewView.swift — Simplified 3-screen lifestyle interview
 import SwiftUI
 import SwiftData
 
+// MARK: - ViewModel
+
 @Observable
 final class LifestyleViewModel {
-    var chips: [String: [ChipSection]] = [:]
     var currentScreen: Int = 0
-    let totalScreens = 7  // 6 lifestyle + 1 financial
+    let totalScreens = 3  // 3 simple screens instead of 7
 
-    // Financial institutions
+    // Screen 1: Yes/No questions
+    var hasKids: Bool = false
+    var hasPets: Bool = false
+    var ownsHome: Bool = false
+
+    // Screen 2: Financial institutions
     var selectedInstitutions: Set<KnownInstitution> = []
 
-    init(originZip: String?, destinationZip: String?) { 
-        buildChips(originZip: originZip ?? "", destinationZip: destinationZip ?? "") 
+    // Screen 3: Optional extras (expanded inline)
+    var expandedCategories: Set<String> = []
+    var extraChips: [String: [ChipSection]] = [:]
+
+    init(originZip: String?, destinationZip: String?) {
+        buildExtraChips(originZip: originZip ?? "", destinationZip: destinationZip ?? "")
     }
 
-    func toggle(chip: BubbleChip, in screen: String) {
-        guard let sections = chips[screen] else { return }
-        for (sIdx, section) in sections.enumerated() {
-            if let cIdx = section.chips.firstIndex(where: { $0.id == chip.id }) {
-                chips[screen]?[sIdx].chips[cIdx].isSelected.toggle()
-                return
-            }
+    func next() {
+        if currentScreen < totalScreens - 1 {
+            withAnimation(.easeInOut(duration: 0.3)) { currentScreen += 1 }
+        }
+    }
+    func back() {
+        if currentScreen > 0 {
+            withAnimation(.easeInOut(duration: 0.3)) { currentScreen -= 1 }
         }
     }
 
-    func activeFlags(in screen: String) -> Set<LifestyleFlag> {
+    // Core flags from yes/no answers
+    var coreFlags: Set<LifestyleFlag> {
         var flags: Set<LifestyleFlag> = []
-        for section in chips[screen] ?? [] {
-            flags.formUnion(section.chips.filter { $0.isSelected }.compactMap { $0.flag })
+        if hasKids { flags.insert(.hasChildren) }
+        if hasPets { flags.insert(.hasPets) }
+        if ownsHome {
+            flags.insert(.isOwning)
+            flags.insert(.livesInHouseOrTownhouse)
+        } else {
+            flags.insert(.isRenting)
         }
         return flags
     }
 
+    // All flags including extra selections
     var allActiveFlags: Set<LifestyleFlag> {
-        var flags: Set<LifestyleFlag> = []
-        for sections in chips.values {
+        var flags = coreFlags
+        for sections in extraChips.values {
             for section in sections {
                 flags.formUnion(section.chips.filter { $0.isSelected }.compactMap { $0.flag })
             }
@@ -43,190 +61,80 @@ final class LifestyleViewModel {
         return flags
     }
 
-    func next() { if currentScreen < totalScreens - 1 { withAnimation(.easeInOut(duration: 0.3)) { currentScreen += 1 } } }
-    func back() { if currentScreen > 0 { withAnimation(.easeInOut(duration: 0.3)) { currentScreen -= 1 } } }
+    func toggleExtraChip(_ chip: BubbleChip, in category: String) {
+        guard let sections = extraChips[category] else { return }
+        for (sIdx, section) in sections.enumerated() {
+            if let cIdx = section.chips.firstIndex(where: { $0.id == chip.id }) {
+                extraChips[category]?[sIdx].chips[cIdx].isSelected.toggle()
+                return
+            }
+        }
+    }
 
-    // MARK: - Chip definitions
+    // MARK: - Optional extra categories (shown on screen 3)
 
-    private func buildChips(originZip: String, destinationZip: String) {
-        // Destination ZIP: what's available at the new location (set up tasks)
-        let destinationRegional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
-        // Origin ZIP: what the user currently has (cancel/transfer tasks)
-        let originRegional = originZip.isEmpty ? destinationRegional : RegionalIntelligenceService.availableRegionalChips(forZip: originZip)
+    private func buildExtraChips(originZip: String, destinationZip: String) {
+        let destRegional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
+        let origRegional = originZip.isEmpty ? destRegional : RegionalIntelligenceService.availableRegionalChips(forZip: originZip)
         let regionalIDs = RegionalIntelligenceService.regionalChipIDs
 
-        // Show a chip if it's available at EITHER origin OR destination
         func isAvailable(_ id: String) -> Bool {
-            !regionalIDs.contains(id) || destinationRegional.contains(id) || originRegional.contains(id)
+            !regionalIDs.contains(id) || destRegional.contains(id) || origRegional.contains(id)
         }
-        
-        // 1. Transport
-        chips["transport"] = [
-            ChipSection(title: "Vehicles", chips: [
-                BubbleChip(id: "hasCar",         label: "Car",            emoji: "🚗", flag: .hasCar),
-                BubbleChip(id: "hasEV",          label: "Electric Vehicle",emoji: "⚡", flag: .hasElectricVehicle),
-                BubbleChip(id: "hasMotorcycle",  label: "Motorcycle",     emoji: "🏍️", flag: .hasMotorcycle),
-                BubbleChip(id: "hasMultipleCars",label: "Multiple Cars",  emoji: "🚙", flag: .hasMultipleCars),
-                BubbleChip(id: "hasVehicleWarranty", label: "Vehicle Warranty", emoji: "🚗", flag: .hasVehicleWarranty),
-            ]),
-            ChipSection(title: "Commute & Travel", chips: [
-                BubbleChip(id: "hasBike",        label: "E-Bike / Scooter",emoji:"🛴", flag: .hasBike),
-                BubbleChip(id: "usesRideShare",  label: "Uber / Lyft",    emoji: "🚕", flag: .usesRideShare),
-                BubbleChip(id: "hasTollRoads",   label: "Toll Roads",     emoji: "🛣️", flag: .hasTollRoads),
-                BubbleChip(id: "frequentTravel", label: "Frequent Traveler",emoji: "✈️", flag: .frequentTraveler),
-                BubbleChip(id: "hasTSAPre",      label: "TSA PreCheck",   emoji: "🛂", flag: .hasTSAPreCheck),
-                BubbleChip(id: "needsParking",   label: "Parking Permit", emoji: "🅿️", flag: .needsParkingPermit),
-                BubbleChip(id: "airlineLoyalty", label: "Airline Loyalty",emoji: "✈️", flag: .hasAirlineLoyalty),
+
+        extraChips["shopping"] = [
+            ChipSection(title: "Shopping & Delivery", chips: [
+                BubbleChip(id: "usesAmazon",     label: "Amazon",       emoji: "📦", flag: .usesAmazon),
+                BubbleChip(id: "usesTarget",     label: "Target",       emoji: "🎯", flag: .usesTarget),
+                BubbleChip(id: "usesWalmart",    label: "Walmart",      emoji: "🛒", flag: .usesWalmart),
+                BubbleChip(id: "usesCostco",     label: "Costco",       emoji: "🏬", flag: .usesCostco),
+                BubbleChip(id: "usesDoorDash",   label: "DoorDash",     emoji: "🍕", flag: .usesDoorDash),
+                BubbleChip(id: "usesUberEats",   label: "Uber Eats",    emoji: "🍔", flag: .usesUberEats),
+                BubbleChip(id: "usesInstacart",  label: "Instacart",    emoji: "🛒", flag: .usesInstacart),
             ])
         ]
-        
-        // 2. Household
-        chips["household"] = [
-            ChipSection(title: "Family & Pets", chips: [
-                BubbleChip(id: "hasPartner",   label: "Partner / Spouse",    emoji: "💑", flag: .hasPartner),
-                BubbleChip(id: "hasChildren",  label: "Kids at Home",         emoji: "🧒", flag: .hasChildren),
-                BubbleChip(id: "hasPets",      label: "Pets",                 emoji: "🐾", flag: .hasPets),
-                BubbleChip(id: "isMultiGen",   label: "Multigenerational",    emoji: "👨‍👩‍👧‍👦", flag: .isMultiGenerational),
-                BubbleChip(id: "householdHelp",label: "Household Help",       emoji: "🧹", flag: .hasHouseholdHelp),
-                BubbleChip(id: "has529",       label: "529 College Fund",     emoji: "📈", flag: .has529),
-                BubbleChip(id: "hasFSA",       label: "Dependent Care FSA",   emoji: "🏦", flag: .hasFSA),
-                BubbleChip(id: "autoShipPet",  label: "Auto-Ship Pet Food",   emoji: "📦", flag: .usesAutoShipPetFood),
-            ]),
-            ChipSection(title: "Living Situation", chips: [
-                BubbleChip(id: "livesInHouse", label: "House / Townhouse", emoji: "🏡", flag: .livesInHouseOrTownhouse),
-                BubbleChip(id: "hasRoommates", label: "Roommates",            emoji: "🏠", flag: .hasRoommates),
-                BubbleChip(id: "workFromHome", label: "Work from Home",       emoji: "💻", flag: .workFromHome),
-            ])
-        ]
-        
-        // 3. Shopping
-        chips["shopping"] = [
-            ChipSection(title: "Groceries & Retail", chips: [
-                BubbleChip(id: "usesAmazon",      label: "Amazon",        emoji: "📦", flag: .usesAmazon),
-                BubbleChip(id: "usesTarget",      label: "Target",        emoji: "🎯", flag: .usesTarget),
-                BubbleChip(id: "usesWalmart",     label: "Walmart",       emoji: "🛒", flag: .usesWalmart),
-                BubbleChip(id: "usesCostco",      label: "Costco",        emoji: "🏬", flag: .usesCostco),
-                BubbleChip(id: "usesSamsClub",    label: "Sam's Club",    emoji: "🏬", flag: .usesSamsClub),
-                BubbleChip(id: "usesBJs",         label: "BJ's",          emoji: "🏬", flag: .usesBJs),
-                BubbleChip(id: "publix",          label: "Publix",        emoji: "🛒", flag: .usesPublix),
-                BubbleChip(id: "heb",             label: "H-E-B",         emoji: "🛒", flag: .usesHEB),
-                BubbleChip(id: "meijer",          label: "Meijer",        emoji: "🛒", flag: .usesMeijer),
-                BubbleChip(id: "wegmans",         label: "Wegmans",       emoji: "🛒", flag: .usesWegmans),
-                BubbleChip(id: "kroger",          label: "Kroger / King Soopers", emoji: "🛒", flag: .usesKroger),
-                BubbleChip(id: "safeway",         label: "Safeway / Vons", emoji: "🛒", flag: .usesSafeway),
-                BubbleChip(id: "albertsons",      label: "Albertsons",    emoji: "🛒", flag: .usesAlbertsons),
-                BubbleChip(id: "barnesandnoble",  label: "Barnes & Noble", emoji: "📚", flag: .usesBarnesAndNoble),
-            ].filter { isAvailable($0.id) }),
-            
-            ChipSection(title: "Food Delivery", chips: [
-                BubbleChip(id: "usesDoorDash",    label: "DoorDash",      emoji: "🍕", flag: .usesDoorDash),
-                BubbleChip(id: "usesUberEats",    label: "Uber Eats",     emoji: "🍔", flag: .usesUberEats),
-                BubbleChip(id: "usesGrubhub",     label: "Grubhub",       emoji: "🌮", flag: .usesGrubhub),
-                BubbleChip(id: "usesInstacart",   label: "Instacart",     emoji: "🛒", flag: .usesInstacart),
-            ]),
-            
-            ChipSection(title: "Home & Specialty", chips: [
-                BubbleChip(id: "usesREI",         label: "REI",           emoji: "🏕️", flag: .usesREI),
-                BubbleChip(id: "usesBestBuy",     label: "Best Buy",      emoji: "🔵", flag: .usesBestBuy),
-                BubbleChip(id: "usesIKEA",        label: "IKEA",          emoji: "🪑", flag: .usesIKEA),
-                BubbleChip(id: "usesWayfair",     label: "Wayfair",       emoji: "🪴", flag: .usesWayfair),
-                BubbleChip(id: "usesHelloFresh",  label: "HelloFresh",    emoji: "🥗", flag: .usesHelloFresh),
-                BubbleChip(id: "usesBlueApron",   label: "Blue Apron",    emoji: "🍳", flag: .usesBlueApron),
-                BubbleChip(id: "usesOtherKit",    label: "Other Meal Kit",emoji: "🧑‍🍳", flag: .usesOtherMealKit),
-            ])
-        ]
-        
-        // 4. Streaming
-        chips["streaming"] = [
-            ChipSection(title: "TV & Movies", chips: [
-                BubbleChip(id: "netflix",     label: "Netflix",          emoji: "🎬", flag: .usesNetflix),
-                BubbleChip(id: "hulu",        label: "Hulu",             emoji: "📺", flag: .usesHulu),
-                BubbleChip(id: "disney",      label: "Disney+",          emoji: "✨", flag: .usesDisneyPlus),
-                BubbleChip(id: "hbo",         label: "Max / HBO",        emoji: "🎭", flag: .usesHBOMax),
-                BubbleChip(id: "appletv",     label: "Apple TV+",        emoji: "🍎", flag: .usesAppleTVPlus),
-                BubbleChip(id: "paramount",   label: "Paramount+",       emoji: "⭐", flag: .usesParamountPlus),
-                BubbleChip(id: "peacock",     label: "Peacock",          emoji: "🦚", flag: .usesPeacock),
-                BubbleChip(id: "sling",       label: "Sling TV",         emoji: "📺", flag: .usesSling),
-            ]),
-            ChipSection(title: "Audio, Gaming & Apps", chips: [
-                BubbleChip(id: "spotify",     label: "Spotify",          emoji: "🎵", flag: .usesSpotify),
-                BubbleChip(id: "applemusic",  label: "Apple Music",      emoji: "🎶", flag: .usesAppleMusic),
-                BubbleChip(id: "siriusxm",    label: "SiriusXM",         emoji: "📻", flag: .usesSiriusXM),
-                BubbleChip(id: "ytpremium",   label: "YouTube Premium",  emoji: "▶️", flag: .usesYouTubePremium),
-                BubbleChip(id: "gaming",      label: "Gaming (Xbox/PS)", emoji: "🎮", flag: .usesGamingSubs),
-                BubbleChip(id: "appleAppStore", label: "Apple App Store", emoji: "📱", flag: .usesAppleAppStore),
-                BubbleChip(id: "googlePlay",  label: "Google Play",      emoji: "🤖", flag: .usesGooglePlay),
-            ]),
-            ChipSection(title: "Internet & Cable", chips: [
-                BubbleChip(id: "xfinity",     label: "Xfinity",          emoji: "📺", flag: .usesXfinity),
-                BubbleChip(id: "spectrum",    label: "Spectrum",         emoji: "📺", flag: .usesSpectrum),
-                BubbleChip(id: "directv",     label: "DirecTV",          emoji: "📡", flag: .usesDirecTV),
-                BubbleChip(id: "dish",        label: "Dish Network",     emoji: "📡", flag: .usesDish),
-                BubbleChip(id: "verizon",     label: "Verizon Fios",     emoji: "📺", flag: .usesVerizonFios),
-                BubbleChip(id: "att",         label: "AT&T",             emoji: "🌐", flag: .usesATT),
-                BubbleChip(id: "cox",         label: "Cox",              emoji: "📺", flag: .usesCox),
-                BubbleChip(id: "optimum",     label: "Optimum",          emoji: "📺", flag: .usesOptimum),
+
+        extraChips["streaming"] = [
+            ChipSection(title: "Streaming & Entertainment", chips: [
+                BubbleChip(id: "netflix",     label: "Netflix",     emoji: "🎬", flag: .usesNetflix),
+                BubbleChip(id: "hulu",        label: "Hulu",        emoji: "📺", flag: .usesHulu),
+                BubbleChip(id: "disney",      label: "Disney+",     emoji: "✨", flag: .usesDisneyPlus),
+                BubbleChip(id: "hbo",         label: "Max / HBO",   emoji: "🎭", flag: .usesHBOMax),
+                BubbleChip(id: "spotify",     label: "Spotify",     emoji: "🎵", flag: .usesSpotify),
+                BubbleChip(id: "gaming",      label: "Xbox / PS",   emoji: "🎮", flag: .usesGamingSubs),
+                BubbleChip(id: "xfinity",     label: "Xfinity",     emoji: "📺", flag: .usesXfinity),
+                BubbleChip(id: "spectrum",    label: "Spectrum",    emoji: "📺", flag: .usesSpectrum),
             ].filter { isAvailable($0.id) })
         ]
-        
-        // 5. Fitness
-        chips["fitness"] = [
-            ChipSection(title: "Gym Memberships", chips: [
-                BubbleChip(id: "planetfitness", label: "Planet Fitness", emoji: "💜", flag: .usesPlanetFitness),
-                BubbleChip(id: "equinox",       label: "Equinox",        emoji: "⚫", flag: .usesEquinox),
-                BubbleChip(id: "lafitness",     label: "LA Fitness",     emoji: "💙", flag: .usesLAFitness),
+
+        extraChips["fitness"] = [
+            ChipSection(title: "Fitness & Wellness", chips: [
+                BubbleChip(id: "planetfitness", label: "Planet Fitness", emoji: "💪", flag: .usesPlanetFitness),
                 BubbleChip(id: "ymca",          label: "YMCA",           emoji: "🏊", flag: .usesYMCA),
-                BubbleChip(id: "24hourfitness", label: "24 Hour Fitness",emoji: "💪", flag: .uses24HourFitness),
-                BubbleChip(id: "lifetime",      label: "Life Time",      emoji: "🏊", flag: .usesLifeTime),
-                BubbleChip(id: "jcc",           label: "JCC",            emoji: "🏃", flag: .usesJCC),
-                BubbleChip(id: "vasa",          label: "VASA Fitness",   emoji: "🏋️", flag: .usesVASA),
-                BubbleChip(id: "eos",           label: "EoS Fitness",    emoji: "🏋️", flag: .usesEoS),
-                BubbleChip(id: "chuze",         label: "Chuze Fitness",  emoji: "🧘", flag: .usesChuze),
-                BubbleChip(id: "crunch",        label: "Crunch Fitness", emoji: "💪", flag: .usesCrunch),
-                BubbleChip(id: "anytimefitness",label: "Anytime Fitness",emoji: "🏃", flag: .usesAnytimeFitness),
-                BubbleChip(id: "localgym",      label: "Local Gym",      emoji: "🏃", flag: .hasGymMembership),
-                BubbleChip(id: "nogym",         label: "No Gym",         emoji: "🚶", flag: nil),
-            ].filter { isAvailable($0.id) }),
-            ChipSection(title: "Classes & Home", chips: [
                 BubbleChip(id: "peloton",       label: "Peloton",        emoji: "🚴", flag: .usesPeloton),
-                BubbleChip(id: "classpass",     label: "ClassPass",      emoji: "🧘", flag: .usesClassPass),
-                BubbleChip(id: "crossfit",      label: "CrossFit",       emoji: "🏋️", flag: .usesCrossFit),
-                BubbleChip(id: "orangetheory",  label: "Orangetheory",   emoji: "🔥", flag: .usesOrangeTheory),
+                BubbleChip(id: "localgym",      label: "Local Gym",      emoji: "🏋️", flag: .hasGymMembership),
+            ].filter { isAvailable($0.id) })
+        ]
+
+        extraChips["transport"] = [
+            ChipSection(title: "Getting Around", chips: [
+                BubbleChip(id: "hasCar",        label: "Car",            emoji: "🚗", flag: .hasCar),
+                BubbleChip(id: "hasEV",         label: "Electric Vehicle",emoji: "⚡", flag: .hasElectricVehicle),
+                BubbleChip(id: "usesRideShare", label: "Uber / Lyft",    emoji: "🚕", flag: .usesRideShare),
+                BubbleChip(id: "hasTollRoads",  label: "Toll Roads",     emoji: "🛣️", flag: .hasTollRoads),
+                BubbleChip(id: "hasTSAPre",     label: "TSA PreCheck",   emoji: "🛂", flag: .hasTSAPreCheck),
             ])
         ]
-        
-        // 6. More
-        chips["more"] = [
-            ChipSection(title: "Real Estate & Insurance", chips: [
-                BubbleChip(id: "hasMortgage",    label: "Mortgage",           emoji: "🏡", flag: .hasMortgage),
-                BubbleChip(id: "isOwning",       label: "Own My Home",        emoji: "🔑", flag: .isOwning),
-                BubbleChip(id: "hasHOA",         label: "HOA",                emoji: "🏘️", flag: .hasHOA),
-                BubbleChip(id: "hasHomeSecurity",label: "Home Security",      emoji: "🔒", flag: .hasHomeSecurity),
-                BubbleChip(id: "hasLifeIns",     label: "Life Insurance",     emoji: "🛡️", flag: .hasLifeInsurance),
-                BubbleChip(id: "hasHomeWarranties", label: "Home Warranty",   emoji: "🛡️", flag: .hasHomeWarranties),
-            ]),
-            ChipSection(title: "Digital Wallets & Billing", chips: [
-                BubbleChip(id: "applePay",       label: "Apple Pay / Wallet", emoji: "💳", flag: .usesApplePay),
-                BubbleChip(id: "googlePay",      label: "Google Pay",         emoji: "💳", flag: .usesGooglePay),
-                BubbleChip(id: "shopPay",        label: "Shop Pay / Affirm",  emoji: "🛍️", flag: .usesShopPay),
-                BubbleChip(id: "patreonSubstack",label: "Patreon / Substack", emoji: "📰", flag: .usesPatreonSubstack),
-            ]),
-            ChipSection(title: "Professional & Financial", chips: [
-                BubbleChip(id: "isSelfEmployed", label: "Self-Employed",      emoji: "💼", flag: .isSelfEmployed),
-                BubbleChip(id: "runsBusiness",   label: "Runs Business",      emoji: "🏢", flag: .runsBusiness),
-                BubbleChip(id: "cloudInfra",     label: "Cloud Infra (AWS)",  emoji: "☁️", flag: .usesCloudInfrastructure),
-                BubbleChip(id: "crypto",         label: "Crypto Exchange",    emoji: "🪙", flag: .holdsCrypto),
-                BubbleChip(id: "hasProfLicense", label: "Pro Licenses",       emoji: "📋", flag: .hasProfessionalLicenses),
-                BubbleChip(id: "hasStudentLoans",label: "Student Loans",      emoji: "🎓", flag: .hasStudentLoans),
-                BubbleChip(id: "hasInvestments", label: "Investments",        emoji: "📈", flag: .hasInvestmentAccounts),
-            ]),
-            ChipSection(title: "Life & Retirement", chips: [
-                BubbleChip(id: "isVeteran",      label: "Veteran / Military", emoji: "🎖️", flag: .isVeteran),
-                BubbleChip(id: "hasMedicare",    label: "Medicare",           emoji: "⚕️", flag: .hasMedicare),
-                BubbleChip(id: "isRetired",      label: "Retired",            emoji: "🌅", flag: .isRetired),
-                BubbleChip(id: "hasPension",     label: "Pension Provider",   emoji: "🏦", flag: .hasPension),
-                BubbleChip(id: "mailPharmacy",   label: "Mail-Order Rx",      emoji: "📦", flag: .usesMailOrderPharmacy),
-                BubbleChip(id: "hasWill",        label: "Will / Estate",      emoji: "📜", flag: .hasWill),
+
+        extraChips["life"] = [
+            ChipSection(title: "Life & Finance", chips: [
+                BubbleChip(id: "hasMortgage",     label: "Mortgage",         emoji: "🏡", flag: .hasMortgage),
+                BubbleChip(id: "hasStudentLoans", label: "Student Loans",    emoji: "🎓", flag: .hasStudentLoans),
+                BubbleChip(id: "isVeteran",       label: "Veteran",          emoji: "🎖️", flag: .isVeteran),
+                BubbleChip(id: "hasMedicare",     label: "Medicare",         emoji: "⚕️", flag: .hasMedicare),
+                BubbleChip(id: "isRetired",       label: "Retired",          emoji: "🌅", flag: .isRetired),
+                BubbleChip(id: "runsBusiness",    label: "Own a Business",   emoji: "🏢", flag: .runsBusiness),
+                BubbleChip(id: "crypto",          label: "Crypto",           emoji: "🪙", flag: .holdsCrypto),
             ])
         ]
     }
@@ -244,75 +152,230 @@ struct LifestyleInterviewView: View {
     init(move: Move, onComplete: @escaping () -> Void) {
         self.move = move
         self.onComplete = onComplete
-        // Initialize vm with the move's destination zip code to drive regional intelligence
-        self._vm = State(initialValue: LifestyleViewModel(originZip: move.originZip, destinationZip: move.destinationZip))
+        self._vm = State(initialValue: LifestyleViewModel(
+            originZip: move.originZip,
+            destinationZip: move.destinationZip
+        ))
     }
-
-    private let screenKeys = ["transport", "household", "shopping", "streaming", "fitness", "more"]
-    private let screenTitles = [
-        ("🚗", "How do you get around?",          "Tap everything that applies — you can always edit later."),
-        ("🏠", "Who's in your household?",         "This helps us find the right tasks for your family."),
-        ("🛍️", "Where do you shop & order?",       "We'll make sure each service knows your new address."),
-        ("📺", "What do you watch & listen to?",   "Billing addresses matter — we'll add them to your list."),
-        ("💪", "What keeps you active?",            "Memberships need updating so charges go to the right place."),
-        ("🌟", "Anything else in your life?",       "These unlock important tasks you don't want to miss."),
-        ("🏦", "Your banks & financial accounts",   "Pick your institutions — we'll build a task for each one."),
-    ]
 
     var body: some View {
         ZStack {
             Theme.backgroundPrimary.ignoresSafeArea()
-            Group {
-                if vm.currentScreen < 6 {
-                    let key = screenKeys[vm.currentScreen]
-                    let (emoji, title, subtitle) = screenTitles[vm.currentScreen]
-                    InterviewScreenView(
-                        emoji: emoji, title: title, subtitle: subtitle,
-                        stepIndex: vm.currentScreen, totalSteps: vm.totalScreens,
-                        onBack: { vm.back() },
-                        onNext:  { vm.next() }
-                    ) {
-                        BubblePickerView(
-                            sections: vm.chips[key] ?? [],
-                            onToggle: { chip in vm.toggle(chip: chip, in: key) }
-                        )
+
+            // Progress dots
+            VStack {
+                HStack(spacing: 6) {
+                    ForEach(0..<3) { i in
+                        Capsule()
+                            .fill(i == vm.currentScreen ? Theme.accentPrimary : Theme.backgroundElevated)
+                            .frame(width: i == vm.currentScreen ? 20 : 6, height: 6)
+                            .animation(.spring(response: 0.3), value: vm.currentScreen)
                     }
-                } else {
-                    // Screen 7 — Financial institutions
-                    FinancialScreenView(
-                        selectedInstitutions: Binding(
-                            get: { vm.selectedInstitutions },
-                            set: { vm.selectedInstitutions = $0 }
-                        ),
-                        stepIndex: 6, totalSteps: vm.totalScreens,
-                        onBack: { vm.back() },
-                        onFinish: { commitAndComplete() }
-                    )
+                }
+                .padding(.top, 60)
+                Spacer()
+            }
+
+            Group {
+                switch vm.currentScreen {
+                case 0: quickQuestionsScreen
+                case 1: financialScreen
+                case 2: optionalExtrasScreen
+                default: EmptyView()
                 }
             }
             .transition(.asymmetric(
                 insertion: .move(edge: .trailing).combined(with: .opacity),
-                removal:   .move(edge: .leading).combined(with: .opacity)
+                removal: .move(edge: .leading).combined(with: .opacity)
             ))
             .animation(.easeInOut(duration: 0.3), value: vm.currentScreen)
         }
     }
 
+    // MARK: - Screen 1: Quick Yes/No questions
+
+    private var quickQuestionsScreen: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer()
+
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("A few quick\nquestions")
+                        .font(.system(size: 38, weight: .bold, design: .serif))
+                        .foregroundColor(Theme.textPrimary)
+                        .lineSpacing(4)
+                    Text("We'll use these to build your personalized task list.")
+                        .font(.system(size: 15))
+                        .foregroundColor(Theme.textSecondary)
+                        .lineSpacing(3)
+                }
+
+                VStack(spacing: 12) {
+                    YesNoCard(
+                        question: "Kids at home?",
+                        emoji: "👧",
+                        isSelected: vm.hasKids,
+                        onToggle: { vm.hasKids.toggle() }
+                    )
+                    YesNoCard(
+                        question: "Pets?",
+                        emoji: "🐾",
+                        isSelected: vm.hasPets,
+                        onToggle: { vm.hasPets.toggle() }
+                    )
+                    YesNoCard(
+                        question: "Owning your new home?",
+                        emoji: "🏡",
+                        isSelected: vm.ownsHome,
+                        onToggle: { vm.ownsHome.toggle() }
+                    )
+                }
+            }
+
+            Spacer()
+
+            continueButton("Looks good →") { vm.next() }
+        }
+        .padding(.horizontal, 28)
+        .padding(.bottom, 40)
+    }
+
+    // MARK: - Screen 2: Financial accounts
+
+    private var financialScreen: some View {
+        FinancialScreenView(
+            selectedInstitutions: Binding(
+                get: { vm.selectedInstitutions },
+                set: { vm.selectedInstitutions = $0 }
+            ),
+            stepIndex: 1,
+            totalSteps: 3,
+            onBack: { vm.back() },
+            onFinish: { vm.next() }
+        )
+    }
+
+    // MARK: - Screen 3: Optional extras
+
+    private var optionalExtrasScreen: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer()
+
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("We found")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundColor(Theme.textSecondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(estimatedTaskCount)")
+                            .font(.system(size: 52, weight: .bold, design: .rounded))
+                            .foregroundColor(Theme.accentSuccess)
+                        Text("tasks for you.")
+                            .font(.system(size: 22, weight: .semibold, design: .serif))
+                            .foregroundColor(Theme.textPrimary)
+                    }
+                    Text("Want to add more?")
+                        .font(.system(size: 15))
+                        .foregroundColor(Theme.textSecondary)
+                }
+
+                // Category toggles
+                let categories: [(id: String, label: String, emoji: String)] = [
+                    ("shopping",  "Shopping & Delivery",      "📦"),
+                    ("streaming", "Streaming & Cable",         "📺"),
+                    ("fitness",   "Fitness & Wellness",        "💪"),
+                    ("transport", "Vehicles & Travel",         "🚗"),
+                    ("life",      "Life & Finance",            "💼"),
+                ]
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(categories, id: \.id) { cat in
+                            OptionalCategoryCard(
+                                category: cat.id,
+                                label: cat.label,
+                                emoji: cat.emoji,
+                                chips: vm.extraChips[cat.id] ?? [],
+                                isExpanded: vm.expandedCategories.contains(cat.id),
+                                onToggle: {
+                                    withAnimation(.spring(response: 0.35)) {
+                                        if vm.expandedCategories.contains(cat.id) {
+                                            vm.expandedCategories.remove(cat.id)
+                                        } else {
+                                            vm.expandedCategories.insert(cat.id)
+                                        }
+                                    }
+                                },
+                                onChipTap: { chip in vm.toggleExtraChip(chip, in: cat.id) }
+                            )
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+            }
+
+            Spacer()
+
+            HStack(spacing: 12) {
+                backButton { vm.back() }
+                continueButton("Build my list →") { commitAndComplete() }
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.bottom, 40)
+    }
+
+    private var estimatedTaskCount: Int {
+        // Quick estimate based on yes/no answers + institutions
+        var base = 25 // always-included tasks
+        if vm.hasKids { base += 8 }
+        if vm.hasPets { base += 4 }
+        if vm.ownsHome { base += 6 }
+        base += vm.selectedInstitutions.count
+        return base
+    }
+
+    // MARK: - Shared components
+
+    @ViewBuilder
+    private func continueButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .background(Theme.accentPrimary, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func backButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Theme.textSecondary)
+                .frame(width: 54, height: 54)
+                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Commit
 
     private func commitAndComplete() {
-        // 1. Save lifestyle profile
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
         let profile = LifestyleProfile()
         profile.move = move
-        
         var finalFlags = vm.allActiveFlags
-        
-        // Auto-detect Regional Flags
+
         func applyRegionalFlags(for zip: String) {
-            let cleanZip = zip.replacingOccurrences(of: " ", with: "").uppercased()
-            if cleanZip.count == 6 && cleanZip.first!.isLetter {
+            let clean = zip.replacingOccurrences(of: " ", with: "").uppercased()
+            if clean.count == 6 && clean.first!.isLetter {
                 finalFlags.insert(.isCanadian)
-                switch cleanZip.first! {
+                switch clean.first! {
                 case "A": finalFlags.insert(.inNewfoundland)
                 case "B": finalFlags.insert(.inNovaScotia)
                 case "C": finalFlags.insert(.inPEI)
@@ -327,20 +390,18 @@ struct LifestyleInterviewView: View {
                 case "Y": finalFlags.insert(.inYukon)
                 default: break
                 }
-            } else if cleanZip.count >= 5, Int(cleanZip.prefix(2)) != nil {
+            } else if clean.count >= 5, Int(clean.prefix(2)) != nil {
                 finalFlags.insert(.isAmerican)
             }
         }
-        
+
         if let origin = move.originZip { applyRegionalFlags(for: origin) }
         applyRegionalFlags(for: move.destinationZip)
-        
-        profile.activeFlags = finalFlags
 
+        profile.activeFlags = finalFlags
         modelContext.insert(profile)
         move.lifestyleProfile = profile
 
-        // 2. Save institutions
         var institutions: [FinancialInstitution] = []
         for known in vm.selectedInstitutions {
             let fi = FinancialInstitution(name: known.name, initials: known.initials,
@@ -352,15 +413,136 @@ struct LifestyleInterviewView: View {
             institutions.append(fi)
         }
 
-        // 3. Generate tasks
         let tasks = ChecklistGenerator.generate(for: move, profile: profile, institutions: institutions)
         for task in tasks {
             task.move = move
             modelContext.insert(task)
         }
         move.tasks = tasks
-
         try? modelContext.save()
+
         withAnimation(.easeInOut(duration: 0.4)) { onComplete() }
+    }
+}
+
+// MARK: - Yes/No Card
+
+struct YesNoCard: View {
+    let question: String
+    let emoji: String
+    let isSelected: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 16) {
+                Text(emoji)
+                    .font(.system(size: 26))
+                    .frame(width: 44, height: 44)
+                    .background(isSelected ? Theme.accentPrimary.opacity(0.15) : Theme.backgroundElevated,
+                                in: RoundedRectangle(cornerRadius: 12))
+
+                Text(question)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(isSelected ? Theme.textPrimary : Theme.textSecondary)
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundColor(isSelected ? Theme.accentPrimary : Theme.textTertiary)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(isSelected ? Theme.accentPrimary.opacity(0.08) : Theme.backgroundCard)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(isSelected ? Theme.accentPrimary.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+}
+
+// MARK: - Optional Category Card
+
+struct OptionalCategoryCard: View {
+    let category: String
+    let label: String
+    let emoji: String
+    let chips: [ChipSection]
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onChipTap: (BubbleChip) -> Void
+
+    private var selectedCount: Int {
+        chips.flatMap { $0.chips }.filter { $0.isSelected }.count
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onToggle) {
+                HStack {
+                    Text(emoji).font(.system(size: 20))
+                    Text(label)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    if selectedCount > 0 {
+                        Text("\(selectedCount) selected")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.accentPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Theme.accentPrimary.opacity(0.12), in: Capsule())
+                    }
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Theme.textTertiary)
+                }
+                .padding(14)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(chips) { section in
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                            ForEach(section.chips) { chip in
+                                Button {
+                                    onChipTap(chip)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(chip.emoji).font(.system(size: 14))
+                                        Text(chip.label)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .lineLimit(1)
+                                    }
+                                    .foregroundColor(chip.isSelected ? .white : Theme.textSecondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        chip.isSelected ? Theme.accentPrimary : Theme.backgroundElevated,
+                                        in: RoundedRectangle(cornerRadius: 10)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .animation(.easeInOut(duration: 0.15), value: chip.isSelected)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+            }
+        }
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(selectedCount > 0 ? Theme.accentPrimary.opacity(0.3) : Theme.hairline, lineWidth: 1)
+        )
     }
 }
