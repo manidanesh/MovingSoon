@@ -95,7 +95,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
         logger.debug("LocationManager: matched task '\(task.title)' category '\(poiCategory.rawValue)'")
 
-        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
+        let destinationCoordinate = move.destinationCoordinate ?? ZipBucketService.centroid(zip: move.destinationZip)
 
         let context = SuppressionEngine.Context(
             move: move,
@@ -146,12 +146,14 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         guard let grantedAt = move.locationConsentGrantedAt,
               SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: Date()) else { return }
 
-        let currentLocation = manager.location?.coordinate
+        // Resolve destination coordinate — prefer geocoded, fall back to ZIP centroid
+        let destinationCoordinate = move.destinationCoordinate
+            ?? ZipBucketService.centroid(zip: move.destinationZip)
 
         Task {
             await geofenceCoordinator.syncGeofences(
                 for: move.tasks,
-                currentLocation: currentLocation,
+                destinationCoordinate: destinationCoordinate,
                 manager: manager
             )
         }
@@ -179,7 +181,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             return
         }
 
-        let destinationCoordinate = ZipBucketService.centroid(zip: move.destinationZip)
+        let destinationCoordinate = move.destinationCoordinate ?? ZipBucketService.centroid(zip: move.destinationZip)
 
         for region in manager.monitoredRegions {
             guard let circularRegion = region as? CLCircularRegion else { continue }

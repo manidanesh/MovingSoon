@@ -18,6 +18,7 @@ struct DashboardView: View {
     private var allTasks: [ChecklistTask] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        let moveDay = calendar.startOfDay(for: move.anchorDate)
 
         var tasks: [ChecklistTask]
         switch filter {
@@ -26,6 +27,8 @@ struct DashboardView: View {
         case .overdue:
             tasks = move.tasks.filter { task in
                 guard task.status != .completed else { return false }
+                // Post-move tasks (positive tMinusDays) are only overdue once move date has passed
+                if task.tMinusDays > 0 && today <= moveDay { return false }
                 let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
                 return calendar.startOfDay(for: due) < today
             }
@@ -194,11 +197,13 @@ struct DashboardView: View {
     private func countFor(_ tab: TaskFilter) -> Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        let moveDay = calendar.startOfDay(for: move.anchorDate)
         switch tab {
         case .pending:   return move.tasks.filter { $0.status != .completed }.count
         case .overdue:
             return move.tasks.filter { task in
                 guard task.status != .completed else { return false }
+                if task.tMinusDays > 0 && today <= moveDay { return false }
                 let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
                 return calendar.startOfDay(for: due) < today
             }.count
@@ -262,6 +267,10 @@ struct UnifiedTaskRow: View {
 
     private var isOverdue: Bool {
         guard task.status != .completed else { return false }
+        // Post-move tasks not overdue until move date has passed
+        let today = Calendar.current.startOfDay(for: Date())
+        let moveDay = Calendar.current.startOfDay(for: moveDate)
+        if task.tMinusDays > 0 && today <= moveDay { return false }
         let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
         return dueDate < Calendar.current.startOfDay(for: Date())
     }

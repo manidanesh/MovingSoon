@@ -11,30 +11,26 @@ struct CoreIntakeView: View {
     @State private var destinationZip: String = ""
     @State private var originZip: String = ""
 
-    // Derived city preview
-    private var destinationCity: String? {
-        guard destinationZip.count == 5 else { return nil }
-        let (state, city) = ZipBucketService.bucket(zip: destinationZip)
-        if let city = city {
-            return "\(city.replacingOccurrences(of: "_", with: " ").capitalized), \(state)"
-        }
-        return state
-    }
+    // Neighborhood search state — destination
+    @State private var destinationNeighborhoods: [NeighborhoodResult] = []
+    @State private var selectedDestination: NeighborhoodResult? = nil
+    @State private var isLoadingDestination = false
+    @State private var destGeocodeTask: Task<Void, Never>? = nil
 
-    private var originCity: String? {
-        guard originZip.count == 5 else { return nil }
-        let (state, city) = ZipBucketService.bucket(zip: originZip)
-        if let city = city {
-            return "\(city.replacingOccurrences(of: "_", with: " ").capitalized), \(state)"
-        }
-        return state
-    }
+    // Neighborhood search state — origin
+    @State private var originNeighborhoods: [NeighborhoodResult] = []
+    @State private var selectedOrigin: NeighborhoodResult? = nil
+    @State private var isLoadingOrigin = false
+
+    // Convenience accessors for saved names
+    private var destinationLabel: String? { selectedDestination?.fullLabel }
+    private var originLabel: String?      { selectedOrigin?.fullLabel }
 
     private var isCurrentStepValid: Bool {
         switch step {
-        case 0: return true // date always valid
+        case 0: return true
         case 1: return destinationZip.count == 5
-        case 2: return true // origin ZIP optional
+        case 2: return true // origin optional
         default: return false
         }
     }
@@ -68,13 +64,47 @@ struct CoreIntakeView: View {
             }
             .transition(.asymmetric(
                 insertion: .move(edge: .trailing).combined(with: .opacity),
-                removal: .move(edge: .leading).combined(with: .opacity)
+                removal:   .move(edge: .leading).combined(with: .opacity)
             ))
             .animation(.easeInOut(duration: 0.35), value: step)
         }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
                                             to: nil, from: nil, for: nil)
+        }
+        // Destination ZIP watcher
+        .onChange(of: destinationZip) { _, newZip in
+            selectedDestination = nil
+            destinationNeighborhoods = []
+            destGeocodeTask?.cancel()
+            guard newZip.count == 5 else { isLoadingDestination = false; return }
+            isLoadingDestination = true
+            destGeocodeTask = Task {
+                let results = await GeocoderService.neighborhoods(for: newZip)
+                if !Task.isCancelled {
+                    withAnimation(.spring(response: 0.4)) {
+                        destinationNeighborhoods = results
+                        // Auto-select if there's exactly one result
+                        if results.count == 1 { selectedDestination = results.first }
+                        isLoadingDestination = false
+                    }
+                }
+            }
+        }
+        // Origin ZIP watcher
+        .onChange(of: originZip) { _, newZip in
+            selectedOrigin = nil
+            originNeighborhoods = []
+            guard newZip.count == 5 else { isLoadingOrigin = false; return }
+            isLoadingOrigin = true
+            Task {
+                let results = await GeocoderService.neighborhoods(for: newZip)
+                withAnimation(.spring(response: 0.4)) {
+                    originNeighborhoods = results
+                    if results.count == 1 { selectedOrigin = results.first }
+                    isLoadingOrigin = false
+                }
+            }
         }
     }
 
@@ -117,26 +147,28 @@ struct CoreIntakeView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 24) {
+
+                // Headline + resolved label
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Where are you\nheaded?")
                         .font(.system(size: 40, weight: .bold, design: .serif))
                         .foregroundColor(Theme.textPrimary)
                         .lineSpacing(4)
 
-                    if let city = destinationCity {
+                    if let label = destinationLabel {
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
                                 .font(.system(size: 12))
                                 .foregroundColor(Theme.accentPrimary)
-                            Text(city)
+                            Text(label)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(Theme.accentPrimary)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .animation(.spring(response: 0.4), value: destinationZip)
                     }
                 }
 
+                // ZIP field
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Destination ZIP code")
                         .font(.system(size: 12, weight: .semibold))
@@ -155,7 +187,15 @@ struct CoreIntakeView: View {
                         }
                 }
 
-                Text("US or Canadian ZIP — we'll filter your task list to your region.")
+                // Neighborhood picker
+                neighborhoodPicker(
+                    neighborhoods: destinationNeighborhoods,
+                    selected: $selectedDestination,
+                    isLoading: isLoadingDestination,
+                    accentColor: Theme.accentPrimary
+                )
+
+                Text("Your ZIP tells us which banks, gyms, and local services are in your area — so your list isn't cluttered with irrelevant items.")
                     .font(.system(size: 13))
                     .foregroundColor(Theme.textTertiary)
                     .lineSpacing(2)
@@ -179,23 +219,23 @@ struct CoreIntakeView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 24) {
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Where are you\ncoming from?")
                         .font(.system(size: 40, weight: .bold, design: .serif))
                         .foregroundColor(Theme.textPrimary)
                         .lineSpacing(4)
 
-                    if let city = originCity {
+                    if let label = originLabel {
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
                                 .font(.system(size: 12))
                                 .foregroundColor(Theme.textSecondary)
-                            Text(city)
+                            Text(label)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(Theme.textSecondary)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .animation(.spring(response: 0.4), value: originZip)
                     }
                 }
 
@@ -217,6 +257,14 @@ struct CoreIntakeView: View {
                         }
                 }
 
+                // Neighborhood picker
+                neighborhoodPicker(
+                    neighborhoods: originNeighborhoods,
+                    selected: $selectedOrigin,
+                    isLoading: isLoadingOrigin,
+                    accentColor: Theme.textSecondary
+                )
+
                 Text("Helps us find services you need to cancel or transfer from your current city.")
                     .font(.system(size: 13))
                     .foregroundColor(Theme.textTertiary)
@@ -234,6 +282,91 @@ struct CoreIntakeView: View {
         }
         .padding(.horizontal, 28)
         .padding(.bottom, 40)
+    }
+
+    // MARK: - Neighborhood Chip Picker
+
+    /// Renders the scrollable list of neighborhood chips.
+    /// Only appears once a valid ZIP has been typed and results are ready.
+    @ViewBuilder
+    private func neighborhoodPicker(
+        neighborhoods: [NeighborhoodResult],
+        selected: Binding<NeighborhoodResult?>,
+        isLoading: Bool,
+        accentColor: Color
+    ) -> some View {
+        if isLoading {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: accentColor))
+                    .scaleEffect(0.8)
+                Text("Finding neighborhoods…")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textTertiary)
+            }
+            .transition(.opacity)
+        } else if neighborhoods.count > 1 {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Which neighborhood?")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.textSecondary)
+                    .textCase(.uppercase)
+                    .tracking(1.5)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(neighborhoods) { hood in
+                            let isSelected = selected.wrappedValue?.id == hood.id
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                withAnimation(.spring(response: 0.3)) {
+                                    selected.wrappedValue = isSelected ? nil : hood
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(hood.neighborhood)
+                                        .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                                        .foregroundColor(isSelected ? .black : Theme.textPrimary)
+
+                                    // Show city context if neighborhood name differs from fullLabel
+                                    let context = hood.fullLabel
+                                        .replacingOccurrences(of: hood.neighborhood + ", ", with: "")
+                                    if !context.isEmpty && context != hood.neighborhood {
+                                        Text(context)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(isSelected ? .black.opacity(0.6) : Theme.textTertiary)
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    isSelected
+                                        ? accentColor
+                                        : Theme.backgroundElevated
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(
+                                            isSelected ? accentColor : Color.white.opacity(0.06),
+                                            lineWidth: 1
+                                        )
+                                )
+                                .shadow(
+                                    color: isSelected ? accentColor.opacity(0.3) : .clear,
+                                    radius: 6, x: 0, y: 3
+                                )
+                                .scaleEffect(isSelected ? 1.02 : 1.0)
+                                .animation(.spring(response: 0.25), value: isSelected)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.bottom, 4) // room for shadow
+                }
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     // MARK: - Shared button components
@@ -284,9 +417,15 @@ struct CoreIntakeView: View {
         let move = Move(
             anchorDate: anchorDate,
             originZip: originZip.count == 5 ? originZip : nil,
+            originNeighborhood: selectedOrigin?.fullLabel,
             destinationZip: destinationZip,
+            destinationNeighborhood: selectedDestination?.fullLabel,
             destinationStateBucket: state,
-            destinationCityBucket: city
+            destinationCityBucket: city,
+            originLatitude: selectedOrigin?.coordinate?.latitude,
+            originLongitude: selectedOrigin?.coordinate?.longitude,
+            destinationLatitude: selectedDestination?.coordinate?.latitude,
+            destinationLongitude: selectedDestination?.coordinate?.longitude
         )
         modelContext.insert(move)
         try? modelContext.save()

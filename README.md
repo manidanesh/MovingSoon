@@ -135,12 +135,8 @@ movingsoon.app/
 
 ## Known Issues / In Progress
 
-- `Move.moveTypeRaw` is referenced in `LifestyleInterviewView` but not defined on the `Move` model — needs to be added or the reference removed
-- `LifestyleViewModel` initializes with `move.originZip` for regional filtering, but `CoreIntakeView` never sets `originZip` — regional chips always fall back to the default
-- `AccountSetupView` is not wired into the current app flow (superseded by `FinancialScreenView` inside the lifestyle interview)
-- `DashboardView` (bucket list) exists but is not the active dashboard — `ZenDashboardView` is rendered instead
-- `PendingSignal` model is fully defined but no service emits signals yet
-- `LocationManager` geofencing uses a hardcoded Denver coordinate as a mock — real `MKLocalSearch` integration is pending
+- `PendingSignal` model is fully defined but no service emits signals yet — telemetry queue is built but dormant
+- `PersonaEngine` exists but is not called at onboarding — personas are derived lazily from lifestyle flags via `Move.personaKey`
 
 ---
 

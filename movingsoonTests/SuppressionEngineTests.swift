@@ -42,7 +42,7 @@ final class SuppressionEngineTests: XCTestCase {
     }
 
     private func makeContext(
-        now: Date = Date(),
+        now: Date? = nil,
         consentGrantedAt: Date? = Date(),
         completionFraction: Double = 0.5,
         tasks: [ChecklistTask] = [],
@@ -53,14 +53,45 @@ final class SuppressionEngineTests: XCTestCase {
         move.tasks = tasks
         let userLoc = CLLocation(latitude: 39.7392, longitude: -104.9903)
         let destCoord = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        let resolvedNow = now ?? makeDate(hour: 12, minute: 0) // Default to 12:00 PM so timeOfDay gate passes
         return SuppressionEngine.Context(
             move: move,
             poiCategory: poiCategory,
             cooldownStore: cooldownStore,
-            now: now,
+            now: resolvedNow,
             userLocation: userLoc,
             destinationCoordinate: destCoord
         )
+    }
+
+    // MARK: - Main shouldFire Evaluator
+
+    func test_shouldFire_withinDistance_passes() {
+        let task = makePOITask(category: .bank, status: .toDo)
+        let context = makeContext(tasks: [task])
+        XCTAssertTrue(SuppressionEngine.shouldFire(context: context))
+    }
+
+    func test_shouldFire_beyondDistance_fails() {
+        let task = makePOITask(category: .bank, status: .toDo)
+        
+        let userLoc = CLLocation(latitude: 40.7, longitude: -104.9903) // ~100km away
+        let destCoord = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        
+        let store = CooldownStore(defaults: .init(suiteName: UUID().uuidString)!)
+        move.locationConsentGrantedAt = Date()
+        move.tasks = [task]
+        
+        let context = SuppressionEngine.Context(
+            move: move,
+            poiCategory: .bank,
+            cooldownStore: store,
+            now: makeDate(hour: 12, minute: 0),
+            userLocation: userLoc,
+            destinationCoordinate: destCoord
+        )
+        
+        XCTAssertFalse(SuppressionEngine.shouldFire(context: context))
     }
 
     // MARK: - Gate 1: Consent Expiry

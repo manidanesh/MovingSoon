@@ -25,10 +25,18 @@ struct ZenDashboardView: View {
     // Reminders
     @State private var reminderService = SmartReminderService()
 
-    // Session-skipped task IDs — hero items deferred until next launch
+    // Snoozed task IDs (persisted via snoozedUntil on the task itself)
     @State private var sessionSkippedTaskIDs: Set<UUID> = []
 
-    // Celebration
+    // Undo support
+    @State private var lastCompletedTask: ChecklistTask? = nil
+    @State private var undoVisible: Bool = false
+    @State private var undoTimer: Timer? = nil
+
+    // Pinned hero override — user promoted a Next Up task to hero
+    @State private var pinnedHeroID: UUID? = nil
+
+    // Celebration (unused but kept for overlay compatibility)
     @State private var celebrationTask: ChecklistTask? = nil
 
     // MARK: - Consent card visibility predicate
@@ -46,16 +54,24 @@ struct ZenDashboardView: View {
     // 1. Sort pending tasks by urgency (tMinusDays relative to anchorDate).
     // The lowest tMinusDays means it's due the earliest (e.g. -30 is due 30 days before move).
     private var pendingTasks: [ChecklistTask] {
-        move.tasks
-            .filter { $0.status == .toDo && !sessionSkippedTaskIDs.contains($0.id) }
+        let now = Date()
+        return move.tasks
+            .filter {
+                $0.status == .toDo &&
+                !sessionSkippedTaskIDs.contains($0.id) &&
+                ($0.snoozedUntil == nil || $0.snoozedUntil! < now)
+            }
             .sorted { $0.tMinusDays < $1.tMinusDays }
     }
 
     private var heroTask: ChecklistTask? {
-        // USPS (isHeroItem) gets priority — unless user has session-skipped it
-        if let usps = pendingTasks.first(where: { $0.isHeroItem }) {
-            return usps
+        // If user pinned a specific task to hero, show it (if still pending)
+        if let pinned = pinnedHeroID,
+           let task = pendingTasks.first(where: { $0.id == pinned }) {
+            return task
         }
+        // USPS (isHeroItem) gets priority
+        if let usps = pendingTasks.first(where: { $0.isHeroItem }) { return usps }
         return pendingTasks.first
     }
 
@@ -71,13 +87,71 @@ struct ZenDashboardView: View {
         return "Day \(abs(days)) in your new home"
     }
 
+    /// Count tasks that are genuinely overdue (fix #11: post-move tasks not overdue until move date passes)
+    private var overdueCount: Int {
+        let today = Calendar.current.startOfDay(for: Date())
+        let moveDay = Calendar.current.startOfDay(for: move.anchorDate)
+        return move.tasks.filter { task in
+            guard task.status == .toDo else { return false }
+            // Positive tMinusDays = task meant for after the move — only overdue once move has passed
+            if task.tMinusDays > 0 && today <= moveDay { return false }
+            let due = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+            return Calendar.current.startOfDay(for: due) < today
+        }.count
+    }
+
+    /// Count tasks due within the next 7 days
+    private var dueThisWeekCount: Int {
+        let today = Calendar.current.startOfDay(for: Date())
+        guard let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: today) else { return 0 }
+        return move.tasks.filter { task in
+            guard task.status == .toDo else { return false }
+            let due = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+            let dueDay = Calendar.current.startOfDay(for: due)
+            return dueDay >= today && dueDay <= weekEnd
+        }.count
+    }
+
+    /// Status summary line shown below completion %
+    private var progressContextLabel: String? {
+        if overdueCount > 0 && dueThisWeekCount > 0 {
+            return "\(overdueCount) overdue · \(dueThisWeekCount) due this week"
+        } else if overdueCount > 0 {
+            return "\(overdueCount) overdue"
+        } else if dueThisWeekCount > 0 {
+            return "\(dueThisWeekCount) due this week"
+        }
+        return nil
+    }
+
+    /// Primary title — neighbourhood or city name only (no full "Lowry, Denver, CO" in one bold line)
     private var dashboardTitle: String {
+        if let hood = move.destinationNeighborhood {
+            // e.g. "Lowry, Denver, CO" → just "Lowry"
+            let first = hood.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? hood
+            return "Moving to \(first)"
+        }
         let city = move.destinationCityBucket?
             .replacingOccurrences(of: "_", with: " ")
             .capitalized
-        let state = move.destinationStateBucket
         if let city = city { return "Moving to \(city)" }
-        return "Moving to \(state)"
+        return "Moving to \(move.destinationStateBucket)"
+    }
+
+    /// Subtitle line — rest of the location (e.g. "Denver, CO") when neighbourhood is set
+    private var dashboardSubtitle: String? {
+        guard let hood = move.destinationNeighborhood else { return nil }
+        let parts = hood.components(separatedBy: ",").dropFirst()
+        let rest = parts.map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
+        return rest.isEmpty ? nil : rest
+    }
+
+    /// Short "From → To" route string shown beneath the main title.
+    private var routeLabel: String? {
+        let from = move.originNeighborhood ?? (move.originZip.flatMap { $0.isEmpty ? nil : $0 })
+        let to   = move.destinationNeighborhood ?? move.destinationZip
+        guard let from = from, !from.isEmpty else { return nil }
+        return "\(from)  →  \(to)"
     }
 
     var body: some View {
@@ -97,10 +171,44 @@ struct ZenDashboardView: View {
                             Text(dashboardTitle)
                                 .font(.system(size: 28, weight: .bold, design: .serif))
                                 .foregroundColor(Theme.textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
 
-                            Text("\(Int(move.completionFraction * 100))% complete")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(Theme.textSecondary)
+                            // City/state subtitle when neighbourhood is set (#12)
+                            if let subtitle = dashboardSubtitle {
+                                Text(subtitle)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Theme.textSecondary)
+                            }
+
+                            // From → To route pill (only when origin is known)
+                            if let route = routeLabel {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(Theme.textTertiary)
+                                    Text(route)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Theme.textTertiary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Theme.backgroundElevated.opacity(0.8))
+                                .clipShape(Capsule())
+                            }
+
+                            // Progress context (#5)
+                            if let context = progressContextLabel {
+                                Text(context)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(overdueCount > 0 ? Theme.priorityCritical : Theme.textSecondary)
+                            } else {
+                                Text("\(Int(move.completionFraction * 100))% complete")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Theme.textSecondary)
+                            }
                         }
                         Spacer()
 
@@ -182,7 +290,7 @@ struct ZenDashboardView: View {
                         .padding(.top, 60)
                     } else if let hero = heroTask {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Current Objective")
+                            Text("Do This Now")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
@@ -216,9 +324,18 @@ struct ZenDashboardView: View {
 
                             VStack(spacing: 0) {
                                 ForEach(nextUpTasks) { task in
-                                    ZenDrawerRow(task: task)
-                                        .padding(.horizontal, 24)
-                                        .padding(.vertical, 16)
+                                    // #10 — tapping promotes to hero
+                                    Button {
+                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                                            pinnedHeroID = task.id
+                                        }
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    } label: {
+                                        ZenDrawerRow(task: task)
+                                            .padding(.horizontal, 24)
+                                            .padding(.vertical, 16)
+                                    }
+                                    .buttonStyle(.plain)
                                     if task.id != nextUpTasks.last?.id {
                                         Rectangle()
                                             .fill(Theme.backgroundElevated)
@@ -230,8 +347,40 @@ struct ZenDashboardView: View {
                             .background(Theme.backgroundCard.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .padding(.horizontal, 20)
+
+                            // #3 — See all tasks link
+                            Button { showingAllTasks = true } label: {
+                                HStack(spacing: 4) {
+                                    Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(Theme.textSecondary)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(Theme.textTertiary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 10)
                         }
-                        .padding(.bottom, 40)
+                        .padding(.bottom, 24)
+                    } else if !pendingTasks.isEmpty {
+                        // No "Next Up" tasks but still have pending — still show the link
+                        Button { showingAllTasks = true } label: {
+                            HStack(spacing: 4) {
+                                Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Theme.textSecondary)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Theme.textTertiary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 16)
                     }
 
                     // MARK: Today's Priorities — urgent tasks, not a flat list of 68
@@ -285,7 +434,7 @@ struct ZenDashboardView: View {
                 .ignoresSafeArea()
             }
         }
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: .bottom)
         .sheet(isPresented: $showingMailComposer) {
             if let task = selectedAgenticTask {
                 MailComposeView(
@@ -316,11 +465,32 @@ struct ZenDashboardView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .overlay {
-            TaskCompletionCelebration(
-                taskTitle: celebrationTask?.title ?? "",
-                isVisible: celebrationTask != nil,
-                onDismiss: { celebrationTask = nil }
-            )
+            // #2 — Undo toast
+            VStack {
+                Spacer()
+                if undoVisible {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(Theme.accentSuccess)
+                        Text("Marked as done")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Theme.textPrimary)
+                        Spacer()
+                        Button("Undo") { undoLastCompletion() }
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Theme.accentPrimary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Theme.backgroundCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.accentSuccess.opacity(0.3), lineWidth: 1))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: undoVisible)
         }
         .task {
             // Fetch live background from Unsplash on load
@@ -348,6 +518,7 @@ struct ZenDashboardView: View {
         }
     }
 
+    // #2 — complete with undo support
     private func completeTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
@@ -361,21 +532,33 @@ struct ZenDashboardView: View {
             locationManager.taskStatusDidChange(task)
         }
 
-        // Show celebration for any completed task
-        if task.status == .completed {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                celebrationTask = task
-            }
+        // Show undo toast for 4 seconds
+        lastCompletedTask = task
+        withAnimation(.spring(response: 0.4)) { undoVisible = true }
+        undoTimer?.invalidate()
+        undoTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) { undoVisible = false }
         }
     }
 
+    private func undoLastCompletion() {
+        guard let task = lastCompletedTask else { return }
+        undoTimer?.invalidate()
+        withAnimation(.spring(response: 0.4)) { undoVisible = false }
+        withAnimation {
+            task.resetStatus()
+            try? modelContext.save()
+        }
+        lastCompletedTask = nil
+    }
+
+    // #1 — real 3-day snooze, not a session-only hide
     private func skipTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         withAnimation {
-            // Session-skip: hide from hero view until next launch
-            // Does not persist — task will return on next app open
-            sessionSkippedTaskIDs.insert(task.id)
+            task.snoozedUntil = Date().addingTimeInterval(3 * 86400) // 3 days
+            try? modelContext.save()
         }
     }
 
@@ -438,6 +621,25 @@ struct ZenHeroCard: View {
         return dueDate < Date()
     }
 
+    /// Per-category question label (#9)
+    private var heroQuestionLabel: String {
+        if task.isHeroItem { return "First thing — set up your mail forwarding with" }
+        if task.institutionName != nil {
+            return "Have you updated your address with"
+        }
+        switch task.category {
+        case .government:   return "Have you notified"
+        case .utilities:    return "Have you updated your address with"
+        case .healthcare:   return "Have you updated your records with"
+        case .insurance:    return "Have you updated your policy address with"
+        case .employer:     return "Have you updated your HR records at"
+        case .subscriptions: return "Have you updated your billing address with"
+        case .legal:        return "Have you filed your change of address with"
+        case .education:    return "Have you updated your records with"
+        default:            return "Have you updated your address with"
+        }
+    }
+
     var body: some View {
         ZStack {
             let gradientColor = task.priority == .critical ? Color.red.opacity(0.15) : Theme.accentPrimary.opacity(0.08)
@@ -476,8 +678,8 @@ struct ZenHeroCard: View {
                         }
                     }
 
-                    // Small question label
-                    Text("Have you updated your address with")
+                    // Small question label — per category (#9)
+                    Text(heroQuestionLabel)
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(Theme.textSecondary)
 
@@ -550,11 +752,13 @@ struct ZenHeroCard: View {
                     }
 
                     Button(action: onSkip) {
-                        Text("I'll set this up later")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Theme.textTertiary)
+                        Text("Remind me in 3 days")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
+                            .padding(.vertical, 14)
+                            .background(Theme.backgroundElevated)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
                 }

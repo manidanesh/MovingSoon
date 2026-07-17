@@ -1,17 +1,26 @@
 // Move.swift — SwiftData model for an active move
 import Foundation
 import SwiftData
+import CoreLocation
 
 @Model
 final class Move {
     var id: UUID
     var anchorDate: Date
     var originZip: String?
+    var originNeighborhood: String?         // Geocoder-resolved: e.g. "Silverlake, Los Angeles, CA"
     var destinationZip: String
+    var destinationNeighborhood: String?    // Geocoder-resolved: e.g. "Lowry, Denver, CO"
     var destinationStateBucket: String
     var destinationCityBucket: String?
     var createdAt: Date
     var phaseRaw: String
+
+    // Coordinates saved during onboarding / edited in settings
+    var originLatitude: Double?
+    var originLongitude: Double?
+    var destinationLatitude: Double?
+    var destinationLongitude: Double?
 
     @Relationship(deleteRule: .cascade)
     var tasks: [ChecklistTask]
@@ -28,23 +37,45 @@ final class Move {
     init(
         anchorDate: Date,
         originZip: String?,
+        originNeighborhood: String? = nil,
         destinationZip: String,
+        destinationNeighborhood: String? = nil,
         destinationStateBucket: String,
-        destinationCityBucket: String?
+        destinationCityBucket: String?,
+        originLatitude: Double? = nil,
+        originLongitude: Double? = nil,
+        destinationLatitude: Double? = nil,
+        destinationLongitude: Double? = nil
     ) {
-        self.id                     = UUID()
-        self.anchorDate             = anchorDate
-        self.originZip              = originZip
-        self.destinationZip         = destinationZip
-        self.destinationStateBucket = destinationStateBucket
-        self.destinationCityBucket  = destinationCityBucket
-        self.createdAt              = Date()
-        self.phaseRaw               = MovePhase.active.rawValue
-        self.tasks                  = []
-        self.institutions           = []
+        self.id                       = UUID()
+        self.anchorDate               = anchorDate
+        self.originZip                = originZip
+        self.originNeighborhood       = originNeighborhood
+        self.destinationZip           = destinationZip
+        self.destinationNeighborhood  = destinationNeighborhood
+        self.destinationStateBucket   = destinationStateBucket
+        self.destinationCityBucket    = destinationCityBucket
+        self.createdAt                = Date()
+        self.phaseRaw                 = MovePhase.active.rawValue
+        self.tasks                    = []
+        self.institutions             = []
+        self.originLatitude           = originLatitude
+        self.originLongitude          = originLongitude
+        self.destinationLatitude      = destinationLatitude
+        self.destinationLongitude     = destinationLongitude
     }
 
     // MARK: - Computed
+
+    var destinationCoordinate: CLLocationCoordinate2D? {
+        guard let lat = destinationLatitude, let lon = destinationLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    var originCoordinate: CLLocationCoordinate2D? {
+        guard let lat = originLatitude, let lon = originLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
 
     var personaKey: PersonaKey {
         guard let profile = lifestyleProfile else { return .activeProfessional }

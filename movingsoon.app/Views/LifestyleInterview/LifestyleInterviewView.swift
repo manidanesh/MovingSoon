@@ -270,6 +270,8 @@ struct LifestyleInterviewView: View {
                         Text("\(estimatedTaskCount)")
                             .font(.system(size: 52, weight: .bold, design: .rounded))
                             .foregroundColor(Theme.accentSuccess)
+                            .contentTransition(.numericText())
+                            .animation(.spring(response: 0.3), value: estimatedTaskCount)
                         Text("tasks for you.")
                             .font(.system(size: 22, weight: .semibold, design: .serif))
                             .foregroundColor(Theme.textPrimary)
@@ -326,12 +328,18 @@ struct LifestyleInterviewView: View {
     }
 
     private var estimatedTaskCount: Int {
-        // Quick estimate based on yes/no answers + institutions
+        // Reactive estimate — updates live as user taps chips (#4)
         var base = 25 // always-included tasks
-        if vm.hasKids { base += 8 }
-        if vm.hasPets { base += 4 }
+        if vm.hasKids  { base += 8 }
+        if vm.hasPets  { base += 4 }
         if vm.ownsHome { base += 6 }
         base += vm.selectedInstitutions.count
+        // Count selected optional chips
+        for sections in vm.extraChips.values {
+            for section in sections {
+                base += section.chips.filter { $0.isSelected }.count * 2
+            }
+        }
         return base
     }
 

@@ -18,7 +18,17 @@ struct ContentView: View {
 
             switch phase {
             case .loading:
-                Color.clear.onAppear { resolvePhase() }
+                // #13 — Branded loading state instead of blank black flash
+                VStack(spacing: 16) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 44, weight: .light))
+                        .foregroundColor(Theme.accentPrimary)
+                    Text("movingsoon")
+                        .font(.system(size: 22, weight: .bold, design: .serif))
+                        .foregroundColor(Theme.textPrimary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear { resolvePhase() }
 
             case .onboarding:
                 CoreIntakeView {

@@ -40,12 +40,15 @@ final class GeofenceCoordinator {
 
     // MARK: - Sync geofences
 
-    /// Resolves POI coordinates via MKLocalSearch and registers geofences.
+    /// Resolves POI coordinates via MKLocalSearch near the DESTINATION and registers geofences.
     /// Filters to pending tasks with a poiCategory, sorts by urgency (tMinusDays ascending),
     /// caps at 20 regions (iOS system limit).
+    ///
+    /// - Parameter destinationCoordinate: The approximate coordinate of the destination ZIP.
+    ///   Geofences are placed near real POIs at the destination, not near the user's current location.
     func syncGeofences(
         for tasks: [ChecklistTask],
-        currentLocation: CLLocationCoordinate2D?,
+        destinationCoordinate: CLLocationCoordinate2D,
         manager: CLLocationManager
     ) async {
         // Filter to pending tasks that have a physical POI category
@@ -59,7 +62,8 @@ final class GeofenceCoordinator {
             guard !registeredRegionIDs.contains(task.id.uuidString) else { continue }
 
             let query = Self.searchQuery(for: category)
-            let coordinate = await resolveCoordinate(query: query, near: currentLocation)
+            // Search near the DESTINATION — where the user is moving to
+            let coordinate = await resolveCoordinate(query: query, near: destinationCoordinate)
 
             guard let coordinate else {
                 logger.debug("GeofenceCoordinator: MKLocalSearch returned no results for '\(query)' near current location — skipping task \(task.id.uuidString)")
@@ -104,18 +108,16 @@ final class GeofenceCoordinator {
 
     private func resolveCoordinate(
         query: String,
-        near coordinate: CLLocationCoordinate2D?
+        near coordinate: CLLocationCoordinate2D
     ) async -> CLLocationCoordinate2D? {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
-        // Bias search toward the current location with a ~10km span
-        if let coordinate {
-            request.region = MKCoordinateRegion(
-                center: coordinate,
-                latitudinalMeters: 10_000,
-                longitudinalMeters: 10_000
-            )
-        }
+        // Bias search toward the destination with a ~10km span
+        request.region = MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: 10_000,
+            longitudinalMeters: 10_000
+        )
 
         do {
             let search = MKLocalSearch(request: request)
