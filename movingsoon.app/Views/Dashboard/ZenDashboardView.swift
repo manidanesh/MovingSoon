@@ -163,13 +163,13 @@ struct ZenDashboardView: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(daysUntilMoveLabel)
-                                .font(.system(size: 13, weight: .medium))
+                                .themeText(13, weight: .medium)
                                 .foregroundColor(Theme.accentPrimary)
                                 .textCase(.uppercase)
                                 .tracking(1.5)
 
                             Text(dashboardTitle)
-                                .font(.system(size: 28, weight: .bold, design: .serif))
+                                .themeSerif(28, weight: .bold)
                                 .foregroundColor(Theme.textPrimary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
@@ -177,7 +177,7 @@ struct ZenDashboardView: View {
                             // City/state subtitle when neighbourhood is set (#12)
                             if let subtitle = dashboardSubtitle {
                                 Text(subtitle)
-                                    .font(.system(size: 13, weight: .regular))
+                                    .themeText(13, weight: .regular)
                                     .foregroundColor(Theme.textSecondary)
                             }
 
@@ -185,10 +185,10 @@ struct ZenDashboardView: View {
                             if let route = routeLabel {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.right")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .themeText(9, weight: .bold)
                                         .foregroundColor(Theme.textTertiary)
                                     Text(route)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .themeText(11, weight: .medium)
                                         .foregroundColor(Theme.textTertiary)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
@@ -202,11 +202,11 @@ struct ZenDashboardView: View {
                             // Progress context (#5)
                             if let context = progressContextLabel {
                                 Text(context)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .themeText(12, weight: .medium)
                                     .foregroundColor(overdueCount > 0 ? Theme.priorityCritical : Theme.textSecondary)
                             } else {
                                 Text("\(Int(move.completionFraction * 100))% complete")
-                                    .font(.system(size: 13, weight: .regular))
+                                    .themeText(13, weight: .regular)
                                     .foregroundColor(Theme.textSecondary)
                             }
                         }
@@ -222,7 +222,7 @@ struct ZenDashboardView: View {
                                 .rotationEffect(.degrees(-90))
                                 .animation(.spring(), value: move.completionFraction)
                             Text("\(Int(move.completionFraction * 100))%")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .themeRounded(12, weight: .bold)
                                 .foregroundColor(Theme.textPrimary)
                         }
                         .frame(width: 50, height: 50)
@@ -230,12 +230,13 @@ struct ZenDashboardView: View {
                         // Settings button
                         Button { showingEditMove = true } label: {
                             Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 16, weight: .medium))
+                                .themeText(16, weight: .medium)
                                 .foregroundColor(Theme.textSecondary)
                                 .frame(width: 36, height: 36)
                                 .background(Theme.backgroundElevated, in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Move settings")
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
@@ -281,7 +282,7 @@ struct ZenDashboardView: View {
                     if pendingTasks.isEmpty {
                         VStack(spacing: 20) {
                             Text("All Caught Up.")
-                                .font(.system(size: 32, weight: .bold, design: .serif))
+                                .themeSerif(32, weight: .bold)
                                 .foregroundColor(Theme.textPrimary)
                             Text("Your move is fully orchestrated.")
                                 .foregroundColor(Theme.textSecondary)
@@ -291,7 +292,7 @@ struct ZenDashboardView: View {
                     } else if let hero = heroTask {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Do This Now")
-                                .font(.system(size: 12, weight: .semibold))
+                                .themeText(12, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -315,7 +316,7 @@ struct ZenDashboardView: View {
                     if !nextUpTasks.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
                             Text("Next Up")
-                                .font(.system(size: 12, weight: .semibold))
+                                .themeText(12, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -352,10 +353,10 @@ struct ZenDashboardView: View {
                             Button { showingAllTasks = true } label: {
                                 HStack(spacing: 4) {
                                     Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .themeText(13, weight: .medium)
                                         .foregroundColor(Theme.textSecondary)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .themeText(11, weight: .semibold)
                                         .foregroundColor(Theme.textTertiary)
                                 }
                             }
@@ -370,10 +371,10 @@ struct ZenDashboardView: View {
                         Button { showingAllTasks = true } label: {
                             HStack(spacing: 4) {
                                 Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
-                                    .font(.system(size: 13, weight: .medium))
+                                    .themeText(13, weight: .medium)
                                     .foregroundColor(Theme.textSecondary)
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .themeText(11, weight: .semibold)
                                     .foregroundColor(Theme.textTertiary)
                             }
                         }
@@ -386,6 +387,7 @@ struct ZenDashboardView: View {
                     // MARK: Today's Priorities — urgent tasks, not a flat list of 68
                     TodaysPrioritiesSection(
                         move: move,
+                        excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }).union(nextUpTasks.map(\.id)),
                         onTaskComplete: { task in completeTask(task) },
                         onViewAll: { showingAllTasks = true }
                     )
@@ -435,6 +437,7 @@ struct ZenDashboardView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        .dynamicTypeSize(...(.accessibility1))
         .sheet(isPresented: $showingMailComposer) {
             if let task = selectedAgenticTask {
                 MailComposeView(
@@ -473,11 +476,11 @@ struct ZenDashboardView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(Theme.accentSuccess)
                         Text("Marked as done")
-                            .font(.system(size: 14, weight: .medium))
+                            .themeText(14, weight: .medium)
                             .foregroundColor(Theme.textPrimary)
                         Spacer()
                         Button("Undo") { undoLastCompletion() }
-                            .font(.system(size: 14, weight: .bold))
+                            .themeText(14, weight: .bold)
                             .foregroundColor(Theme.accentPrimary)
                     }
                     .padding(.horizontal, 16)
@@ -642,7 +645,7 @@ struct ZenHeroCard: View {
 
     var body: some View {
         ZStack {
-            let gradientColor = task.priority == .critical ? Color.red.opacity(0.15) : Theme.accentPrimary.opacity(0.08)
+            let gradientColor = task.priority == .critical ? Theme.priorityCritical.opacity(0.15) : Theme.accentPrimary.opacity(0.08)
 
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(LinearGradient(
@@ -663,29 +666,29 @@ struct ZenHeroCard: View {
                     HStack(spacing: 8) {
                         if let label = dueDateLabel {
                             Text(label)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                                .themeText(11, weight: .semibold)
+                                .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
-                                .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08))
+                                .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
                                 .clipShape(Capsule())
                         }
                         Spacer()
                         if task.actionType == .agenticUpdate {
                             Image(systemName: "sparkles")
                                 .foregroundColor(Theme.accentPrimary)
-                                .font(.system(size: 16))
+                                .themeText(16)
                         }
                     }
 
                     // Small question label — per category (#9)
                     Text(heroQuestionLabel)
-                        .font(.system(size: 13, weight: .regular))
+                        .themeText(13, weight: .regular)
                         .foregroundColor(Theme.textSecondary)
 
                     // Large emoji + task title
                     Text("\(task.category.emoji) \(task.title)")
-                        .font(.system(size: 26, weight: .bold, design: .serif))
+                        .themeSerif(26, weight: .bold)
                         .foregroundColor(Theme.textPrimary)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -696,7 +699,7 @@ struct ZenHeroCard: View {
                     if task.actionType == .agenticUpdate {
                         Button(action: onAgenticAction) {
                             Label("Auto-Update Address", systemImage: "paperplane.fill")
-                                .font(.system(size: 16, weight: .bold))
+                                .themeText(16, weight: .bold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
                                 .background(Theme.accentPrimary)
@@ -712,9 +715,9 @@ struct ZenHeroCard: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 14, weight: .bold))
+                                    .themeText(14, weight: .bold)
                                 Text("Update Now")
-                                    .font(.system(size: 16, weight: .bold))
+                                    .themeText(16, weight: .bold)
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -728,7 +731,7 @@ struct ZenHeroCard: View {
                         // Secondary: already done
                         Button(action: onComplete) {
                             Text("I already updated this ✓")
-                                .font(.system(size: 15, weight: .semibold))
+                                .themeText(15, weight: .semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                                 .background(Theme.backgroundElevated)
@@ -740,7 +743,7 @@ struct ZenHeroCard: View {
                         // No deep link — just mark done
                         Button(action: onComplete) {
                             Text("Mark as Done")
-                                .font(.system(size: 16, weight: .bold))
+                                .themeText(16, weight: .bold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
                                 .background(Theme.accentPrimary)
@@ -753,7 +756,7 @@ struct ZenHeroCard: View {
 
                     Button(action: onSkip) {
                         Text("Remind me in 3 days")
-                            .font(.system(size: 15, weight: .semibold))
+                            .themeText(15, weight: .semibold)
                             .foregroundColor(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -786,7 +789,7 @@ struct ContextualPromptCard: View {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
                     Label("Location Match", systemImage: "mappin.and.ellipse")
-                        .font(.system(size: 13, weight: .bold))
+                        .themeText(13, weight: .bold)
                         .foregroundColor(Theme.accentPrimary)
                         .textCase(.uppercase)
                         .tracking(1.5)
@@ -795,14 +798,14 @@ struct ContextualPromptCard: View {
 
                 let displayName = task.institutionName ?? task.title
                 Text("We noticed you're near \(displayName). Have you updated your address on file?")
-                    .font(.system(size: 18, weight: .semibold, design: .serif))
+                    .themeSerif(18, weight: .semibold)
                     .foregroundColor(Theme.textPrimary)
                     .lineSpacing(4)
 
                 HStack(spacing: 10) {
                     Button(action: onRemindTomorrow) {
                         Text("Remind me tomorrow")
-                            .font(.system(size: 15, weight: .semibold))
+                            .themeText(15, weight: .semibold)
                             .foregroundColor(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -812,7 +815,7 @@ struct ContextualPromptCard: View {
 
                     Button(action: onYes) {
                         Text("Yes, I updated it")
-                            .font(.system(size: 15, weight: .bold))
+                            .themeText(15, weight: .bold)
                             .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
@@ -831,13 +834,17 @@ struct ZenDrawerRow: View {
     let task: ChecklistTask
 
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(task.priority.color)
+                .frame(width: 6, height: 6)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
-                    .font(.system(size: 16, weight: .medium))
+                    .themeText(16, weight: .medium)
                     .foregroundColor(Theme.textSecondary)
                 Text(task.category.rawValue)
-                    .font(.system(size: 12))
+                    .themeText(12)
                     .foregroundColor(Theme.textSecondary.opacity(0.5))
             }
             Spacer()
@@ -846,7 +853,7 @@ struct ZenDrawerRow: View {
                     .foregroundColor(Theme.accentPrimary.opacity(0.5))
             } else if task.deepLinkURL != nil {
                 Image(systemName: "arrow.up.right.circle")
-                    .font(.system(size: 16))
+                    .themeText(16)
                     .foregroundColor(Theme.textTertiary.opacity(0.4))
             }
         }
@@ -856,14 +863,17 @@ struct ZenDrawerRow: View {
 // MARK: - Today's Priorities Section
 struct TodaysPrioritiesSection: View {
     let move: Move
+    /// Ids already shown as the Hero card or in the Next Up drawer — excluded here to avoid
+    /// showing the same task three times on one screen.
+    let excludedTaskIDs: Set<UUID>
     let onTaskComplete: (ChecklistTask) -> Void
     let onViewAll: () -> Void
     @Environment(\.modelContext) private var modelContext
 
-    /// Tasks due soonest that aren't the hero item — up to 5
+    /// Tasks due soonest that aren't the hero item or already shown in Next Up — up to 5
     private var urgentTasks: [ChecklistTask] {
         move.tasks
-            .filter { $0.status == .toDo && !$0.isHeroItem }
+            .filter { $0.status == .toDo && !$0.isHeroItem && !excludedTaskIDs.contains($0.id) }
             .sorted { $0.tMinusDays < $1.tMinusDays }
             .prefix(5)
             .map { $0 }
@@ -872,7 +882,7 @@ struct TodaysPrioritiesSection: View {
     private var overdueTasks: [ChecklistTask] {
         let today = Date()
         return move.tasks.filter { task in
-            task.status == .toDo && !task.isHeroItem &&
+            task.status == .toDo && !task.isHeroItem && !excludedTaskIDs.contains(task.id) &&
             (Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? Date()) < today
         }
     }
@@ -884,13 +894,13 @@ struct TodaysPrioritiesSection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Coming Up")
-                        .font(.system(size: 12, weight: .semibold))
+                        .themeText(12, weight: .semibold)
                         .foregroundColor(Theme.textSecondary)
                         .textCase(.uppercase)
                         .tracking(2)
                     if !overdueTasks.isEmpty {
                         Text("\(overdueTasks.count) overdue")
-                            .font(.system(size: 11, weight: .semibold))
+                            .themeText(11, weight: .semibold)
                             .foregroundColor(Theme.accentPrimary)
                     }
                 }
@@ -898,9 +908,9 @@ struct TodaysPrioritiesSection: View {
                 Button(action: onViewAll) {
                     HStack(spacing: 4) {
                         Text("All \(move.totalCount - move.completedCount) remaining")
-                            .font(.system(size: 12, weight: .medium))
+                            .themeText(12, weight: .medium)
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                            .themeText(10, weight: .semibold)
                     }
                     .foregroundColor(Theme.textTertiary)
                 }
@@ -911,7 +921,7 @@ struct TodaysPrioritiesSection: View {
             // Task cards
             if urgentTasks.isEmpty {
                 Text("All tasks complete or in progress.")
-                    .font(.system(size: 14))
+                    .themeText(14)
                     .foregroundColor(Theme.textSecondary)
                     .padding(.horizontal, 24)
             } else {
@@ -965,14 +975,15 @@ struct UpcomingTaskRow: View {
             // Tap to complete
             Button(action: onComplete) {
                 Image(systemName: "circle")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textSecondary.opacity(0.4))
+                    .themeText(20, weight: .regular)
+                    .foregroundColor(isOverdue ? Theme.priorityCritical : task.priority.color.opacity(0.5))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Mark \(task.title) complete")
 
             // Emoji icon
             if let emoji = task.institutionInitials, task.institutionName == nil {
-                Text(emoji).font(.system(size: 20))
+                Text(emoji).themeText(20)
             } else if task.institutionName != nil {
                 InstitutionBadgeView(
                     initials: task.institutionInitials ?? "?",
@@ -983,11 +994,11 @@ struct UpcomingTaskRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .themeText(14, weight: .medium)
                     .foregroundColor(Theme.textPrimary)
                     .lineLimit(1)
                 Text(task.category.rawValue)
-                    .font(.system(size: 11))
+                    .themeText(11)
                     .foregroundColor(Theme.textTertiary)
             }
 
@@ -995,11 +1006,11 @@ struct UpcomingTaskRow: View {
 
             // Due label
             Text(dueLabel)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                .themeText(11, weight: .semibold)
+                .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08))
+                .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
                 .clipShape(Capsule())
 
             // Deep link arrow
@@ -1008,10 +1019,11 @@ struct UpcomingTaskRow: View {
                     UIApplication.shared.open(url)
                 } label: {
                     Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.system(size: 18))
+                        .themeText(18)
                         .foregroundColor(Theme.accentPrimary.opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Open \(task.institutionName ?? task.title) website")
             }
         }
         .padding(.horizontal, 16)
@@ -1072,7 +1084,7 @@ struct MoveTimelineSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Move Timeline")
-                .font(.system(size: 12, weight: .semibold))
+                .themeText(12, weight: .semibold)
                 .foregroundColor(Theme.textSecondary)
                 .textCase(.uppercase)
                 .tracking(2)
@@ -1108,21 +1120,21 @@ struct MoveTimelineSection: View {
                                         )
 
                                     if bucket.isMovWeek {
-                                        Text("🏠").font(.system(size: 18))
+                                        Text("🏠").themeText(18)
                                     } else if bucket.isPast {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .bold))
+                                            .themeText(12, weight: .bold)
                                             .foregroundColor(Theme.accentSuccess)
                                     } else {
                                         // Task count dot
                                         let pending = bucket.tasks.filter { $0.status == .toDo }.count
                                         if pending > 0 {
                                             Text("\(pending)")
-                                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                                .themeRounded(12, weight: .bold)
                                                 .foregroundColor(bucket.isCurrent ? Theme.accentPrimary : Theme.textSecondary)
                                         } else {
                                             Image(systemName: "minus")
-                                                .font(.system(size: 10))
+                                                .themeText(10)
                                                 .foregroundColor(Theme.textTertiary)
                                         }
                                     }
@@ -1130,7 +1142,7 @@ struct MoveTimelineSection: View {
 
                                 // Week label
                                 Text(bucket.label)
-                                    .font(.system(size: 9, weight: bucket.isCurrent || bucket.isMovWeek ? .bold : .regular))
+                                    .themeText(9, weight: bucket.isCurrent || bucket.isMovWeek ? .bold : .regular)
                                     .foregroundColor(bucket.isMovWeek ? Theme.accentPrimary :
                                                      bucket.isCurrent ? Theme.textPrimary :
                                                      bucket.isPast ? Theme.textTertiary :
@@ -1144,7 +1156,7 @@ struct MoveTimelineSection: View {
                                     HStack(spacing: 2) {
                                         ForEach(Array(Set(pendingTasks.compactMap { $0.poiCategory != nil ? "📍" : nil }
                                             + pendingTasks.prefix(4).map { $0.category.emoji })).prefix(4), id: \.self) { emoji in
-                                            Text(emoji).font(.system(size: 8))
+                                            Text(emoji).themeText(8)
                                         }
                                     }
                                     .frame(width: 48)
@@ -1162,15 +1174,15 @@ struct MoveTimelineSection: View {
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
                     Circle().fill(Theme.accentSuccess.opacity(0.2)).frame(width: 8, height: 8)
-                    Text("Done").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                    Text("Done").themeText(10).foregroundColor(Theme.textTertiary)
                 }
                 HStack(spacing: 4) {
                     Circle().fill(Theme.accentPrimary.opacity(0.3)).frame(width: 8, height: 8)
-                    Text("This week").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                    Text("This week").themeText(10).foregroundColor(Theme.textTertiary)
                 }
                 HStack(spacing: 4) {
                     Circle().fill(Theme.backgroundElevated).frame(width: 8, height: 8)
-                    Text("Upcoming").font(.system(size: 10)).foregroundColor(Theme.textTertiary)
+                    Text("Upcoming").themeText(10).foregroundColor(Theme.textTertiary)
                 }
                 Spacer()
             }
@@ -1279,7 +1291,7 @@ struct AchievementMilestoneSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Achievement Milestones")
-                .font(.system(size: 12, weight: .semibold))
+                .themeText(12, weight: .semibold)
                 .foregroundColor(Theme.textSecondary)
                 .textCase(.uppercase)
                 .tracking(2)
@@ -1309,17 +1321,17 @@ struct AchievementMilestoneSection: View {
                                             .frame(width: 44, height: 44)
                                         
                                         Image(systemName: isFullyAchieved ? "trophy.fill" : "target")
-                                            .font(.system(size: 20, weight: .bold))
+                                            .themeText(20, weight: .bold)
                                             .foregroundColor(isFullyAchieved ? Theme.accentSuccess : cluster.accentColor)
                                     }
 
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(cluster.title)
-                                            .font(.system(size: 16, weight: .bold, design: .serif))
+                                            .themeSerif(16, weight: .bold)
                                             .foregroundColor(Theme.textPrimary)
 
                                         Text(isFullyAchieved ? cluster.celebratoryMessage : cluster.description)
-                                            .font(.system(size: 12))
+                                            .themeText(12)
                                             .foregroundColor(isFullyAchieved ? Theme.accentSuccess : Theme.textSecondary)
                                             .lineLimit(2)
                                     }
@@ -1329,9 +1341,9 @@ struct AchievementMilestoneSection: View {
                                     // Progress Pill
                                     HStack(spacing: 4) {
                                         Text("\(completedTasks.count)/\(clusterTasks.count)")
-                                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                                            .themeRounded(12, weight: .bold)
                                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                            .font(.system(size: 10, weight: .bold))
+                                            .themeText(10, weight: .bold)
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
@@ -1357,7 +1369,7 @@ struct AchievementMilestoneSection: View {
                                     // Pending Section
                                     if !pendingTasks.isEmpty {
                                         Text("Pending Updates (\(pendingTasks.count))")
-                                            .font(.system(size: 11, weight: .bold))
+                                            .themeText(11, weight: .bold)
                                             .foregroundColor(cluster.accentColor)
                                             .textCase(.uppercase)
                                             .tracking(1)
@@ -1376,7 +1388,7 @@ struct AchievementMilestoneSection: View {
                                     // Completed Section
                                     if !completedTasks.isEmpty {
                                         Text("Completed Achievements (\(completedTasks.count))")
-                                            .font(.system(size: 11, weight: .bold))
+                                            .themeText(11, weight: .bold)
                                             .foregroundColor(Theme.accentSuccess)
                                             .textCase(.uppercase)
                                             .tracking(1)
@@ -1455,7 +1467,7 @@ struct ZenMilestoneTaskRow: View {
             // Circle tap → show action sheet (or undo if already completed)
             Button(action: task.status == .completed ? onComplete : onTap) {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22, weight: .semibold))
+                    .themeText(22, weight: .semibold)
                     .foregroundColor(task.status == .completed ? Theme.accentSuccess : Theme.textSecondary.opacity(0.5))
                     .contentShape(Rectangle())
                     .frame(width: 36, height: 36)
@@ -1464,18 +1476,18 @@ struct ZenMilestoneTaskRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
-                    .font(.system(size: 15, weight: .medium))
+                    .themeText(15, weight: .medium)
                     .foregroundColor(task.status == .completed ? Theme.textSecondary : Theme.textPrimary)
                     .strikethrough(task.status == .completed, color: Theme.textSecondary)
 
                 HStack {
                     Text(task.category.rawValue)
-                        .font(.system(size: 11))
+                        .themeText(11)
                         .foregroundColor(Theme.textSecondary.opacity(0.6))
 
                     if let poi = task.poiCategory {
                         Text("• \(poi.rawValue)")
-                            .font(.system(size: 11))
+                            .themeText(11)
                             .foregroundColor(Theme.textSecondary.opacity(0.6))
                     }
                 }
@@ -1486,11 +1498,11 @@ struct ZenMilestoneTaskRow: View {
             if task.status != .completed {
                 if task.actionType == .agenticUpdate {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 14))
+                        .themeText(14)
                         .foregroundColor(Theme.accentPrimary)
                 } else if task.deepLinkURL != nil {
                     Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.system(size: 20))
+                        .themeText(20)
                         .foregroundColor(Theme.accentPrimary.opacity(0.8))
                 }
             }
@@ -1517,10 +1529,10 @@ struct TaskActionSheet: View {
             // Handle + title
             VStack(alignment: .leading, spacing: 6) {
                 Text("Have you updated your address?")
-                    .font(.system(size: 13, weight: .regular))
+                    .themeText(13, weight: .regular)
                     .foregroundColor(Theme.textSecondary)
                 Text("\(task.category.emoji) \(task.title)")
-                    .font(.system(size: 20, weight: .bold, design: .serif))
+                    .themeSerif(20, weight: .bold)
                     .foregroundColor(Theme.textPrimary)
             }
             .padding(.top, 8)
@@ -1529,7 +1541,7 @@ struct TaskActionSheet: View {
                 // Primary: already done
                 Button(action: onAlreadyDone) {
                     Text("Yes, already done ✓")
-                        .font(.system(size: 16, weight: .bold))
+                        .themeText(16, weight: .bold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)
                         .background(Theme.accentSuccess)
@@ -1543,9 +1555,9 @@ struct TaskActionSheet: View {
                     Button(action: onUpdateNow) {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                             Text("Update now")
-                                .font(.system(size: 16, weight: .semibold))
+                                .themeText(16, weight: .semibold)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)
@@ -1559,7 +1571,7 @@ struct TaskActionSheet: View {
                 // Tertiary: later
                 Button(action: onLater) {
                     Text("I'll do this later")
-                        .font(.system(size: 14, weight: .medium))
+                        .themeText(14, weight: .medium)
                         .foregroundColor(Theme.textTertiary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)

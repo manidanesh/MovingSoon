@@ -10,8 +10,7 @@ enum ChecklistGenerator {
         var tasks: [ChecklistTask] = []
 
         // 1. Catalog-based tasks
-        for item in ItemCatalog.all {
-            guard shouldInclude(item, flags: flags) else { continue }
+        for item in matchingItems(flags: flags) {
             tasks.append(task(from: item))
         }
 
@@ -41,7 +40,13 @@ enum ChecklistGenerator {
 
     // MARK: - Filter Logic
 
-    private static func shouldInclude(_ item: CatalogItem, flags: Set<LifestyleFlag>) -> Bool {
+    /// Catalog items that would be included for a given flag set — shared by the real
+    /// generator below and by any UI that needs an accurate (not heuristic) task count.
+    static func matchingItems(flags: Set<LifestyleFlag>) -> [CatalogItem] {
+        ItemCatalog.all.filter { shouldInclude($0, flags: flags) }
+    }
+
+    static func shouldInclude(_ item: CatalogItem, flags: Set<LifestyleFlag>) -> Bool {
         // Excludes ALWAYS trumps everything else (even alwaysInclude)
         if !item.excludes.isEmpty && !item.excludes.isDisjoint(with: flags) { return false }
 

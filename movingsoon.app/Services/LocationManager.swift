@@ -27,6 +27,10 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     private let manager = CLLocationManager()
 
+    /// Guards the WhenInUse → Always escalation so it's only attempted once per grant,
+    /// not every time authorizationStatus is re-read.
+    private var hasRequestedAlwaysUpgrade = false
+
     // MARK: - Init
 
     override init() {
@@ -39,8 +43,11 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     // MARK: - Permission request
 
+    /// Requests "When In Use" first. Apple's system prompt for "Always" only appears
+    /// as a follow-up upgrade after a WhenInUse grant — asking for Always cold risks
+    /// the OS silently granting WhenInUse only and never surfacing the upgrade dialog.
     func requestPermissions() {
-        manager.requestAlwaysAuthorization()
+        manager.requestWhenInUseAuthorization()
     }
 
     // MARK: - CLLocationManagerDelegate — authorization
@@ -49,12 +56,22 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         authorizationStatus = manager.authorizationStatus
 
         switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            // Record consent date on the Move if not already set
+        case .authorizedAlways:
+            // Record consent date on the Move if not already set — the 30-day promise
+            // in LocationConsentCard only makes sense once background geofencing can work.
             if let move, move.locationConsentGrantedAt == nil {
                 move.locationConsentGrantedAt = Date()
             }
             // Sync geofences now that we have permission
+            syncGeofencesIfActive()
+
+        case .authorizedWhenInUse:
+            // Escalate to Always so the system's upgrade dialog appears. Guarded to fire once.
+            if !hasRequestedAlwaysUpgrade {
+                hasRequestedAlwaysUpgrade = true
+                manager.requestAlwaysAuthorization()
+            }
+            // Attempt sync anyway — it's a no-op until locationConsentGrantedAt is set.
             syncGeofencesIfActive()
 
         default:

@@ -54,6 +54,40 @@ enum Theme {
     )
 }
 
+// MARK: - Typography (Dynamic Type aware)
+// `.font(.system(size:))` alone never scales with the user's preferred text size —
+// these wrap it in @ScaledMetric so fixed-point sizes still grow/shrink appropriately.
+private struct ScaledFont: ViewModifier {
+    @ScaledMetric private var scaledSize: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design) {
+        self._scaledSize = ScaledMetric(wrappedValue: size)
+        self.weight = weight
+        self.design = design
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: scaledSize, weight: weight, design: design))
+    }
+}
+
+extension View {
+    /// Serif editorial headline — scales with Dynamic Type.
+    func themeSerif(_ size: CGFloat, weight: Font.Weight = .bold) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .serif))
+    }
+    /// Standard system body/label text — scales with Dynamic Type.
+    func themeText(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .default))
+    }
+    /// Rounded numeric text (counters, percentages) — scales with Dynamic Type.
+    func themeRounded(_ size: CGFloat, weight: Font.Weight = .bold) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: .rounded))
+    }
+}
+
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

@@ -22,16 +22,13 @@ struct AddMoreServicesView: View {
     private var newTaskCount: Int {
         let existingTitles = Set(move.tasks.map { $0.title })
         let flags = vm.allActiveFlags
-        var count = 0
-        for item in ItemCatalog.all {
-            guard !existingTitles.contains(item.title) else { continue }
-            guard shouldInclude(item, flags: flags) else { continue }
-            count += 1
-        }
-        count += vm.selectedInstitutions.filter { inst in
+        let catalogCount = ChecklistGenerator.matchingItems(flags: flags)
+            .filter { !existingTitles.contains($0.title) }
+            .count
+        let institutionCount = vm.selectedInstitutions.filter { inst in
             !existingTitles.contains(inst.name)
         }.count
-        return count
+        return catalogCount + institutionCount
     }
 
     var body: some View {
@@ -61,18 +58,12 @@ struct AddMoreServicesView: View {
                                 .textCase(.uppercase)
                                 .tracking(1.5)
 
-                            FinancialScreenView(
+                            InstitutionPickerGrid(
                                 selectedInstitutions: Binding(
                                     get: { vm.selectedInstitutions },
                                     set: { vm.selectedInstitutions = $0 }
-                                ),
-                                stepIndex: 0,
-                                totalSteps: 1,
-                                onBack: { dismiss() },
-                                onFinish: { }
+                                )
                             )
-                            .frame(height: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
 
                         // Optional extras
@@ -164,9 +155,8 @@ struct AddMoreServicesView: View {
         }
 
         // Generate new catalog tasks
-        for item in ItemCatalog.all {
+        for item in ChecklistGenerator.matchingItems(flags: flags) {
             guard !existingTitles.contains(item.title) else { continue }
-            guard shouldInclude(item, flags: flags) else { continue }
             let task = ChecklistTask(
                 title: item.title,
                 category: item.category,
@@ -217,14 +207,5 @@ struct AddMoreServicesView: View {
 
         try? modelContext.save()
         dismiss()
-    }
-
-    private func shouldInclude(_ item: CatalogItem, flags: Set<LifestyleFlag>) -> Bool {
-        if !item.excludes.isEmpty && !item.excludes.isDisjoint(with: flags) { return false }
-        if item.alwaysInclude { return true }
-        if !item.requires.isEmpty && !item.requires.isSubset(of: flags) { return false }
-        if !item.requiresAny.isEmpty && item.requiresAny.isDisjoint(with: flags) { return false }
-        if item.requires.isEmpty && item.requiresAny.isEmpty { return true }
-        return true
     }
 }

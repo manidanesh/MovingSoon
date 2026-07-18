@@ -17,18 +17,18 @@ struct LocationConsentCard: View {
                         .fill(Theme.accentPrimary.opacity(0.15))
                         .frame(width: 40, height: 40)
                     Image(systemName: "location.fill")
-                        .font(.system(size: 18, weight: .medium))
+                        .themeText(18, weight: .medium)
                         .foregroundColor(Theme.accentPrimary)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Smart Reminders")
-                        .font(.system(size: 13, weight: .semibold))
+                        .themeText(13, weight: .semibold)
                         .foregroundColor(Theme.accentPrimary)
                         .textCase(.uppercase)
                         .tracking(1.2)
                     Text("30-day location access")
-                        .font(.system(size: 11, weight: .medium))
+                        .themeText(11, weight: .medium)
                         .foregroundColor(Theme.textTertiary)
                 }
 
@@ -37,17 +37,18 @@ struct LocationConsentCard: View {
                 // Dismiss X
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .themeText(12, weight: .medium)
                         .foregroundColor(Theme.textTertiary)
                         .padding(8)
                         .background(Theme.backgroundElevated, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
             }
 
             // MARK: Body copy
             Text("Walking past your bank or old gym? We'll remind you to update your address right then — for 30 days, then we stop automatically.")
-                .font(.system(size: 15, weight: .regular))
+                .themeText(15, weight: .regular)
                 .foregroundColor(Theme.textSecondary)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -59,9 +60,9 @@ struct LocationConsentCard: View {
                     Button(action: onAllow) {
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 13, weight: .semibold))
+                                .themeText(13, weight: .semibold)
                             Text("Allow 30 Days")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                         }
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
@@ -78,9 +79,9 @@ struct LocationConsentCard: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "gear")
-                                .font(.system(size: 13, weight: .semibold))
+                                .themeText(13, weight: .semibold)
                             Text("Open Settings")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                         }
                         .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
@@ -93,7 +94,7 @@ struct LocationConsentCard: View {
                 // Secondary — Not Now
                 Button(action: onDismiss) {
                     Text("Not Now")
-                        .font(.system(size: 14, weight: .medium))
+                        .themeText(14, weight: .medium)
                         .foregroundColor(Theme.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)

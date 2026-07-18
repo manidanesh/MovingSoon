@@ -328,19 +328,9 @@ struct LifestyleInterviewView: View {
     }
 
     private var estimatedTaskCount: Int {
-        // Reactive estimate — updates live as user taps chips (#4)
-        var base = 25 // always-included tasks
-        if vm.hasKids  { base += 8 }
-        if vm.hasPets  { base += 4 }
-        if vm.ownsHome { base += 6 }
-        base += vm.selectedInstitutions.count
-        // Count selected optional chips
-        for sections in vm.extraChips.values {
-            for section in sections {
-                base += section.chips.filter { $0.isSelected }.count * 2
-            }
-        }
-        return base
+        // Real count from the same generator that builds the actual checklist — updates
+        // live as the user taps chips, and always matches what they land on at the dashboard.
+        ChecklistGenerator.matchingItems(flags: vm.allActiveFlags).count + vm.selectedInstitutions.count
     }
 
     // MARK: - Shared components

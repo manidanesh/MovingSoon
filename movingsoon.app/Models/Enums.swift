@@ -1,5 +1,6 @@
 // Enums.swift — All domain enumerations
 import Foundation
+import SwiftUI
 
 // MARK: - Persona
 
@@ -50,6 +51,15 @@ enum TaskPriority: String, Codable, CaseIterable, Comparable {
         case .high:     return "High Priority"
         case .medium:   return "First Two Weeks"
         case .low:      return "When You're Settled"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .critical: return Theme.priorityCritical
+        case .high:     return Theme.priorityHigh
+        case .medium:   return Theme.priorityMedium
+        case .low:      return Theme.priorityLow
         }
     }
 }

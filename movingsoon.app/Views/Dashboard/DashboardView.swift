@@ -61,10 +61,10 @@ struct DashboardView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(move.personaKey.tagline)
-                                .font(.system(size: 12, weight: .medium))
+                                .themeText(12, weight: .medium)
                                 .foregroundColor(Theme.accentPrimary)
                             Text("\(move.completedCount) of \(move.totalCount) updated")
-                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .themeRounded(20, weight: .bold)
                                 .foregroundColor(Theme.textPrimary)
                         }
                         Spacer()
@@ -79,10 +79,10 @@ struct DashboardView: View {
                                 .animation(.easeInOut(duration: 0.5), value: move.completionFraction)
                             VStack(spacing: 0) {
                                 Text("\(Int(move.completionFraction * 100))%")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .themeRounded(13, weight: .bold)
                                     .foregroundColor(Theme.textPrimary)
                                 Text("done")
-                                    .font(.system(size: 8))
+                                    .themeText(8)
                                     .foregroundColor(Theme.textTertiary)
                             }
                         }
@@ -111,9 +111,9 @@ struct DashboardView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(Theme.textTertiary)
-                        .font(.system(size: 14))
+                        .themeText(14)
                     TextField("Search tasks...", text: $searchText)
-                        .font(.system(size: 14))
+                        .themeText(14)
                         .foregroundColor(Theme.textPrimary)
                 }
                 .padding(.horizontal, 14)
@@ -132,10 +132,10 @@ struct DashboardView: View {
                             } label: {
                                 HStack(spacing: 4) {
                                     Text(tab.rawValue)
-                                        .font(.system(size: 13, weight: filter == tab ? .semibold : .regular))
+                                        .themeText(13, weight: filter == tab ? .semibold : .regular)
                                     if count > 0 {
                                         Text("\(count)")
-                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                            .themeRounded(11, weight: .bold)
                                             .padding(.horizontal, 5)
                                             .padding(.vertical, 2)
                                             .background(filter == tab ? Color.black.opacity(0.25) : Theme.backgroundElevated,
@@ -161,9 +161,9 @@ struct DashboardView: View {
                 if allTasks.isEmpty {
                     VStack(spacing: 12) {
                         Text(emptyStateEmoji)
-                            .font(.system(size: 40))
+                            .themeText(40)
                         Text(emptyStateMessage)
-                            .font(.system(size: 16, weight: .medium))
+                            .themeText(16, weight: .medium)
                             .foregroundColor(Theme.textSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -190,6 +190,7 @@ struct DashboardView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.backgroundPrimary, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .dynamicTypeSize(...(.accessibility1))
     }
 
     // MARK: - Helpers
@@ -281,17 +282,18 @@ struct UnifiedTaskRow: View {
             // Completion ring
             Button(action: onComplete) {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22))
+                    .themeText(22)
                     .foregroundColor(task.status == .completed ? Theme.accentSuccess :
-                                     isOverdue ? Theme.accentPrimary :
-                                     Theme.textSecondary.opacity(0.4))
+                                     isOverdue ? Theme.priorityCritical :
+                                     task.priority.color.opacity(0.5))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(task.status == .completed ? "Mark \(task.title) not complete" : "Mark \(task.title) complete")
 
             // Icon
             if let emoji = task.institutionInitials, task.institutionName == nil {
-                Text(emoji).font(.system(size: 22)).frame(width: 36, height: 36)
+                Text(emoji).themeText(22).frame(width: 36, height: 36)
             } else if task.institutionName != nil {
                 InstitutionBadgeView(
                     initials: task.institutionInitials ?? "?",
@@ -302,7 +304,7 @@ struct UnifiedTaskRow: View {
                 ZStack {
                     Circle()
                         .fill(Color(hex: task.institutionColorHex ?? "#626567").opacity(0.15))
-                    Text(task.category.emoji).font(.system(size: 16))
+                    Text(task.category.emoji).themeText(16)
                 }
                 .frame(width: 36, height: 36)
             }
@@ -310,12 +312,12 @@ struct UnifiedTaskRow: View {
             // Title + subtitle
             VStack(alignment: .leading, spacing: 3) {
                 Text(task.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .themeText(14, weight: .medium)
                     .foregroundColor(task.status == .completed ? Theme.textTertiary : Theme.textPrimary)
                     .strikethrough(task.status == .completed, color: Theme.textTertiary)
                     .lineLimit(2)
                 Text(task.institutionName ?? task.category.rawValue)
-                    .font(.system(size: 12))
+                    .themeText(12)
                     .foregroundColor(task.status == .completed ? Theme.accentSuccess.opacity(0.6) : Theme.textTertiary)
             }
 
@@ -324,11 +326,11 @@ struct UnifiedTaskRow: View {
             // Due label
             if let label = dueLabel {
                 Text(label)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(isOverdue ? Theme.accentPrimary : Theme.textTertiary)
+                    .themeText(10, weight: .semibold)
+                    .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background((isOverdue ? Theme.accentPrimary : Color.white).opacity(0.08), in: Capsule())
+                    .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08), in: Capsule())
             }
 
             // Deep link
@@ -337,10 +339,11 @@ struct UnifiedTaskRow: View {
                     UIApplication.shared.open(url)
                 } label: {
                     Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.system(size: 18))
+                        .themeText(18)
                         .foregroundColor(Theme.accentPrimary.opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Open \(task.institutionName ?? task.title) website")
             }
         }
         .padding(.horizontal, 20)
