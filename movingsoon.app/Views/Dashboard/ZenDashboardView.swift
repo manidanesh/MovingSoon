@@ -972,7 +972,7 @@ struct UpcomingTaskRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Tap to complete
+            // Explicit checkbox — always marks complete, regardless of link
             Button(action: onComplete) {
                 Image(systemName: "circle")
                     .themeText(20, weight: .regular)
@@ -981,53 +981,66 @@ struct UpcomingTaskRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Mark \(task.title) complete")
 
-            // Emoji icon
-            if let emoji = task.institutionInitials, task.institutionName == nil {
-                Text(emoji).themeText(20)
-            } else if task.institutionName != nil {
-                InstitutionBadgeView(
-                    initials: task.institutionInitials ?? "?",
-                    colorHex: task.institutionColorHex ?? "#626567",
-                    size: 32
-                )
-            }
+            // Rest of the row — tap takes action: opens the task's link if it has one,
+            // otherwise there's nothing to redirect to, so tapping just marks it done.
+            Button(action: handleRowTap) {
+                HStack(spacing: 14) {
+                    // Emoji icon
+                    if let emoji = task.institutionInitials, task.institutionName == nil {
+                        Text(emoji).themeText(20)
+                    } else if task.institutionName != nil {
+                        InstitutionBadgeView(
+                            initials: task.institutionInitials ?? "?",
+                            colorHex: task.institutionColorHex ?? "#626567",
+                            size: 32
+                        )
+                    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .themeText(14, weight: .medium)
-                    .foregroundColor(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(task.category.rawValue)
-                    .themeText(11)
-                    .foregroundColor(Theme.textTertiary)
-            }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(task.title)
+                            .themeText(14, weight: .medium)
+                            .foregroundColor(Theme.textPrimary)
+                            .lineLimit(1)
+                        Text(task.category.rawValue)
+                            .themeText(11)
+                            .foregroundColor(Theme.textTertiary)
+                    }
 
-            Spacer()
+                    Spacer()
 
-            // Due label
-            Text(dueLabel)
-                .themeText(11, weight: .semibold)
-                .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
-                .clipShape(Capsule())
+                    // Due label
+                    Text(dueLabel)
+                        .themeText(11, weight: .semibold)
+                        .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
+                        .clipShape(Capsule())
 
-            // Deep link arrow
-            if let url = task.deepLinkURL {
-                Button {
-                    UIApplication.shared.open(url)
-                } label: {
-                    Image(systemName: "arrow.up.right.circle.fill")
-                        .themeText(18)
-                        .foregroundColor(Theme.accentPrimary.opacity(0.7))
+                    // Decorative link indicator — the whole row is the tap target now
+                    if task.deepLinkURL != nil {
+                        Image(systemName: "arrow.up.right.circle.fill")
+                            .themeText(18)
+                            .foregroundColor(Theme.accentPrimary.opacity(0.7))
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open \(task.institutionName ?? task.title) website")
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(task.deepLinkURL != nil
+                ? "Open \(task.institutionName ?? task.title) website"
+                : "Mark \(task.title) complete")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+    }
+
+    private func handleRowTap() {
+        if let url = task.deepLinkURL {
+            UIApplication.shared.open(url)
+        } else {
+            onComplete()
+        }
     }
 }
 
