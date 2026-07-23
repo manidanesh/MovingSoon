@@ -14,59 +14,73 @@ enum ZipBucketService {
         }
         
         // 2. US Zip Code Check
-        guard cleanZip.count >= 5, let prefix = Int(cleanZip.prefix(2)) else {
+        guard cleanZip.count >= 5, let prefix = Int(cleanZip.prefix(3)) else {
             return ("US", nil)
         }
-        
+
         let state = stateBucket(prefix: prefix)
         let city  = cityBucket(zip: String(cleanZip.prefix(5)))
         return (state, city)
     }
 
-    // MARK: - State mapping (zip prefix → 2-letter state)
-
+    // MARK: - State mapping (3-digit zip prefix → 2-letter state)
+    //
+    // Uses the first 3 digits (not 2) specifically because New England + NJ
+    // interleave multiple states within the same 2-digit prefix (e.g. "02" is
+    // both MA and RI), and because VA/WV and TN/MS each share a 2-digit
+    // prefix boundary (WV = 247-268 inside old "22...24"; MS = 386-399 inside
+    // old "37...38"). 2-digit granularity silently merged those pairs.
     private static func stateBucket(prefix: Int) -> String {
         switch prefix {
-        case 10...14: return "NY"
-        case 15...19: return "PA"
-        case 20...20: return "DC"
-        case 21...21: return "MD"
-        case 22...24: return "VA"
-        case 27...28: return "NC"
-        case 29...29: return "SC"
-        case 30...31: return "GA"
-        case 32...34: return "FL"
-        case 35...36: return "AL"
-        case 37...38: return "TN"
-        case 40...42: return "KY"
-        case 43...45: return "OH"
-        case 46...47: return "IN"
-        case 48...49: return "MI"
-        case 50...52: return "IA"
-        case 53...54: return "WI"
-        case 55...56: return "MN"
-        case 57...57: return "SD"
-        case 58...58: return "ND"
-        case 59...59: return "MT"
-        case 60...62: return "IL"
-        case 63...65: return "MO"
-        case 66...67: return "KS"
-        case 68...69: return "NE"
-        case 70...71: return "LA"
-        case 72...72: return "AR"
-        case 73...74: return "OK"
-        case 75...79: return "TX"
-        case 80...81: return "CO"
-        case 82...82: return "WY"
-        case 83...83: return "ID"
-        case 84...84: return "UT"
-        case 85...86: return "AZ"
-        case 87...88: return "NM"
-        case 89...89: return "NV"
-        case 90...96: return "CA"
-        case 97...97: return "OR"
-        case 98...99: return "WA"
-        default:      return "US"
+        case 10...27:   return "MA"
+        case 28...29:   return "RI"
+        case 30...38:   return "NH"
+        case 39...49:   return "ME"
+        case 50...59:   return "VT"
+        case 60...69:   return "CT"
+        case 70...89:   return "NJ"
+        case 100...149: return "NY"
+        case 150...199: return "PA"
+        case 200...209: return "DC"
+        case 210...219: return "MD"
+        case 220...246: return "VA"
+        case 247...268: return "WV"
+        case 270...289: return "NC"
+        case 290...299: return "SC"
+        case 300...319: return "GA"
+        case 320...349: return "FL"
+        case 350...369: return "AL"
+        case 370...385: return "TN"
+        case 386...399: return "MS"
+        case 400...429: return "KY"
+        case 430...459: return "OH"
+        case 460...479: return "IN"
+        case 480...499: return "MI"
+        case 500...529: return "IA"
+        case 530...549: return "WI"
+        case 550...569: return "MN"
+        case 570...579: return "SD"
+        case 580...589: return "ND"
+        case 590...599: return "MT"
+        case 600...629: return "IL"
+        case 630...659: return "MO"
+        case 660...679: return "KS"
+        case 680...699: return "NE"
+        case 700...719: return "LA"
+        case 720...729: return "AR"
+        case 730...749: return "OK"
+        case 750...799: return "TX"
+        case 800...819: return "CO"
+        case 820...829: return "WY"
+        case 830...839: return "ID"
+        case 840...849: return "UT"
+        case 850...869: return "AZ"
+        case 870...889: return "NM"
+        case 890...899: return "NV"
+        case 900...969: return "CA"
+        case 970...979: return "OR"
+        case 980...999: return "WA"
+        default:        return "US"
         }
     }
 
