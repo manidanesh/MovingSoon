@@ -37,6 +37,13 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        // Without a distanceFilter, didUpdateLocations fires on every GPS delta — in a
+        // moving vehicle that's many times a second, each one re-evaluating
+        // activeContextualTask (an @Observable property ZenDashboardView reads directly
+        // in body), forcing a full re-render of an image-heavy view every tick. 50m is
+        // well below the suppression engine's 8000m distance gate, so gating accuracy
+        // is unaffected — this only throttles how often we recompute.
+        manager.distanceFilter = 50
         // Request location updates so currentLocation stays fresh for the distance gate
         manager.startUpdatingLocation()
     }
