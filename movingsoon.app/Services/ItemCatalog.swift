@@ -47,6 +47,9 @@ enum ItemCatalog {
         CatalogItem(id: "prof_license", title: "Professional License (state board)", emoji: "📋",
                     category: .legal, priority: .high, tMinusDays: -14,
                     brandColorHex: "#8E44AD", requires: [.hasProfessionalLicenses]),
+        CatalogItem(id: "county_assessor", title: "County Tax Assessor — Homestead Exemption", emoji: "🏛️",
+                    category: .government, priority: .high, tMinusDays: 14,
+                    brandColorHex: "#1A5276", requires: [.isOwning], excludes: [.isCanadian]),
         CatalogItem(id: "tsa_precheck", title: "TSA PreCheck / Global Entry / CLEAR", emoji: "✈️",
                     category: .government, priority: .high, tMinusDays: -7,
                     brandColorHex: "#004B87", requires: [.hasTSAPreCheck], excludes: [.isCanadian]),
@@ -87,6 +90,14 @@ enum ItemCatalog {
         CatalogItem(id: "vehicle_warranty", title: "Vehicle Extended Warranty", emoji: "🚘",
                     category: .insurance, priority: .medium, tMinusDays: 7,
                     brandColorHex: "#E74C3C", requires: [.hasVehicleWarranty]),
+        CatalogItem(id: "auto_service_center", title: "Find a New Mechanic / Service Center", emoji: "🔧",
+                    category: .other, priority: .medium, tMinusDays: 14,
+                    brandColorHex: "#5D6D7E", requiresAny: [.hasCar, .hasElectricVehicle, .hasMultipleCars],
+                    poiCategory: .autoRepair),
+        CatalogItem(id: "vehicle_inspection", title: "State Safety / Emissions Inspection", emoji: "🔍",
+                    category: .government, priority: .high, tMinusDays: -14,
+                    brandColorHex: "#7D3C98", requiresAny: [.hasCar, .hasElectricVehicle, .hasMultipleCars],
+                    excludes: [.isCanadian], poiCategory: .dmv),
     ]
 
     // MARK: - 🏠 HOUSING / UTILITIES

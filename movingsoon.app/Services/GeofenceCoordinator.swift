@@ -34,6 +34,7 @@ final class GeofenceCoordinator {
         case .airport:       return "airport terminal"
         case .hotel:         return "hotel resort"
         case .rentalCar:     return "car rental Hertz Enterprise Avis"
+        case .autoRepair:    return "auto repair shop mechanic"
         case .other:         return "address update"
         }
     }

@@ -20,7 +20,7 @@ enum KnownInstitutions {
 
     // MARK: - All institutions grouped by type
 
-    static var all: [KnownInstitution] { banks + creditUnions + creditCards + investments + studentLoans + mortgages }
+    static var all: [KnownInstitution] { banks + creditUnions + creditCards + investments + studentLoans + mortgages + autoLoans }
 
     // Regional footprints below are sourced from the FDIC BankFind Suite API
     // (api.fdic.gov/banks/locations), aggregating each institution's actual
@@ -115,6 +115,16 @@ enum KnownInstitutions {
         .init(name: "United Wholesale",  initials:"UW", colorHex: "#1A5276", type: .mortgage,    websiteURL: URL(string: "https://www.uwm.com")),
         .init(name: "LoanDepot",         initials:"LD", colorHex: "#D35400", type: .mortgage,    websiteURL: URL(string: "https://www.loandepot.com")),
         .init(name: "Other Mortgage",    initials:"MG", colorHex: "#626567", type: .mortgage,    websiteURL: nil),
+    ]
+
+    static let autoLoans: [KnownInstitution] = [
+        .init(name: "Toyota Financial",  initials:"TF", colorHex: "#EB0A1E", type: .autoLoan,    websiteURL: URL(string: "https://www.toyotafinancial.com")),
+        .init(name: "Ford Credit",       initials:"FC", colorHex: "#003478", type: .autoLoan,    websiteURL: URL(string: "https://www.ford.com/finance")),
+        .init(name: "GM Financial",      initials:"GM", colorHex: "#1A1A1A", type: .autoLoan,    websiteURL: URL(string: "https://www.gmfinancial.com")),
+        .init(name: "Ally Auto",         initials:"AA", colorHex: "#7D3C98", type: .autoLoan,    websiteURL: URL(string: "https://www.ally.com/auto")),
+        .init(name: "Chase Auto",        initials:"CA", colorHex: "#117ACA", type: .autoLoan,    websiteURL: URL(string: "https://www.chase.com/personal/auto")),
+        .init(name: "Capital One Auto",  initials:"C1", colorHex: "#D03027", type: .autoLoan,    websiteURL: URL(string: "https://www.capitalone.com/cars")),
+        .init(name: "Other Auto Lender", initials:"OT", colorHex: "#626567", type: .autoLoan,    websiteURL: nil),
     ]
 
     /// Filters out institutions whose regionStates don't include the given state

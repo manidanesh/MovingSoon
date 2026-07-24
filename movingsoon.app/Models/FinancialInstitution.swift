@@ -38,6 +38,7 @@ enum InstitutionType: String, Codable, CaseIterable {
     case investment  = "Investment"
     case studentLoan = "Student Loan"
     case mortgage    = "Mortgage"
+    case autoLoan    = "Auto Loan"
 
     var icon: String {
         switch self {
@@ -47,6 +48,7 @@ enum InstitutionType: String, Codable, CaseIterable {
         case .investment:  return "chart.line.uptrend.xyaxis"
         case .studentLoan: return "graduationcap.fill"
         case .mortgage:    return "house.fill"
+        case .autoLoan:    return "car.fill"
         }
     }
 }

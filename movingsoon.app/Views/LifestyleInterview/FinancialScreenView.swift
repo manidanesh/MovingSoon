@@ -45,6 +45,7 @@ struct InstitutionPickerGrid: View {
             (.investment,  KnownInstitutions.investments),
             (.studentLoan, KnownInstitutions.studentLoans),
             (.mortgage,    KnownInstitutions.mortgages),
+            (.autoLoan,    KnownInstitutions.autoLoans),
         ]
     }
 

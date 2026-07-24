@@ -51,6 +51,10 @@ extension ItemCatalog {
                     category: .insurance, priority: .medium, tMinusDays: -7,
                     brandColorHex: "#5D6D7E",
                     requires: [.hasUmbrellaInsurance]),
+        CatalogItem(id: "flood_insurance", title: "Flood Insurance (NFIP or Private)", emoji: "🌊",
+                    category: .insurance, priority: .high, tMinusDays: -7,
+                    brandColorHex: "#2874A6",
+                    requiresAny: [.isOwning, .hasFloodInsurance]),
     ]
 
     // MARK: - 🛡️ Health & Life Insurance

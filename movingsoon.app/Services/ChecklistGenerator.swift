@@ -86,17 +86,19 @@ enum ChecklistGenerator {
 
     private static func priorityFor(_ type: InstitutionType) -> TaskPriority {
         switch type {
-        case .bank, .creditUnion, .mortgage: return .critical
-        case .creditCard, .studentLoan:      return .high
-        case .investment:                    return .high
+        case .bank, .creditUnion, .mortgage:   return .critical
+        case .creditCard, .studentLoan:        return .high
+        case .investment:                      return .high
+        case .autoLoan:                        return .high
         }
     }
 
     private static func tMinusFor(_ type: InstitutionType) -> Int {
         switch type {
-        case .bank, .creditUnion, .mortgage: return -14
-        case .creditCard, .studentLoan:      return -7
-        case .investment:                    return 7
+        case .bank, .creditUnion, .mortgage:   return -14
+        case .creditCard, .studentLoan:        return -7
+        case .investment:                      return 7
+        case .autoLoan:                        return -7
         }
     }
 }

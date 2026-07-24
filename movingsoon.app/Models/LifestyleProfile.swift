@@ -198,6 +198,7 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasRentersInsurance
     case hasLandlordInsurance    // Investment property
     case hasCondoInsurance
+    case hasFloodInsurance       // NFIP or private — separate from homeowners
 
     // MARK: - 🛡️ Insurance — Specialty
     case hasJewelryInsurance
