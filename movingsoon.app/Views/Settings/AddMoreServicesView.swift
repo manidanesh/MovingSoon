@@ -12,10 +12,7 @@ struct AddMoreServicesView: View {
 
     init(move: Move) {
         self.move = move
-        self._vm = State(initialValue: LifestyleViewModel(
-            originZip: move.originZip,
-            destinationZip: move.destinationZip
-        ))
+        self._vm = State(initialValue: LifestyleViewModel())
     }
 
     // Count of new tasks that will be added (not already in the list)

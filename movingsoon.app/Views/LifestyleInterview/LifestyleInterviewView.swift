@@ -21,8 +21,8 @@ final class LifestyleViewModel {
     var expandedCategories: Set<String> = []
     var extraChips: [String: [ChipSection]] = [:]
 
-    init(originZip: String?, destinationZip: String?) {
-        buildExtraChips(originZip: originZip ?? "", destinationZip: destinationZip ?? "")
+    init() {
+        buildExtraChips()
     }
 
     func next() {
@@ -73,15 +73,7 @@ final class LifestyleViewModel {
 
     // MARK: - Optional extra categories (shown on screen 3)
 
-    private func buildExtraChips(originZip: String, destinationZip: String) {
-        let destRegional = RegionalIntelligenceService.availableRegionalChips(forZip: destinationZip)
-        let origRegional = originZip.isEmpty ? destRegional : RegionalIntelligenceService.availableRegionalChips(forZip: originZip)
-        let regionalIDs = RegionalIntelligenceService.regionalChipIDs
-
-        func isAvailable(_ id: String) -> Bool {
-            !regionalIDs.contains(id) || destRegional.contains(id) || origRegional.contains(id)
-        }
-
+    private func buildExtraChips() {
         extraChips["shopping"] = [
             ChipSection(title: "Shopping & Delivery", chips: [
                 BubbleChip(id: "usesAmazon",     label: "Amazon",       emoji: "📦", flag: .usesAmazon),
@@ -104,7 +96,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "gaming",      label: "Xbox / PS",   emoji: "🎮", flag: .usesGamingSubs),
                 BubbleChip(id: "xfinity",     label: "Xfinity",     emoji: "📺", flag: .usesXfinity),
                 BubbleChip(id: "spectrum",    label: "Spectrum",    emoji: "📺", flag: .usesSpectrum),
-            ].filter { isAvailable($0.id) })
+            ])
         ]
 
         extraChips["fitness"] = [
@@ -113,7 +105,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "ymca",          label: "YMCA",           emoji: "🏊", flag: .usesYMCA),
                 BubbleChip(id: "peloton",       label: "Peloton",        emoji: "🚴", flag: .usesPeloton),
                 BubbleChip(id: "localgym",      label: "Local Gym",      emoji: "🏋️", flag: .hasGymMembership),
-            ].filter { isAvailable($0.id) })
+            ])
         ]
 
         extraChips["transport"] = [
@@ -152,10 +144,7 @@ struct LifestyleInterviewView: View {
     init(move: Move, onComplete: @escaping () -> Void) {
         self.move = move
         self.onComplete = onComplete
-        self._vm = State(initialValue: LifestyleViewModel(
-            originZip: move.originZip,
-            destinationZip: move.destinationZip
-        ))
+        self._vm = State(initialValue: LifestyleViewModel())
     }
 
     var body: some View {
