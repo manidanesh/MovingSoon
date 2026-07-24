@@ -62,7 +62,8 @@ struct AddMoreServicesView: View {
                                 selectedInstitutions: Binding(
                                     get: { vm.selectedInstitutions },
                                     set: { vm.selectedInstitutions = $0 }
-                                )
+                                ),
+                                stateBucket: move.originStateBucket ?? move.destinationStateBucket
                             )
                         }
 

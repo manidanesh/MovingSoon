@@ -323,3 +323,44 @@ struct POICategoryTests {
     @Test func dmv_displayName()        { #expect(POICategory.dmv.displayName == "DMV") }
     @Test func postOffice_displayName() { #expect(POICategory.postOffice.displayName == "post office") }
 }
+
+// MARK: - KnownInstitutions Regional Filtering Tests
+
+@Suite("KnownInstitutions — Regional Filtering")
+struct KnownInstitutionsRegionalFilteringTests {
+
+    @Test func nilStateBucket_returnsAllUnfiltered() {
+        let result = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: nil)
+        #expect(result.count == KnownInstitutions.banks.count)
+    }
+
+    @Test func nationalBank_alwaysIncluded() {
+        // Chase has no regionStates (near-universal FDIC footprint) — must show everywhere.
+        let waResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "WA")
+        #expect(waResult.contains { $0.name == "Chase" })
+    }
+
+    @Test func branchlessDigitalBank_alwaysIncluded() {
+        // Ally is branchless/national despite a thin FDIC branch record — must never be filtered.
+        let waResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "WA")
+        #expect(waResult.contains { $0.name == "Ally Bank" })
+    }
+
+    @Test func regionalBank_excludedOutsideFootprint() {
+        // Regions Bank operates in the South — must not appear for a Washington state user.
+        let waResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "WA")
+        #expect(!waResult.contains { $0.name == "Regions Bank" })
+    }
+
+    @Test func regionalBank_includedInsideFootprint() {
+        // Regions Bank does operate in Alabama.
+        let alResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "AL")
+        #expect(alResult.contains { $0.name == "Regions Bank" })
+    }
+
+    @Test func eastCoastBank_excludedOnWestCoast() {
+        // TD Bank's footprint is Maine-to-Florida only.
+        let caResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "CA")
+        #expect(!caResult.contains { $0.name == "TD Bank" })
+    }
+}

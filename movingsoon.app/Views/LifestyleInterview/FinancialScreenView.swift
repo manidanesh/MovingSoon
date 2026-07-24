@@ -5,6 +5,7 @@ struct FinancialScreenView: View {
     @Binding var selectedInstitutions: Set<KnownInstitution>
     let stepIndex: Int
     let totalSteps: Int
+    let stateBucket: String?
     let onBack: () -> Void
     let onFinish: () -> Void
 
@@ -18,7 +19,7 @@ struct FinancialScreenView: View {
             onBack: onBack,
             onNext: onFinish
         ) {
-            InstitutionPickerGrid(selectedInstitutions: $selectedInstitutions)
+            InstitutionPickerGrid(selectedInstitutions: $selectedInstitutions, stateBucket: stateBucket)
         }
     }
 }
@@ -29,18 +30,23 @@ struct FinancialScreenView: View {
 // embedded standalone, e.g. in AddMoreServicesView.
 struct InstitutionPickerGrid: View {
     @Binding var selectedInstitutions: Set<KnownInstitution>
+    var stateBucket: String? = nil
 
     @State private var searchText = ""
     @State private var activeType: InstitutionType = .bank
 
-    private let sections: [(InstitutionType, [KnownInstitution])] = [
-        (.bank,        KnownInstitutions.banks),
-        (.creditUnion, KnownInstitutions.creditUnions),
-        (.creditCard,  KnownInstitutions.creditCards),
-        (.investment,  KnownInstitutions.investments),
-        (.studentLoan, KnownInstitutions.studentLoans),
-        (.mortgage,    KnownInstitutions.mortgages),
-    ]
+    // Only banks currently carry regionStates data, but filtering generically
+    // here means any type can opt in later without touching this view.
+    private var sections: [(InstitutionType, [KnownInstitution])] {
+        [
+            (.bank,        KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: stateBucket)),
+            (.creditUnion, KnownInstitutions.creditUnions),
+            (.creditCard,  KnownInstitutions.creditCards),
+            (.investment,  KnownInstitutions.investments),
+            (.studentLoan, KnownInstitutions.studentLoans),
+            (.mortgage,    KnownInstitutions.mortgages),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 16) {

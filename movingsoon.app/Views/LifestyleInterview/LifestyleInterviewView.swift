@@ -250,6 +250,7 @@ struct LifestyleInterviewView: View {
             ),
             stepIndex: 1,
             totalSteps: 3,
+            stateBucket: move.originStateBucket ?? move.destinationStateBucket,
             onBack: { vm.back() },
             onFinish: { vm.next() }
         )

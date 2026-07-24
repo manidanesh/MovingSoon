@@ -8,6 +8,9 @@ struct KnownInstitution: Identifiable, Hashable {
     let colorHex: String
     let type: InstitutionType
     let websiteURL: URL?
+    /// State buckets where this institution actually has branches. nil = national
+    /// (or branchless/online), so it's never filtered out by region.
+    var regionStates: Set<String>? = nil
 
     func hash(into hasher: inout Hasher) { hasher.combine(name) }
     static func == (lhs: KnownInstitution, rhs: KnownInstitution) -> Bool { lhs.name == rhs.name }
@@ -19,23 +22,40 @@ enum KnownInstitutions {
 
     static var all: [KnownInstitution] { banks + creditUnions + creditCards + investments + studentLoans + mortgages }
 
+    // Regional footprints below are sourced from the FDIC BankFind Suite API
+    // (api.fdic.gov/banks/locations), aggregating each institution's actual
+    // FDIC-insured branch states. Banks with near-universal coverage (Chase,
+    // Bank of America, Wells Fargo — 39+ states) and branchless/digital-first
+    // banks (Ally, Capital One, USAA, SoFi, Marcus, Chime — their few FDIC
+    // branch records reflect legacy/HQ addresses, not where customers can
+    // actually bank) are deliberately left unfiltered (regionStates: nil).
     static let banks: [KnownInstitution] = [
         .init(name: "Chase",            initials: "CH", colorHex: "#117ACA", type: .bank,        websiteURL: URL(string: "https://secure01c.chase.com/web/auth/#/logon/logon/chaseOnline")),
         .init(name: "Bank of America",  initials: "BA", colorHex: "#C0392B", type: .bank,        websiteURL: URL(string: "https://secure.bankofamerica.com/login/sign-in/signOnV2Screen.go")),
         .init(name: "Wells Fargo",      initials: "WF", colorHex: "#B7410E", type: .bank,        websiteURL: URL(string: "https://connect.secure.wellsfargo.com/auth/login/present")),
-        .init(name: "Citibank",         initials: "CI", colorHex: "#154360", type: .bank,        websiteURL: URL(string: "https://online.citi.com/US/login.do")),
+        .init(name: "Citibank",         initials: "CI", colorHex: "#154360", type: .bank,        websiteURL: URL(string: "https://online.citi.com/US/login.do"),
+              regionStates: ["CA", "CT", "DC", "DE", "FL", "IL", "MD", "NJ", "NV", "NY", "SD", "TX", "VA"]),
         .init(name: "Capital One",      initials: "C1", colorHex: "#D03027", type: .bank,        websiteURL: URL(string: "https://verified.capitalone.com/auth/signin")),
-        .init(name: "US Bank",          initials: "US", colorHex: "#1B4F72", type: .bank,        websiteURL: URL(string: "https://www.usbank.com")),
-        .init(name: "TD Bank",          initials: "TD", colorHex: "#1E8449", type: .bank,        websiteURL: URL(string: "https://www.td.com")),
-        .init(name: "PNC Bank",         initials: "PN", colorHex: "#D35400", type: .bank,        websiteURL: URL(string: "https://www.pnc.com")),
+        .init(name: "US Bank",          initials: "US", colorHex: "#1B4F72", type: .bank,        websiteURL: URL(string: "https://www.usbank.com"),
+              regionStates: ["AR", "AZ", "CA", "CO", "FL", "GA", "IA", "ID", "IL", "IN", "KS", "KY", "MN", "MO", "MT", "NC", "ND", "NE", "NM", "NV", "OH", "OR", "SD", "TN", "TX", "UT", "WA", "WI", "WY"]),
+        .init(name: "TD Bank",          initials: "TD", colorHex: "#1E8449", type: .bank,        websiteURL: URL(string: "https://www.td.com"),
+              regionStates: ["CT", "DC", "DE", "FL", "MA", "MD", "ME", "NC", "NH", "NJ", "NY", "PA", "RI", "SC", "VA", "VT"]),
+        .init(name: "PNC Bank",         initials: "PN", colorHex: "#D35400", type: .bank,        websiteURL: URL(string: "https://www.pnc.com"),
+              regionStates: ["AL", "AZ", "CA", "CO", "DC", "DE", "FL", "GA", "IL", "IN", "KS", "KY", "MA", "MD", "MI", "MO", "NC", "NJ", "NM", "NY", "OH", "PA", "SC", "TN", "TX", "VA", "WI", "WV"]),
         .init(name: "Ally Bank",        initials: "AL", colorHex: "#7D3C98", type: .bank,        websiteURL: URL(string: "https://www.ally.com")),
         .init(name: "USAA",             initials: "UA", colorHex: "#1A237E", type: .bank,        websiteURL: URL(string: "https://www.usaa.com")),
-        .init(name: "Truist",           initials: "TR", colorHex: "#4A235A", type: .bank,        websiteURL: URL(string: "https://www.truist.com")),
-        .init(name: "Regions Bank",     initials: "RG", colorHex: "#17543C", type: .bank,        websiteURL: URL(string: "https://www.regions.com")),
-        .init(name: "KeyBank",          initials: "KB", colorHex: "#1F618D", type: .bank,        websiteURL: URL(string: "https://www.key.com")),
-        .init(name: "Citizens Bank",    initials: "CB", colorHex: "#145A32", type: .bank,        websiteURL: URL(string: "https://www.citizensbank.com")),
-        .init(name: "Fifth Third Bank", initials: "5T", colorHex: "#1F4E79", type: .bank,        websiteURL: URL(string: "https://www.53.com")),
-        .init(name: "Huntington",       initials: "HU", colorHex: "#186A3B", type: .bank,        websiteURL: URL(string: "https://www.huntington.com")),
+        .init(name: "Truist",           initials: "TR", colorHex: "#4A235A", type: .bank,        websiteURL: URL(string: "https://www.truist.com"),
+              regionStates: ["AL", "AR", "DC", "FL", "GA", "IN", "KY", "MD", "MS", "NC", "NJ", "OH", "PA", "SC", "TN", "TX", "VA", "WV"]),
+        .init(name: "Regions Bank",     initials: "RG", colorHex: "#17543C", type: .bank,        websiteURL: URL(string: "https://www.regions.com"),
+              regionStates: ["AL", "AR", "FL", "GA", "IA", "IL", "IN", "KY", "LA", "MO", "MS", "NC", "SC", "TN", "TX", "UT"]),
+        .init(name: "KeyBank",          initials: "KB", colorHex: "#1F618D", type: .bank,        websiteURL: URL(string: "https://www.key.com"),
+              regionStates: ["AK", "CO", "CT", "FL", "ID", "IN", "MA", "ME", "MI", "NY", "OH", "OR", "PA", "UT", "VT", "WA"]),
+        .init(name: "Citizens Bank",    initials: "CB", colorHex: "#145A32", type: .bank,        websiteURL: URL(string: "https://www.citizensbank.com"),
+              regionStates: ["CA", "CT", "DC", "DE", "FL", "KY", "MA", "MD", "MI", "NH", "NJ", "NY", "OH", "PA", "RI", "VA", "VT"]),
+        .init(name: "Fifth Third Bank", initials: "5T", colorHex: "#1F4E79", type: .bank,        websiteURL: URL(string: "https://www.53.com"),
+              regionStates: ["AL", "AZ", "CA", "FL", "GA", "IL", "IN", "KY", "MI", "NC", "NY", "OH", "SC", "TN", "TX", "WV"]),
+        .init(name: "Huntington",       initials: "HU", colorHex: "#186A3B", type: .bank,        websiteURL: URL(string: "https://www.huntington.com"),
+              regionStates: ["AL", "AR", "CO", "FL", "GA", "IL", "IN", "KY", "LA", "MI", "MN", "MO", "MS", "NC", "OH", "PA", "SC", "TN", "TX", "WI", "WV"]),
         .init(name: "SoFi",             initials: "SF", colorHex: "#3D5A80", type: .bank,        websiteURL: URL(string: "https://www.sofi.com")),
         .init(name: "Marcus (Goldman)", initials: "MG", colorHex: "#212F3D", type: .bank,        websiteURL: URL(string: "https://www.marcus.com")),
         .init(name: "Chime",            initials: "CM", colorHex: "#1ABC9C", type: .bank,        websiteURL: URL(string: "https://www.chime.com")),
@@ -96,4 +116,13 @@ enum KnownInstitutions {
         .init(name: "LoanDepot",         initials:"LD", colorHex: "#D35400", type: .mortgage,    websiteURL: URL(string: "https://www.loandepot.com")),
         .init(name: "Other Mortgage",    initials:"MG", colorHex: "#626567", type: .mortgage,    websiteURL: nil),
     ]
+
+    /// Filters out institutions whose regionStates don't include the given state
+    /// bucket. Institutions with regionStates == nil (national, or branchless
+    /// digital banks) are never filtered. Pass nil for stateBucket to skip
+    /// filtering entirely (e.g. when the user's location isn't known yet).
+    static func filtered(_ institutions: [KnownInstitution], forStateBucket stateBucket: String?) -> [KnownInstitution] {
+        guard let stateBucket else { return institutions }
+        return institutions.filter { $0.regionStates == nil || $0.regionStates!.contains(stateBucket) }
+    }
 }

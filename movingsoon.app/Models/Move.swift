@@ -77,6 +77,14 @@ final class Move {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
+    /// State bucket for the origin zip, if one was provided. Used to bias which
+    /// regional banks are surfaced first — an existing bank relationship is far
+    /// more likely tied to where the user currently lives than where they're headed.
+    var originStateBucket: String? {
+        guard let originZip else { return nil }
+        return ZipBucketService.bucket(zip: originZip).state
+    }
+
     var personaKey: PersonaKey {
         guard let profile = lifestyleProfile else { return .activeProfessional }
         if profile.has(.hasChildren) { return .familyWithKids }
