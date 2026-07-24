@@ -363,4 +363,13 @@ struct KnownInstitutionsRegionalFilteringTests {
         let caResult = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "CA")
         #expect(!caResult.contains { $0.name == "TD Bank" })
     }
+
+    @Test func unmappedUSSentinel_returnsAllUnfiltered() {
+        // ZipBucketService.bucket(zip:) returns "US" (not nil) for zips it can't map
+        // to a specific state (Puerto Rico, APO/FPO, unassigned prefixes) — that
+        // sentinel must be treated the same as nil, not as a state no bank matches.
+        let result = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "US")
+        #expect(result.count == KnownInstitutions.banks.count)
+        #expect(result.contains { $0.name == "Regions Bank" })
+    }
 }

@@ -131,8 +131,14 @@ enum KnownInstitutions {
     /// bucket. Institutions with regionStates == nil (national, or branchless
     /// digital banks) are never filtered. Pass nil for stateBucket to skip
     /// filtering entirely (e.g. when the user's location isn't known yet).
+    ///
+    /// "US" is ZipBucketService's own sentinel for "couldn't map this zip to a
+    /// specific state" (Puerto Rico, APO/FPO, and a couple of unassigned
+    /// prefixes) — it must be treated the same as nil here, or every regional
+    /// bank would silently vanish for exactly the users whose location we're
+    /// least sure about.
     static func filtered(_ institutions: [KnownInstitution], forStateBucket stateBucket: String?) -> [KnownInstitution] {
-        guard let stateBucket else { return institutions }
-        return institutions.filter { $0.regionStates == nil || $0.regionStates!.contains(stateBucket) }
+        guard let stateBucket, stateBucket != "US" else { return institutions }
+        return institutions.filter { $0.regionStates == nil || $0.regionStates?.contains(stateBucket) == true }
     }
 }

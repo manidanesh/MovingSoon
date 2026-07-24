@@ -75,11 +75,9 @@ movingsoon.app/
 │   ├── ItemCatalog.swift           # 150+ catalog items (government, transport, housing, financial)
 │   ├── ItemCatalog+Lifestyle.swift # Catalog extension (shopping, streaming, fitness, healthcare, etc.)
 │   ├── CatalogItem.swift           # CatalogItem struct with flag logic
-│   ├── KnownInstitutions.swift     # Curated US financial institutions with brand colors
-│   ├── TaskListProvider.swift      # Legacy persona-based task lists (Phase 1)
+│   ├── KnownInstitutions.swift     # Curated US financial institutions; regional banks filtered by FDIC-sourced footprint
 │   ├── PersonaEngine.swift         # Maps onboarding answers → PersonaKey
-│   ├── ZipBucketService.swift      # On-device ZIP → state/city bucket mapping
-│   ├── RegionalIntelligenceService.swift  # Filters regional brands by state
+│   ├── ZipBucketService.swift      # On-device ZIP → state/city bucket mapping (3-digit prefix)
 │   ├── CityBackgroundMapper.swift  # Maps ZIP/city to bundled background assets
 │   ├── UnsplashService.swift       # Fetches ambient background photos
 │   ├── SmartReminderService.swift  # Anti-nag push notification protocol
