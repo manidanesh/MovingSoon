@@ -44,8 +44,28 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         // well below the suppression engine's 8000m distance gate, so gating accuracy
         // is unaffected — this only throttles how often we recompute.
         manager.distanceFilter = 50
-        // Request location updates so currentLocation stays fresh for the distance gate
+        // Deliberately NOT starting continuous updates here. Geofence entry (didEnterRegion)
+        // is delivered by region monitoring regardless of whether startUpdatingLocation is
+        // running, including when the app is suspended or not running — that's the whole
+        // point of CLCircularRegion monitoring. Continuous updates are only useful for the
+        // foreground "you're near a task right now" banner, so they're started/stopped by
+        // the dashboard as it appears/disappears (see startForegroundUpdates/stop below).
+        // This keeps the app off the "location" UIBackgroundModes entry entirely — no
+        // persistent background GPS, no blue-pill indicator, less battery drain.
+    }
+
+    // MARK: - Foreground location updates
+
+    /// Starts continuous updates for the foreground "near a relevant place right now" banner.
+    /// Call when the dashboard becomes active; pair with `stopForegroundUpdates()`.
+    func startForegroundUpdates() {
         manager.startUpdatingLocation()
+    }
+
+    /// Stops continuous updates. Geofence entries still fire via region monitoring even
+    /// after this — only the foreground banner's live distance check is affected.
+    func stopForegroundUpdates() {
+        manager.stopUpdatingLocation()
     }
 
     // MARK: - Permission request

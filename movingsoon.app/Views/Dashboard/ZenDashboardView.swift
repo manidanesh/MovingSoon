@@ -7,6 +7,7 @@ import MessageUI
 struct ZenDashboardView: View {
     let move: Move
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showingMailComposer = false
     @State private var selectedAgenticTask: ChecklistTask?
 
@@ -505,6 +506,9 @@ struct ZenDashboardView: View {
             locationManager.checkConsentExpiry()
             // If consent is already active, sync geofences
             locationManager.syncGeofencesIfActive()
+            // Live location is only needed for the foreground "near a task right now"
+            // banner — geofence entries fire independently via region monitoring.
+            locationManager.startForegroundUpdates()
             // Ask for notification permission here, contextually — once the user has reached
             // their dashboard and reminders are actually about to be scheduled — rather than
             // at cold launch before onboarding, where there's no reason yet to say yes.
@@ -516,6 +520,15 @@ struct ZenDashboardView: View {
         }
         .onChange(of: heroTask?.id) { _, _ in
             reminderService.scheduleHeroTaskReminder(heroTask: heroTask)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Stop continuous GPS the moment the app leaves the foreground — geofence
+            // entries still fire via region monitoring while backgrounded/suspended.
+            if newPhase == .active {
+                locationManager.startForegroundUpdates()
+            } else {
+                locationManager.stopForegroundUpdates()
+            }
         }
         .onChange(of: locationManager.authorizationStatus) { _, newStatus in
             // Persist locationConsentGrantedAt when authorization is granted

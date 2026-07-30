@@ -326,6 +326,32 @@ struct EditMoveView: View {
                                 .lineSpacing(2)
                         }
 
+                        // MARK: About
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("About")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Theme.textSecondary)
+                                .textCase(.uppercase)
+                                .tracking(2)
+
+                            Link(destination: URL(string: "https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md")!) {
+                                HStack {
+                                    Text("Privacy Policy")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(Theme.textPrimary)
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(Theme.textTertiary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                            }
+                            .buttonStyle(.plain)
+                            .background(Theme.backgroundCard)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
                         // MARK: Danger Zone
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Danger Zone")
