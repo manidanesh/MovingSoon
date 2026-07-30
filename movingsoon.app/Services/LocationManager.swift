@@ -103,10 +103,16 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             logger.error("LocationManager: didEnterRegion fired but move is nil")
             return
         }
-        guard let userLocation = currentLocation else {
-            logger.debug("LocationManager: didEnterRegion fired but currentLocation is nil — suppressing")
-            return
-        }
+        // Prefer a live fix, but fall back to the region's own center — didEnterRegion firing
+        // already proves we're within its radius, and GeofenceCoordinator only ever places
+        // regions near the destination, so the center is a sound stand-in for the distance
+        // gate below. currentLocation depends on continuous updates, which the OS pauses in
+        // the background; without this fallback, a geofence entry while backgrounded (the
+        // actual real-world case this feature exists for) could silently no-op.
+        let userLocation = currentLocation ?? CLLocation(
+            latitude: circularRegion.center.latitude,
+            longitude: circularRegion.center.longitude
+        )
 
         logger.debug("LocationManager: entered region \(circularRegion.identifier)")
 

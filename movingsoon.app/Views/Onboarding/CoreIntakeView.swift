@@ -428,7 +428,7 @@ struct CoreIntakeView: View {
             destinationLongitude: selectedDestination?.coordinate?.longitude
         )
         modelContext.insert(move)
-        try? modelContext.save()
+        modelContext.saveOrLog()
         withAnimation(.easeInOut(duration: 0.5)) { onComplete() }
     }
 }

@@ -505,6 +505,10 @@ struct ZenDashboardView: View {
             locationManager.checkConsentExpiry()
             // If consent is already active, sync geofences
             locationManager.syncGeofencesIfActive()
+            // Ask for notification permission here, contextually — once the user has reached
+            // their dashboard and reminders are actually about to be scheduled — rather than
+            // at cold launch before onboarding, where there's no reason yet to say yes.
+            reminderService.requestPermissions()
             // Schedule hero task daily reminder
             reminderService.scheduleHeroTaskReminder(heroTask: heroTask)
             // Schedule T-minus reminders for tasks due in 3 days
@@ -516,7 +520,7 @@ struct ZenDashboardView: View {
         .onChange(of: locationManager.authorizationStatus) { _, newStatus in
             // Persist locationConsentGrantedAt when authorization is granted
             if newStatus == .authorizedAlways || newStatus == .authorizedWhenInUse {
-                try? modelContext.save()
+                modelContext.saveOrLog()
             }
         }
     }
@@ -531,7 +535,7 @@ struct ZenDashboardView: View {
             if task.status == .pendingVerification {
                 task.advanceStatus()
             }
-            try? modelContext.save()
+            modelContext.saveOrLog()
             locationManager.taskStatusDidChange(task)
         }
 
@@ -550,7 +554,7 @@ struct ZenDashboardView: View {
         withAnimation(.spring(response: 0.4)) { undoVisible = false }
         withAnimation {
             task.resetStatus()
-            try? modelContext.save()
+            modelContext.saveOrLog()
         }
         lastCompletedTask = nil
     }
@@ -561,7 +565,7 @@ struct ZenDashboardView: View {
         generator.impactOccurred()
         withAnimation {
             task.snoozedUntil = Date().addingTimeInterval(3 * 86400) // 3 days
-            try? modelContext.save()
+            modelContext.saveOrLog()
         }
     }
 
@@ -583,7 +587,7 @@ struct ZenDashboardView: View {
         generator.impactOccurred()
         withAnimation {
             task.snoozedUntil = Date().addingTimeInterval(86400)
-            try? modelContext.save()
+            modelContext.saveOrLog()
             locationManager.activeContextualTask = nil
         }
     }
@@ -593,7 +597,7 @@ struct ZenDashboardView: View {
         generator.impactOccurred()
         withAnimation {
             task.isMuted = true
-            try? modelContext.save()
+            modelContext.saveOrLog()
             locationManager.activeContextualTask = nil
             locationManager.taskStatusDidChange(task)
         }
@@ -955,6 +959,8 @@ struct UpcomingTaskRow: View {
     let moveDate: Date
     let onComplete: () -> Void
 
+    @State private var showingCompleteConfirmation = false
+
     private var dueLabel: String {
         let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
         let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
@@ -975,14 +981,24 @@ struct UpcomingTaskRow: View {
             // Explicit checkbox — the ONLY way this row marks a task complete.
             // A row with no link used to complete on any tap, which meant an
             // accidental tap anywhere on it silently finished the task — the
-            // checkbox is a small, deliberate target instead.
-            Button(action: onComplete) {
+            // checkbox is a small, deliberate target instead. It asks for
+            // confirmation rather than completing instantly, since the only
+            // prior feedback was a 4-second undo toast before the row vanished.
+            Button {
+                showingCompleteConfirmation = true
+            } label: {
                 Image(systemName: "circle")
                     .themeText(20, weight: .regular)
                     .foregroundColor(isOverdue ? Theme.priorityCritical : task.priority.color.opacity(0.5))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Mark \(task.title) complete")
+            .alert("Mark as done?", isPresented: $showingCompleteConfirmation) {
+                Button("Yes, it's done") { onComplete() }
+                Button("Not yet", role: .cancel) {}
+            } message: {
+                Text("Have you updated your address or finished \"\(task.title)\"?")
+            }
 
             // Rest of the row — only tappable (to open the link) when a link exists.
             // With no link, it's inert: informational, not an accidental "complete" trigger.
@@ -1467,7 +1483,7 @@ struct AchievementMilestoneSection: View {
             } else {
                 task.advanceStatus()
             }
-            try? modelContext.save()
+            modelContext.saveOrLog()
         }
     }
 }

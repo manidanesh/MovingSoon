@@ -391,7 +391,7 @@ struct EditMoveView: View {
                         move.destinationStateBucket = state
                         move.destinationCityBucket = city
 
-                        try? modelContext.save()
+                        modelContext.saveOrLog()
                         dismiss()
                     }
                     .font(.system(size: 16, weight: .semibold))
@@ -537,7 +537,7 @@ struct EditMoveView: View {
         }
         move.institutions = []
 
-        try? modelContext.save()
+        modelContext.saveOrLog()
         dismiss()
     }
 }

@@ -241,7 +241,7 @@ struct DashboardView: View {
                 task.advanceStatus()
                 if task.status == .pendingVerification { task.advanceStatus() }
             }
-            try? modelContext.save()
+            modelContext.saveOrLog()
         }
     }
 }

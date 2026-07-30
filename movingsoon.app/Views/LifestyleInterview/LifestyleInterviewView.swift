@@ -407,7 +407,7 @@ struct LifestyleInterviewView: View {
             modelContext.insert(task)
         }
         move.tasks = tasks
-        try? modelContext.save()
+        modelContext.saveOrLog()
 
         withAnimation(.easeInOut(duration: 0.4)) { onComplete() }
     }

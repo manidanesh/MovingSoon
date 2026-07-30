@@ -203,7 +203,7 @@ struct AddMoreServicesView: View {
             move.tasks.append(task)
         }
 
-        try? modelContext.save()
+        modelContext.saveOrLog()
         dismiss()
     }
 }

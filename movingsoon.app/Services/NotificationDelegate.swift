@@ -77,7 +77,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             let descriptor = FetchDescriptor<ChecklistTask>(predicate: #Predicate { $0.id == taskID })
             if let tasks = try? context.fetch(descriptor), let task = tasks.first {
                 task.isMuted = true
-                try? context.save()
+                context.saveOrLog()
                 let center = UNUserNotificationCenter.current()
                 center.removePendingNotificationRequests(withIdentifiers: ["TMinus-\(taskID.uuidString)", "HeroTaskReminder"])
             }
