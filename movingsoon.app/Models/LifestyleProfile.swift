@@ -291,6 +291,47 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case inYukon
 }
 
+// MARK: - Signal (WS2 of the intelligence-rework scope — additive only)
+//
+// Carries confidence/source/timestamp for a flag instead of a bare boolean, so a
+// future personalization or archetype-matching layer has something richer to read
+// than "is this flag in the set." Deliberately does NOT change what ChecklistGenerator
+// consumes — `LifestyleProfile.activeFlags` below is untouched, in shape and behavior,
+// by everything in this section. This is new, parallel data, not a replacement.
+
+enum SignalSource: String, Codable {
+    case selfReported
+    case archetypeInferred
+    case personalizedModel
+    case llmExtracted
+}
+
+struct Signal: Codable {
+    let flag: LifestyleFlag
+    var confidence: Double
+    var source: SignalSource
+    var rationale: String?
+    var lastUpdated: Date
+}
+
+// MARK: - Household structured fields (WS5 of the intelligence-rework scope — additive only)
+//
+// hasChildren/hasPets remain the source of truth for whether the household has kids
+// or pets at all — nothing here changes that. These refine it with a count and
+// species once known; both are nil/empty for any profile that never sets them.
+
+enum PetSpecies: String, Codable, CaseIterable {
+    case dog, cat, largeOrExotic
+
+    var displayLabel: String {
+        switch self {
+        case .dog: return "Dog"
+        case .cat: return "Cat"
+        case .largeOrExotic: return "Large / Exotic"
+        }
+    }
+}
+
 // MARK: - Lifestyle Profile (SwiftData model)
 
 import SwiftData
@@ -300,9 +341,22 @@ final class LifestyleProfile {
     var move: Move?
     /// JSON-encoded [String] of active LifestyleFlag rawValues
     var activeFlagsJSON: String
+    /// JSON-encoded [Signal] — new, optional field. Absent on any profile created
+    /// before this shipped; SwiftData's lightweight migration handles that as a nil
+    /// default with no data loss, since this is purely additive (see the intelligence-
+    /// rework scope doc, WS2's acceptance criterion: installing over an existing store
+    /// must not require re-onboarding).
+    var signalRecordsJSON: String?
+    /// Additive, nil until explicitly set — distinct from 0, which would mean "asked and confirmed zero."
+    var childCount: Int?
+    /// JSON-encoded [String] of PetSpecies rawValues. Additive, empty until explicitly set.
+    var petSpeciesJSON: String?
 
     init() {
         self.activeFlagsJSON = "[]"
+        self.signalRecordsJSON = nil
+        self.childCount = nil
+        self.petSpeciesJSON = nil
     }
 
     // MARK: - Flag access
@@ -328,7 +382,65 @@ final class LifestyleProfile {
         var flags = activeFlags
         if value { flags.insert(flag) } else { flags.remove(flag) }
         activeFlags = flags
+
+        // Keep the signal store in sync going forward — WS2 ships this ready to be
+        // consumed by a later workstream, not populated retroactively for old data
+        // until it's actually read (see the backfill in `signalRecords` below).
+        var records = signalRecords
+        if value {
+            records[flag] = Signal(flag: flag, confidence: 1.0, source: .selfReported, rationale: nil, lastUpdated: Date())
+        } else {
+            records.removeValue(forKey: flag)
+        }
+        signalRecords = records
     }
 
     func toggle(_ flag: LifestyleFlag) { set(flag, to: !has(flag)) }
+
+    // MARK: - Signal access (WS2)
+
+    var signalRecords: [LifestyleFlag: Signal] {
+        get {
+            guard let json = signalRecordsJSON,
+                  let data = json.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode([Signal].self, from: data) else {
+                // Lazy, read-only backfill for any profile with no signal data yet
+                // (every profile that existed before this field, or simply hasn't had
+                // a flag toggled since) — every currently-active flag becomes a
+                // full-confidence, self-reported Signal. Does not write anything back;
+                // the real record is created the next time `set(_:to:)` runs.
+                return Dictionary(uniqueKeysWithValues: activeFlags.map {
+                    ($0, Signal(flag: $0, confidence: 1.0, source: .selfReported, rationale: nil, lastUpdated: Date()))
+                })
+            }
+            return Dictionary(uniqueKeysWithValues: decoded.map { ($0.flag, $0) })
+        }
+        set {
+            let array = Array(newValue.values)
+            if let data = try? JSONEncoder().encode(array),
+               let json = String(data: data, encoding: .utf8) {
+                signalRecordsJSON = json
+            }
+        }
+    }
+
+    func signal(for flag: LifestyleFlag) -> Signal? { signalRecords[flag] }
+
+    // MARK: - Household structured fields (WS5)
+
+    var petSpecies: Set<PetSpecies> {
+        get {
+            guard let json = petSpeciesJSON,
+                  let data = json.data(using: .utf8),
+                  let strings = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+            return Set(strings.compactMap { PetSpecies(rawValue: $0) })
+        }
+        set {
+            let strings = newValue.map { $0.rawValue }
+            if let data = try? JSONEncoder().encode(strings),
+               let json = String(data: data, encoding: .utf8) {
+                petSpeciesJSON = json
+            }
+        }
+    }
 }

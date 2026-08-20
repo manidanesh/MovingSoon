@@ -13,6 +13,9 @@ final class LifestyleViewModel {
     var hasKids: Bool = false
     var hasPets: Bool = false
     var ownsHome: Bool = false
+    // WS5 — additive refinements, only persisted if the corresponding toggle above is on
+    var childCount: Int = 1
+    var petSpecies: Set<PetSpecies> = []
 
     // Screen 2: Financial institutions
     var selectedInstitutions: Set<KnownInstitution> = []
@@ -506,6 +509,47 @@ struct LifestyleInterviewView: View {
                         isSelected: vm.ownsHome,
                         onToggle: { vm.ownsHome.toggle() }
                     )
+
+                    // WS5 — shown only when the parent toggle is on, additive to it
+                    if vm.hasKids {
+                        HStack {
+                            Text("How many kids?")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+                            Spacer()
+                            Stepper("\(vm.childCount)", value: $vm.childCount, in: 1...8)
+                                .fixedSize()
+                                .foregroundColor(Theme.textPrimary)
+                        }
+                        .padding(14)
+                        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    if vm.hasPets {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("What kind?")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+                            HStack(spacing: 8) {
+                                ForEach(PetSpecies.allCases, id: \.self) { species in
+                                    let isOn = vm.petSpecies.contains(species)
+                                    Button {
+                                        if isOn { vm.petSpecies.remove(species) } else { vm.petSpecies.insert(species) }
+                                    } label: {
+                                        Text(species.displayLabel)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(isOn ? .white : Theme.textSecondary)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 8)
+                                            .background(isOn ? Theme.accentPrimary : Theme.backgroundElevated, in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(Theme.backgroundElevated.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+                    }
                 }
             }
 
@@ -675,6 +719,10 @@ struct LifestyleInterviewView: View {
         applyRegionalFlags(for: move.destinationZip)
 
         profile.activeFlags = finalFlags
+        // WS5 — only persisted if the user actually confirmed the parent toggle;
+        // otherwise stays nil/empty, matching every other "unset" field on this model.
+        if vm.hasKids { profile.childCount = vm.childCount }
+        if vm.hasPets { profile.petSpecies = vm.petSpecies }
         modelContext.insert(profile)
         move.lifestyleProfile = profile
 

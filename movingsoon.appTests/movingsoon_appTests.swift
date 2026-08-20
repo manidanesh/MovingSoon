@@ -473,6 +473,83 @@ struct LifestyleFlagReachabilityTests {
     }
 }
 
+@Suite("LifestyleProfile — Signal Store (WS2)")
+struct SignalStoreTests {
+
+    @Test func settingFlagTrue_createsSelfReportedSignalAtFullConfidence() {
+        let profile = LifestyleProfile()
+        profile.set(.usesNetflix, to: true)
+        let signal = profile.signal(for: .usesNetflix)
+        #expect(signal?.confidence == 1.0)
+        #expect(signal?.source == .selfReported)
+    }
+
+    @Test func settingFlagFalse_removesTheSignalRecord() {
+        let profile = LifestyleProfile()
+        profile.set(.usesNetflix, to: true)
+        profile.set(.usesNetflix, to: false)
+        #expect(profile.signal(for: .usesNetflix) == nil)
+    }
+
+    @Test func activeFlagsUnaffectedBySignalStore() {
+        // The core acceptance bar for WS2: activeFlags behaves identically to before
+        // this workstream existed.
+        let profile = LifestyleProfile()
+        profile.set(.hasCar, to: true)
+        #expect(profile.activeFlags == [.hasCar])
+    }
+
+    @Test func profileWithNoSignalRecordsJSON_lazilyBackfillsFromActiveFlags() {
+        // Simulates a profile written before WS2 shipped: activeFlagsJSON is set the
+        // old way (direct assignment, bypassing `set`), signalRecordsJSON is nil.
+        let profile = LifestyleProfile()
+        profile.activeFlags = [.hasChildren, .usesSpotify]
+        #expect(profile.signalRecordsJSON == nil)
+
+        let backfilled = profile.signalRecords
+        #expect(backfilled.count == 2)
+        #expect(backfilled[.hasChildren]?.confidence == 1.0)
+        #expect(backfilled[.hasChildren]?.source == .selfReported)
+    }
+
+    @Test func signalRecordsRoundTripThroughJSON() {
+        let profile = LifestyleProfile()
+        profile.set(.hasPartner, to: true)
+        profile.set(.hasEpicPass, to: true)
+        // Force a round-trip through the JSON string, not just the in-memory dictionary.
+        let json = profile.signalRecordsJSON
+        let reloaded = LifestyleProfile()
+        reloaded.signalRecordsJSON = json
+        #expect(reloaded.signal(for: .hasPartner) != nil)
+        #expect(reloaded.signal(for: .hasEpicPass) != nil)
+    }
+}
+
+@Suite("LifestyleProfile — Household Structured Fields (WS5)")
+struct HouseholdStructuredFieldTests {
+
+    @Test func childCount_defaultsToNil() {
+        #expect(LifestyleProfile().childCount == nil)
+    }
+
+    @Test func petSpecies_defaultsToEmpty() {
+        #expect(LifestyleProfile().petSpecies.isEmpty)
+    }
+
+    @Test func petSpecies_roundTripsThroughJSON() {
+        let profile = LifestyleProfile()
+        profile.petSpecies = [.dog, .largeOrExotic]
+        #expect(profile.petSpecies == [.dog, .largeOrExotic])
+    }
+
+    @Test func childCount_settingDoesNotAffectHasChildrenFlag() {
+        // WS5's acceptance bar: this is additive, hasChildren stays independent.
+        let profile = LifestyleProfile()
+        profile.childCount = 3
+        #expect(!profile.has(.hasChildren))
+    }
+}
+
 @Suite("RegionalArchetypeService — State Matching")
 struct RegionalArchetypeMatchTests {
 
