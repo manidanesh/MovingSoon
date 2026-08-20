@@ -473,6 +473,70 @@ struct LifestyleFlagReachabilityTests {
     }
 }
 
+@Suite("SignalEmitter (WS1)")
+struct SignalEmitterTests {
+
+    private func makeContext() -> ModelContext {
+        let container = try! ModelContainer(for: PendingSignal.self, configurations: .init(isStoredInMemoryOnly: true))
+        return ModelContext(container)
+    }
+
+    private func makeMove() -> Move {
+        Move(anchorDate: Date(), originZip: "90210", destinationZip: "80202",
+             destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+    }
+
+    private func makeItem() -> MoveImpactItem {
+        MoveImpactItem(flag: .hasEpicPass, confidence: .inferredHigh, archetype: .mountainSkiCorridor, rationale: "test")
+    }
+
+    @Test func emit_insertsExactlyOnePendingSignal() {
+        let context = makeContext()
+        SignalEmitter.emit(item: makeItem(), accepted: true, move: makeMove(), into: context)
+        let signals = (try? context.fetch(FetchDescriptor<PendingSignal>())) ?? []
+        #expect(signals.count == 1)
+    }
+
+    @Test func emit_capturesRegionAndStaysPending() {
+        let context = makeContext()
+        SignalEmitter.emit(item: makeItem(), accepted: true, move: makeMove(), into: context)
+        let signals = (try? context.fetch(FetchDescriptor<PendingSignal>())) ?? []
+        #expect(signals.first?.regionState == "CO")
+        #expect(signals.first?.isPending == true)
+        #expect(signals.first?.emittedAt == nil)
+    }
+
+    @Test func embedding_has384Dimensions() {
+        let context = makeContext()
+        SignalEmitter.emit(item: makeItem(), accepted: true, move: makeMove(), into: context)
+        let signals = (try? context.fetch(FetchDescriptor<PendingSignal>())) ?? []
+        #expect(signals.first?.noisyEmbedding.count == 384)
+    }
+
+    @Test func repeatedEmission_addsNoiseNotIdenticalVectors() {
+        // Two emissions for the identical (flag, archetype, accepted) triple must not be
+        // bit-identical — that would mean the Laplace step isn't actually running.
+        let context = makeContext()
+        let move = makeMove()
+        let item = makeItem()
+        SignalEmitter.emit(item: item, accepted: true, move: move, into: context)
+        SignalEmitter.emit(item: item, accepted: true, move: move, into: context)
+        let signals = (try? context.fetch(FetchDescriptor<PendingSignal>())) ?? []
+        #expect(signals.count == 2)
+        #expect(signals[0].noisyEmbedding != signals[1].noisyEmbedding)
+    }
+
+    @Test func differentFlags_produceDifferentEmbeddings() {
+        let context = makeContext()
+        let move = makeMove()
+        SignalEmitter.emit(item: MoveImpactItem(flag: .hasEpicPass, confidence: .inferredHigh, archetype: .mountainSkiCorridor, rationale: "t"), accepted: true, move: move, into: context)
+        SignalEmitter.emit(item: MoveImpactItem(flag: .hasIkonPass, confidence: .inferredHigh, archetype: .mountainSkiCorridor, rationale: "t"), accepted: true, move: move, into: context)
+        let signals = (try? context.fetch(FetchDescriptor<PendingSignal>())) ?? []
+        #expect(signals.count == 2)
+        #expect(signals[0].noisyEmbedding != signals[1].noisyEmbedding)
+    }
+}
+
 @Suite("LifestyleProfile — Signal Store (WS2)")
 struct SignalStoreTests {
 
@@ -616,6 +680,59 @@ struct MoveImpactEngineTests {
         let items = MoveImpactEngine.candidates(destinationStateBucket: "MT", activeFlags: [])
         let farmBureauCount = items.filter { $0.flag == .hasFarmBureauMembership }.count
         #expect(farmBureauCount == 1)
+    }
+}
+
+@Suite("RegionalSimilarityService (WS3)")
+struct RegionalSimilarityServiceTests {
+
+    @Test func identicalState_similarityIsOne() {
+        // Same state, same feature vector on both sides — cosine similarity of a
+        // vector with itself is always 1.0.
+        #expect(abs(RegionalSimilarityService.similarity(between: "CO", and: "CO") - 1.0) < 0.0001)
+    }
+
+    @Test func similarityIsSymmetric() {
+        let ab = RegionalSimilarityService.similarity(between: "CO", and: "UT")
+        let ba = RegionalSimilarityService.similarity(between: "UT", and: "CO")
+        #expect(abs(ab - ba) < 0.0001)
+    }
+
+    @Test func twoSkiStates_moreSimilarThanSkiStateAndUnrelatedState() {
+        // CO and UT are both high-confidence Mountain & Ski Corridor with comparable
+        // income/home-value profiles — should score higher than CO against a state
+        // with no shared archetype signal at all.
+        let coToUt = RegionalSimilarityService.similarity(between: "CO", and: "UT")
+        let coToUnrelated = RegionalSimilarityService.similarity(between: "CO", and: "RI")
+        #expect(coToUt > coToUnrelated)
+    }
+
+    @Test func unmappedStatePair_doesNotCrashAndStaysInValidRange() {
+        let score = RegionalSimilarityService.similarity(between: "RI", and: "US")
+        #expect(score >= 0 && score <= 1)
+    }
+
+    @Test func featureVector_hasOneDimensionPerArchetypePlusTwoEconomicDimensions() {
+        let vector = RegionalSimilarityService.featureVector(forStateBucket: "CO")
+        #expect(vector.count == RegionalArchetype.allCases.count + 2)
+    }
+}
+
+@Suite("Move — Regional Similarity Score (WS3)")
+struct MoveRegionalSimilarityTests {
+
+    private func makeMove(origin: String?, destinationState: String) -> Move {
+        Move(anchorDate: Date(), originZip: origin, destinationZip: "00000",
+             destinationStateBucket: destinationState, destinationCityBucket: nil)
+    }
+
+    @Test func noOriginZip_returnsNil() {
+        #expect(makeMove(origin: nil, destinationState: "CO").regionalSimilarityScore == nil)
+    }
+
+    @Test func sameOriginAndDestinationState_scoresNearOne() {
+        let move = makeMove(origin: "80202", destinationState: "CO")
+        #expect((move.regionalSimilarityScore ?? 0) > 0.99)
     }
 }
 

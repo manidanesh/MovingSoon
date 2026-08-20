@@ -65,6 +65,14 @@ struct AddMoreServicesView: View {
                                         if let chip = vm.chip(for: item.flag) {
                                             Button {
                                                 vm.toggleFlag(item.flag)
+                                                // WS1 — the tap itself is the event; its
+                                                // resulting state is the accept/reject signal.
+                                                SignalEmitter.emit(
+                                                    item: item,
+                                                    accepted: vm.isFlagSelected(item.flag),
+                                                    move: move,
+                                                    into: modelContext
+                                                )
                                             } label: {
                                                 HStack(spacing: 12) {
                                                     Text(chip.emoji).font(.system(size: 20))

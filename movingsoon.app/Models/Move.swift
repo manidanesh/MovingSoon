@@ -95,6 +95,14 @@ final class Move {
         )
     }
 
+    /// How regionally similar the destination is to the origin (0...1, cosine similarity
+    /// over a hand-engineered feature vector — see RegionalSimilarityService for why
+    /// this isn't called an "embedding"). Nil if there's no origin ZIP on file.
+    var regionalSimilarityScore: Double? {
+        guard let originStateBucket else { return nil }
+        return RegionalSimilarityService.similarity(between: originStateBucket, and: destinationStateBucket)
+    }
+
     /// Flags suggested-but-unconfirmed based on the destination's regional archetype
     /// (e.g. Epic/Ikon in a Mountain & Ski Corridor state). Never auto-applied to
     /// LifestyleProfile — this is a suggestion surface only. See MoveImpactEngine.
