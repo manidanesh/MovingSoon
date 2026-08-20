@@ -169,6 +169,15 @@ struct ZenDashboardView: View {
         }
     }
 
+    /// "78% similar region" — informational, not a value judgment, so it stays a
+    /// neutral color regardless of the score (unlike the cost pill's green/amber).
+    /// Nil when there's no origin ZIP on file. See RegionalSimilarityService for what
+    /// this score is actually built from (and isn't — it's not a trained embedding).
+    private var regionalSimilarityLabel: String? {
+        guard let score = move.regionalSimilarityScore else { return nil }
+        return "\(Int((score * 100).rounded()))% similar region"
+    }
+
     var body: some View {
         GeometryReader { geo in
             ScrollView(showsIndicators: false) {
@@ -222,6 +231,17 @@ struct ZenDashboardView: View {
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(costLabel.color.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+
+                            // Regional similarity (RegionalSimilarityService — WS3)
+                            if let similarityLabel = regionalSimilarityLabel {
+                                Text(similarityLabel)
+                                    .themeText(11, weight: .medium)
+                                    .foregroundColor(Theme.textTertiary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Theme.backgroundElevated.opacity(0.8))
                                     .clipShape(Capsule())
                             }
 
