@@ -108,6 +108,8 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasFarmBureauMembership       // Farm Bureau — state-federated; membership and insurance product do NOT carry across a state line
     case usesBassProCabelasClub        // Bass Pro Shops / Cabela's CLUB loyalty
     case hasConservationOrgMembership  // Ducks Unlimited, Rocky Mountain Elk Foundation, Trout Unlimited, etc.
+    case hasEpicPass                   // Vail Resorts — CO/UT/CA-Tahoe/VT/NY/PA/OH/MN cluster + more
+    case hasIkonPass                   // Alterra — CO/UT/CA-Tahoe/MT/WY/ID/WA/OR/NM/ME + more
 
     // MARK: - More / Misc
     case isVeteran

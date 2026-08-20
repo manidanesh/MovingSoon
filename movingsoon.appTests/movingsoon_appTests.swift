@@ -473,6 +473,75 @@ struct LifestyleFlagReachabilityTests {
     }
 }
 
+@Suite("RegionalArchetypeService — State Matching")
+struct RegionalArchetypeMatchTests {
+
+    @Test func colorado_matchesMountainSkiCorridorHigh() {
+        let matches = RegionalArchetypeService.matches(forStateBucket: "CO")
+        #expect(matches.contains { $0.archetype == .mountainSkiCorridor && $0.strength == .high })
+    }
+
+    @Test func minnesota_matchesBothSkiModerateAndLakeHigh() {
+        let matches = RegionalArchetypeService.matches(forStateBucket: "MN")
+        #expect(matches.contains { $0.archetype == .mountainSkiCorridor && $0.strength == .moderate })
+        #expect(matches.contains { $0.archetype == .lakeBoatingBelt && $0.strength == .high })
+    }
+
+    @Test func unmappedState_returnsEmptyNotAFallback() {
+        // Rhode Island has no strong regional archetype signal in this table — empty
+        // is the honest answer, not an error and not a guessed default.
+        #expect(RegionalArchetypeService.matches(forStateBucket: "RI").isEmpty)
+    }
+
+    @Test func unknownUSSentinel_returnsEmpty() {
+        #expect(RegionalArchetypeService.matches(forStateBucket: "US").isEmpty)
+    }
+}
+
+@Suite("MoveImpactEngine — Candidate Generation")
+struct MoveImpactEngineTests {
+
+    @Test func coloradoDestination_suggestsEpicAndIkon() {
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "CO", activeFlags: [])
+        #expect(items.contains { $0.flag == .hasEpicPass && $0.confidence == .inferredHigh })
+        #expect(items.contains { $0.flag == .hasIkonPass && $0.confidence == .inferredHigh })
+    }
+
+    @Test func alreadyConfirmedFlag_isNeverSuggestedAsCandidate() {
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "CO", activeFlags: [.hasEpicPass])
+        #expect(!items.contains { $0.flag == .hasEpicPass })
+        #expect(items.contains { $0.flag == .hasIkonPass })
+    }
+
+    @Test func unmappedState_producesNoCandidates() {
+        #expect(MoveImpactEngine.candidates(destinationStateBucket: "RI", activeFlags: []).isEmpty)
+    }
+
+    @Test func highConfidenceCandidatesRankBeforeSuggested() {
+        // Michigan: lakeBoatingBelt is .high, mountainSkiCorridor is .moderate —
+        // boating candidates should sort ahead of ski candidates.
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "MI", activeFlags: [])
+        let firstSuggestedIndex = items.firstIndex { $0.confidence == .suggested }
+        let lastInferredHighIndex = items.lastIndex { $0.confidence == .inferredHigh }
+        if let firstSuggestedIndex, let lastInferredHighIndex {
+            #expect(lastInferredHighIndex < firstSuggestedIndex)
+        }
+    }
+
+    @Test func rationaleNamesTheArchetype() {
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "CO", activeFlags: [])
+        #expect(items.allSatisfy { $0.rationale.contains($0.archetype.displayName) })
+    }
+
+    @Test func candidatesNeverDuplicateAFlagAcrossArchetypes() {
+        // Farm Bureau is a candidate for both ranchWesternHeritage and
+        // huntingFishingHeritage — Montana matches both — must appear once, not twice.
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "MT", activeFlags: [])
+        let farmBureauCount = items.filter { $0.flag == .hasFarmBureauMembership }.count
+        #expect(farmBureauCount == 1)
+    }
+}
+
 @Suite("RegionalEconomicsService — Cost Comparison")
 struct RegionalEconomicsComparisonTests {
 

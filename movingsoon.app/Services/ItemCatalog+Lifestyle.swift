@@ -338,6 +338,14 @@ extension ItemCatalog {
         CatalogItem(id: "conservation_org_membership", title: "Conservation Org Membership — Update Address (Ducks Unlimited, RMEF, Trout Unlimited, etc.)", emoji: "🦆",
                     category: .subscriptions, priority: .low, tMinusDays: 7,
                     brandColorHex: "#33691E", requires: [.hasConservationOrgMembership]),
+        CatalogItem(id: "epic_pass", title: "Epic Pass — Update My Epic Account Address", emoji: "🎿",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.epicpass.com/myepic"),
+                    brandColorHex: "#00205B", requires: [.hasEpicPass]),
+        CatalogItem(id: "ikon_pass", title: "Ikon Pass — Update Account Address", emoji: "🎿",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.ikonpass.com/en/my-account"),
+                    brandColorHex: "#1C1C1C", requires: [.hasIkonPass]),
     ]
 
     // MARK: - 🐾 PETS

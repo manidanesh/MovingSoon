@@ -95,6 +95,16 @@ final class Move {
         )
     }
 
+    /// Flags suggested-but-unconfirmed based on the destination's regional archetype
+    /// (e.g. Epic/Ikon in a Mountain & Ski Corridor state). Never auto-applied to
+    /// LifestyleProfile — this is a suggestion surface only. See MoveImpactEngine.
+    var moveImpactCandidates: [MoveImpactItem] {
+        MoveImpactEngine.candidates(
+            destinationStateBucket: destinationStateBucket,
+            activeFlags: lifestyleProfile?.activeFlags ?? []
+        )
+    }
+
     var personaKey: PersonaKey {
         guard let profile = lifestyleProfile else { return .activeProfessional }
         if profile.has(.hasChildren) { return .familyWithKids }

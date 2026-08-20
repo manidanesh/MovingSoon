@@ -71,6 +71,33 @@ final class LifestyleViewModel {
         }
     }
 
+    /// Finds the chip backing a given flag, wherever it lives — used by the "Suggested
+    /// For This Move" surface so a suggestion toggles the exact same underlying state
+    /// as the regular chip grid, never a separate copy that could drift out of sync.
+    func chip(for flag: LifestyleFlag) -> BubbleChip? {
+        for sections in extraChips.values {
+            for section in sections {
+                if let chip = section.chips.first(where: { $0.flag == flag }) { return chip }
+            }
+        }
+        return nil
+    }
+
+    func isFlagSelected(_ flag: LifestyleFlag) -> Bool {
+        chip(for: flag)?.isSelected ?? false
+    }
+
+    func toggleFlag(_ flag: LifestyleFlag) {
+        for (category, sections) in extraChips {
+            for section in sections {
+                if let chip = section.chips.first(where: { $0.flag == flag }) {
+                    toggleExtraChip(chip, in: category)
+                    return
+                }
+            }
+        }
+    }
+
     // MARK: - Optional extra categories (shown on screen 3)
 
     private func buildExtraChips() {
@@ -378,6 +405,8 @@ final class LifestyleViewModel {
 
         extraChips["recreation"] = [
             ChipSection(title: "Regional Recreation Networks", chips: [
+                BubbleChip(id: "hasEpicPass",                   label: "Epic Pass",               emoji: "🎿", flag: .hasEpicPass),
+                BubbleChip(id: "hasIkonPass",                   label: "Ikon Pass",                emoji: "🎿", flag: .hasIkonPass),
                 BubbleChip(id: "usesInvitedClubs",              label: "Invited (ClubCorp)",      emoji: "⛳", flag: .usesInvitedClubs),
                 BubbleChip(id: "usesTroonManagedClub",          label: "Troon-Managed Club",      emoji: "⛳", flag: .usesTroonManagedClub),
                 BubbleChip(id: "usesFreedomBoatClub",           label: "Freedom Boat Club",       emoji: "⛵", flag: .usesFreedomBoatClub),

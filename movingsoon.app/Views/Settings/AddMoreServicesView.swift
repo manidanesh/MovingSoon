@@ -47,6 +47,50 @@ struct AddMoreServicesView: View {
                                 .lineSpacing(3)
                         }
 
+                        // Suggested for this move — archetype-based, never pre-checked.
+                        // Tapping a row toggles the exact same chip state as the category
+                        // grid below (LifestyleViewModel.toggleFlag), so there's one source
+                        // of truth, not a shadow copy that could drift.
+                        let suggestions = move.moveImpactCandidates
+                        if !suggestions.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Suggested For This Move")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Theme.textSecondary)
+                                    .textCase(.uppercase)
+                                    .tracking(1.5)
+
+                                VStack(spacing: 8) {
+                                    ForEach(suggestions) { item in
+                                        if let chip = vm.chip(for: item.flag) {
+                                            Button {
+                                                vm.toggleFlag(item.flag)
+                                            } label: {
+                                                HStack(spacing: 12) {
+                                                    Text(chip.emoji).font(.system(size: 20))
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(chip.label)
+                                                            .font(.system(size: 14, weight: .medium))
+                                                            .foregroundColor(Theme.textPrimary)
+                                                        Text(item.rationale)
+                                                            .font(.system(size: 11))
+                                                            .foregroundColor(Theme.textTertiary)
+                                                    }
+                                                    Spacer()
+                                                    Image(systemName: vm.isFlagSelected(item.flag) ? "checkmark.circle.fill" : "plus.circle")
+                                                        .font(.system(size: 20))
+                                                        .foregroundColor(vm.isFlagSelected(item.flag) ? Theme.accentSuccess : Theme.accentPrimary)
+                                                }
+                                                .padding(12)
+                                                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 12))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Financial institutions
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Financial Accounts")
