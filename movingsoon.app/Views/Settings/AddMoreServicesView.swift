@@ -66,11 +66,19 @@ struct AddMoreServicesView: View {
 
                         // Optional extras
                         let categories: [(id: String, label: String, emoji: String)] = [
-                            ("shopping",  "Shopping & Delivery",  "📦"),
-                            ("streaming", "Streaming & Cable",    "📺"),
-                            ("fitness",   "Fitness & Wellness",   "💪"),
-                            ("transport", "Vehicles & Travel",    "🚗"),
-                            ("life",      "Life & Finance",       "💼"),
+                            ("shopping",      "Shopping & Delivery",   "📦"),
+                            ("streaming",     "Streaming & Cable",     "📺"),
+                            ("fitness",       "Fitness & Wellness",    "💪"),
+                            ("transport",     "Vehicles & Travel",     "🚗"),
+                            ("life",          "Life & Finance",        "💼"),
+                            ("household",     "Household & Family",   "👨‍👩‍👧‍👦"),
+                            ("home",          "Home & Smart Home",    "🏡"),
+                            ("insurance",     "Insurance",             "🛡️"),
+                            ("travel",        "Travel & Loyalty",      "✈️"),
+                            ("subscriptions", "Subscriptions & News",  "📬"),
+                            ("community",     "Community & Giving",   "🤝"),
+                            ("digital",       "Digital Identity",      "🌐"),
+                            ("recreation",    "Regional Recreation Networks", "⛳"),
                         ]
 
                         VStack(spacing: 8) {

@@ -419,6 +419,60 @@ struct RegionalRecreationNetworkTests {
     }
 }
 
+@Suite("LifestyleViewModel — Flag Reachability")
+struct LifestyleFlagReachabilityTests {
+
+    /// Flags that are correctly never chip-toggled: either answered directly on
+    /// onboarding screen 1 (LifestyleViewModel.coreFlags), or auto-derived from the
+    /// destination ZIP/postal code (country + Canadian province flags), never from a
+    /// user tap. Every other LifestyleFlag case must have a chip somewhere in
+    /// extraChips, or it's a dead flag no user can ever actually set.
+    static let autoOrCoreDerived: Set<LifestyleFlag> = [
+        .hasChildren, .hasPets, .isOwning, .isRenting, .livesInHouseOrTownhouse,
+        .isCanadian, .isAmerican,
+        .inOntario, .inBritishColumbia, .inQuebec, .inAlberta, .inManitoba,
+        .inSaskatchewan, .inNovaScotia, .inNewBrunswick, .inNewfoundland, .inPEI,
+        .inNorthwestTerritories, .inNunavut, .inYukon,
+    ]
+
+    @Test func everyFlagIsEitherAutoSetOrChipReachable() {
+        let vm = LifestyleViewModel()
+        let chipFlags: Set<LifestyleFlag> = Set(
+            vm.extraChips.values.flatMap { $0 }.flatMap { $0.chips }.compactMap { $0.flag }
+        )
+        let unreachable = Set(LifestyleFlag.allCases)
+            .subtracting(Self.autoOrCoreDerived)
+            .subtracting(chipFlags)
+        #expect(unreachable.isEmpty, "flags with no chip and no auto-derivation: \(unreachable.map(\.rawValue).sorted())")
+    }
+
+    @Test func newRegionalRecreationFlagsAreChipReachable() {
+        let vm = LifestyleViewModel()
+        let chipFlags: Set<LifestyleFlag> = Set(
+            vm.extraChips.values.flatMap { $0 }.flatMap { $0.chips }.compactMap { $0.flag }
+        )
+        let expected: Set<LifestyleFlag> = [
+            .usesInvitedClubs, .usesTroonManagedClub, .usesFreedomBoatClub, .usesCarefreeBoatClub,
+            .usesTractorSupplyNeighborsClub, .hasFarmBureauMembership, .usesBassProCabelasClub,
+            .hasConservationOrgMembership, .livesInDelWebbCommunity,
+        ]
+        #expect(expected.isSubset(of: chipFlags))
+    }
+
+    @Test func addMoreServicesCategoriesCoverEveryExtraChipsKey() {
+        // AddMoreServicesView's own category list is a separate hardcoded array (by
+        // design — onboarding's screen-3 list stays short). This guards that whichever
+        // new top-level key gets added to extraChips doesn't silently go unlisted there.
+        let vm = LifestyleViewModel()
+        let addMoreServicesCategoryIDs: Set<String> = [
+            "shopping", "streaming", "fitness", "transport", "life",
+            "household", "home", "insurance", "travel", "subscriptions", "community", "digital", "recreation",
+        ]
+        let extraChipsKeys = Set(vm.extraChips.keys)
+        #expect(extraChipsKeys.isSubset(of: addMoreServicesCategoryIDs), "extraChips has a category not listed in AddMoreServicesView: \(extraChipsKeys.subtracting(addMoreServicesCategoryIDs))")
+    }
+}
+
 @Suite("RegionalEconomicsService — Cost Comparison")
 struct RegionalEconomicsComparisonTests {
 

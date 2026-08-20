@@ -155,6 +155,20 @@ struct ZenDashboardView: View {
         return "\(from)  →  \(to)"
     }
 
+    /// Cost-of-living delta pill next to the route — green when the destination is
+    /// cheaper, amber when pricier, neutral when comparable. Nil (shows nothing) when
+    /// there's no origin ZIP on file or either side falls outside RegionalEconomicsService's
+    /// US snapshot (e.g. a Canadian destination).
+    private var costOfLivingLabel: (text: String, color: Color)? {
+        guard let comparison = move.costOfLivingComparison else { return nil }
+        let pct = Int(abs(comparison.homeValueDeltaPercent).rounded())
+        switch comparison.direction {
+        case .costIncrease: return ("↑ \(pct)% higher cost of living", Theme.accentWarning)
+        case .costDecrease: return ("↓ \(pct)% lower cost of living", Theme.accentSuccess)
+        case .comparable:   return ("Similar cost of living", Theme.textTertiary)
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             ScrollView(showsIndicators: false) {
@@ -198,6 +212,17 @@ struct ZenDashboardView: View {
                                 .padding(.vertical, 4)
                                 .background(Theme.backgroundElevated.opacity(0.8))
                                 .clipShape(Capsule())
+                            }
+
+                            // Cost-of-living delta (RegionalEconomicsService home-value comparison)
+                            if let costLabel = costOfLivingLabel {
+                                Text(costLabel.text)
+                                    .themeText(11, weight: .medium)
+                                    .foregroundColor(costLabel.color)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(costLabel.color.opacity(0.12))
+                                    .clipShape(Capsule())
                             }
 
                             // Progress context (#5)
