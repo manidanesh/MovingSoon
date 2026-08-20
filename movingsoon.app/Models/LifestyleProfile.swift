@@ -25,6 +25,7 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasHOA
     case hasHomeSecurity
     case hasSolar
+    case livesInDelWebbCommunity  // Del Webb / Sun City (PulteGroup) — age-restricted community; a home-type signal, not a membership
 
     // MARK: - Shopping
     case usesAmazon
@@ -97,6 +98,16 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case usesChuze
     case usesCrunch
     case usesAnytimeFitness
+
+    // MARK: - 🏌️ Regional Recreation & Membership Networks
+    case usesInvitedClubs              // Invited, formerly ClubCorp — multi-club golf/country club portfolio, ~170-200+ clubs, membership typically transfers between member clubs
+    case usesTroonManagedClub          // Troon-managed golf/country club
+    case usesFreedomBoatClub           // Freedom Boat Club (Brunswick Corp.) — national single-operator boat club, ~390-430 locations
+    case usesCarefreeBoatClub          // Carefree Boat Club — franchise-model boat club, lighter US footprint than Freedom
+    case usesTractorSupplyNeighborsClub // Tractor Supply Co. — Neighbor's Club loyalty account
+    case hasFarmBureauMembership       // Farm Bureau — state-federated; membership and insurance product do NOT carry across a state line
+    case usesBassProCabelasClub        // Bass Pro Shops / Cabela's CLUB loyalty
+    case hasConservationOrgMembership  // Ducks Unlimited, Rocky Mountain Elk Foundation, Trout Unlimited, etc.
 
     // MARK: - More / Misc
     case isVeteran

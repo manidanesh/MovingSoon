@@ -373,3 +373,99 @@ struct KnownInstitutionsRegionalFilteringTests {
         #expect(result.contains { $0.name == "Regions Bank" })
     }
 }
+
+@Suite("ChecklistGenerator — Regional Recreation Networks")
+struct RegionalRecreationNetworkTests {
+
+    @Test func invitedClubs_includedWhenFlagged() {
+        let items = ChecklistGenerator.matchingItems(flags: [.usesInvitedClubs])
+        #expect(items.contains { $0.id == "invited_clubs" })
+    }
+
+    @Test func freedomBoatClub_includedWhenFlagged() {
+        let items = ChecklistGenerator.matchingItems(flags: [.usesFreedomBoatClub])
+        #expect(items.contains { $0.id == "freedom_boat_club" })
+    }
+
+    @Test func farmBureau_includedWhenFlagged() {
+        let items = ChecklistGenerator.matchingItems(flags: [.hasFarmBureauMembership])
+        #expect(items.contains { $0.id == "farm_bureau" })
+    }
+
+    @Test func delWebb_includedWhenFlagged() {
+        let items = ChecklistGenerator.matchingItems(flags: [.livesInDelWebbCommunity])
+        #expect(items.contains { $0.id == "del_webb_search" })
+    }
+
+    @Test func tractorSupplyAndBassPro_includedWhenFlagged() {
+        let items = ChecklistGenerator.matchingItems(flags: [.usesTractorSupplyNeighborsClub, .usesBassProCabelasClub])
+        #expect(items.contains { $0.id == "tractor_supply_neighbors_club" })
+        #expect(items.contains { $0.id == "bass_pro_cabelas_club" })
+    }
+
+    @Test func noRegionalFlags_excludesAllNetworkItems() {
+        let networkIDs: Set<String> = [
+            "invited_clubs", "troon_club", "freedom_boat_club", "carefree_boat_club",
+            "tractor_supply_neighbors_club", "bass_pro_cabelas_club",
+            "conservation_org_membership", "farm_bureau", "del_webb_search",
+        ]
+        let items = ChecklistGenerator.matchingItems(flags: [])
+        #expect(items.filter { networkIDs.contains($0.id) }.isEmpty)
+    }
+
+    @Test func allNewCatalogIDsAreUnique() {
+        let ids = ItemCatalog.all.map(\.id)
+        #expect(ids.count == Set(ids).count, "duplicate CatalogItem id found")
+    }
+}
+
+@Suite("RegionalEconomicsService — Cost Comparison")
+struct RegionalEconomicsComparisonTests {
+
+    @Test func noOrigin_returnsNil() {
+        #expect(RegionalEconomicsService.compare(originStateBucket: nil, destinationStateBucket: "CO") == nil)
+    }
+
+    @Test func canadianOrigin_returnsNil() {
+        // Census/Zillow are US-only — a Canadian province bucket has no snapshot.
+        #expect(RegionalEconomicsService.compare(originStateBucket: "ON", destinationStateBucket: "CO") == nil)
+    }
+
+    @Test func canadianDestination_returnsNil() {
+        #expect(RegionalEconomicsService.compare(originStateBucket: "CA", destinationStateBucket: "BC") == nil)
+    }
+
+    @Test func mississippiToCalifornia_isCostIncrease() {
+        // MS has the lowest median home value in the snapshot, CA the highest.
+        let result = RegionalEconomicsService.compare(originStateBucket: "MS", destinationStateBucket: "CA")
+        #expect(result?.direction == .costIncrease)
+        #expect((result?.homeValueDeltaPercent ?? 0) > 0)
+    }
+
+    @Test func californiaToMississippi_isCostDecrease() {
+        let result = RegionalEconomicsService.compare(originStateBucket: "CA", destinationStateBucket: "MS")
+        #expect(result?.direction == .costDecrease)
+        #expect((result?.homeValueDeltaPercent ?? 0) < 0)
+    }
+
+    @Test func sameState_isComparable() {
+        let result = RegionalEconomicsService.compare(originStateBucket: "TX", destinationStateBucket: "TX")
+        #expect(result?.direction == .comparable)
+        #expect(result?.homeValueDeltaPercent == 0)
+        #expect(result?.incomeDeltaPercent == 0)
+    }
+
+    @Test func allFiftyStatesPlusDCAndNationalFallback_havePositiveSnapshots() {
+        let expectedBuckets = [
+            "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA",
+            "ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK",
+            "OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC","US"
+        ]
+        for bucket in expectedBuckets {
+            let snapshot = RegionalEconomicsService.snapshot(forStateBucket: bucket)
+            #expect(snapshot != nil, "missing snapshot for \(bucket)")
+            #expect((snapshot?.medianHouseholdIncome ?? 0) > 0, "\(bucket) income should be positive")
+            #expect((snapshot?.medianHomeValue ?? 0) > 0, "\(bucket) home value should be positive")
+        }
+    }
+}

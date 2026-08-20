@@ -85,6 +85,16 @@ final class Move {
         return ZipBucketService.bucket(zip: originZip).state
     }
 
+    /// Cost-of-living comparison between origin and destination, or nil if there's
+    /// no origin ZIP on file or either side falls outside the US snapshot (e.g. a
+    /// Canadian province bucket). See RegionalEconomicsService for data provenance.
+    var costOfLivingComparison: RegionalEconomicsService.Comparison? {
+        RegionalEconomicsService.compare(
+            originStateBucket: originStateBucket,
+            destinationStateBucket: destinationStateBucket
+        )
+    }
+
     var personaKey: PersonaKey {
         guard let profile = lifestyleProfile else { return .activeProfessional }
         if profile.has(.hasChildren) { return .familyWithKids }

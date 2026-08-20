@@ -83,6 +83,11 @@ extension ItemCatalog {
     // MARK: - 🔮 Specialty Insurance & Protection
 
     static let specialtyInsurance: [CatalogItem] = [
+        CatalogItem(id: "farm_bureau", title: "Farm Bureau — New State Membership Required", emoji: "🌾",
+                    category: .insurance, priority: .high, tMinusDays: -14,
+                    deepLinkURL: URL(string: "https://www.fb.org"),
+                    brandColorHex: "#2E7D32",
+                    requires: [.hasFarmBureauMembership]),
         CatalogItem(id: "pet_insurance_update", title: "Pet Insurance — Update Address", emoji: "🐾",
                     category: .insurance, priority: .high, tMinusDays: -7,
                     brandColorHex: "#2E86C1",

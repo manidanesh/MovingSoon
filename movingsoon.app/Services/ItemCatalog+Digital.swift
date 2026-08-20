@@ -65,7 +65,7 @@ extension ItemCatalog {
                     deepLinkURL: URL(string: "https://www.drinktrade.com/account"),
                     brandColorHex: "#4A2C2A",
                     requires: [.usesCoffeeSubscription]),
-        CatalogItem(id: "kids_crate_box", title: "Kids Activity Box (KiwiCo / Little Passports)", emoji: "🧸",
+        CatalogItem(id: "kids_activity_box", title: "Kids Activity Box (KiwiCo / Little Passports)", emoji: "🧸",
                     category: .subscriptions, priority: .high, tMinusDays: -3,
                     deepLinkURL: URL(string: "https://www.kiwico.com/account"),
                     brandColorHex: "#FF6B35",

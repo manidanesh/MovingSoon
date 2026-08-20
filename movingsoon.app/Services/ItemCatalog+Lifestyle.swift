@@ -4,7 +4,7 @@ import Foundation
 extension ItemCatalog {
 
     static var allLifestyle: [CatalogItem] {
-        shopping + foodDelivery + streaming + digitalWallets + fitness + memberships + pets + healthcare + employer + education + legal
+        shopping + foodDelivery + streaming + digitalWallets + fitness + memberships + regionalRecreationNetworks + pets + healthcare + employer + education + legal
     }
 
     // MARK: - 🛍️ SHOPPING
@@ -303,6 +303,41 @@ extension ItemCatalog {
                     category: .subscriptions, priority: .medium, tMinusDays: 7,
                     deepLinkURL: URL(string: "https://www.aarp.org/account"),
                     brandColorHex: "#D40E14", requiresAny: [.isRetired, .hasMedicare]),
+    ]
+
+    // MARK: - 🏌️ REGIONAL RECREATION NETWORKS
+    // Distinct from the generic "social_club" item (ItemCatalog+Digital.swift) — these are
+    // specific, verified national/multi-state networks where the operator structure changes
+    // the actual task: a single-operator network (Invited, Freedom Boat Club) is a same-account
+    // address update, while a state-federated one (Farm Bureau) is a cancel-and-establish pair.
+    static let regionalRecreationNetworks: [CatalogItem] = [
+        CatalogItem(id: "invited_clubs", title: "Invited (formerly ClubCorp) — Update Member Address", emoji: "⛳",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.invitedclubs.com"),
+                    brandColorHex: "#12263A", requires: [.usesInvitedClubs]),
+        CatalogItem(id: "troon_club", title: "Troon-Managed Club — Update Member Address", emoji: "⛳",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.troon.com"),
+                    brandColorHex: "#1B5E20", requires: [.usesTroonManagedClub]),
+        CatalogItem(id: "freedom_boat_club", title: "Freedom Boat Club — Update Home Club", emoji: "⛵",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.freedomboatclub.com"),
+                    brandColorHex: "#0077C8", requires: [.usesFreedomBoatClub]),
+        CatalogItem(id: "carefree_boat_club", title: "Carefree Boat Club — Update Home Club", emoji: "⛵",
+                    category: .subscriptions, priority: .medium, tMinusDays: -7,
+                    deepLinkURL: URL(string: "https://www.carefreeboatclub.com"),
+                    brandColorHex: "#00A99D", requires: [.usesCarefreeBoatClub]),
+        CatalogItem(id: "tractor_supply_neighbors_club", title: "Tractor Supply Neighbor's Club — Update Address", emoji: "🚜",
+                    category: .subscriptions, priority: .low, tMinusDays: 0,
+                    deepLinkURL: URL(string: "https://www.tractorsupply.com/tsc/neighbors-club"),
+                    brandColorHex: "#CC0000", requires: [.usesTractorSupplyNeighborsClub]),
+        CatalogItem(id: "bass_pro_cabelas_club", title: "Bass Pro Shops / Cabela's CLUB — Update Address", emoji: "🎣",
+                    category: .subscriptions, priority: .low, tMinusDays: 0,
+                    deepLinkURL: URL(string: "https://www.basspro.com/shop/en/myaccount"),
+                    brandColorHex: "#5D4037", requires: [.usesBassProCabelasClub]),
+        CatalogItem(id: "conservation_org_membership", title: "Conservation Org Membership — Update Address (Ducks Unlimited, RMEF, Trout Unlimited, etc.)", emoji: "🦆",
+                    category: .subscriptions, priority: .low, tMinusDays: 7,
+                    brandColorHex: "#33691E", requires: [.hasConservationOrgMembership]),
     ]
 
     // MARK: - 🐾 PETS
