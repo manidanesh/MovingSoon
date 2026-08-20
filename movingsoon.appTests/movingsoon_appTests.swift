@@ -681,6 +681,32 @@ struct MoveImpactEngineTests {
         let farmBureauCount = items.filter { $0.flag == .hasFarmBureauMembership }.count
         #expect(farmBureauCount == 1)
     }
+
+    // MARK: WS3 — regional similarity upgrade
+
+    @Test func moderateMatchUpgradedToHighConfidence_whenOriginDestinationHighlySimilar() {
+        // Same-state move: origin/destination similarity is 1.0 (identical vector to
+        // itself), comfortably above the upgrade threshold. MI's mountainSkiCorridor
+        // match is only .moderate on its own — this proves the upgrade path fires.
+        let withoutOrigin = MoveImpactEngine.candidates(destinationStateBucket: "MI", activeFlags: [])
+        let withOrigin = MoveImpactEngine.candidates(destinationStateBucket: "MI", activeFlags: [], originStateBucket: "MI")
+
+        #expect(withoutOrigin.first { $0.flag == .hasEpicPass }?.confidence == .suggested)
+        #expect(withOrigin.first { $0.flag == .hasEpicPass }?.confidence == .inferredHigh)
+    }
+
+    @Test func highMatchIsNeverDowngraded_regardlessOfSimilarity() {
+        // CO's mountainSkiCorridor is already .high — must stay .inferredHigh even
+        // with a low-similarity, unrelated origin.
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "CO", activeFlags: [], originStateBucket: "RI")
+        #expect(items.first { $0.flag == .hasEpicPass }?.confidence == .inferredHigh)
+    }
+
+    @Test func noOriginProvided_behavesExactlyAsBeforeWS3() {
+        // Default parameter — every pre-WS3 call site must be unaffected.
+        let items = MoveImpactEngine.candidates(destinationStateBucket: "MI", activeFlags: [])
+        #expect(items.first { $0.flag == .hasEpicPass }?.confidence == .suggested)
+    }
 }
 
 @Suite("RegionalSimilarityService (WS3)")

@@ -109,7 +109,8 @@ final class Move {
     var moveImpactCandidates: [MoveImpactItem] {
         MoveImpactEngine.candidates(
             destinationStateBucket: destinationStateBucket,
-            activeFlags: lifestyleProfile?.activeFlags ?? []
+            activeFlags: lifestyleProfile?.activeFlags ?? [],
+            originStateBucket: originStateBucket
         )
     }
 

@@ -40,22 +40,44 @@ enum MoveImpactEngine {
         .huntingFishingHeritage: [.usesBassProCabelasClub, .hasConservationOrgMembership, .hasFarmBureauMembership],
     ]
 
+    /// A moderate archetype match gets promoted to high confidence when the overall
+    /// origin -> destination region is itself highly similar (WS3 of the intelligence-
+    /// rework scope) — independent evidence the user's regional lifestyle patterns are
+    /// likely to carry over, not just a property of the destination in isolation.
+    /// Conservative on purpose: never touches an already-high match, never touches a
+    /// suggestion when similarity is merely average.
+    private static let similarityUpgradeThreshold = 0.75
+
     /// Suggested-but-unconfirmed flags for a move, based on the destination's regional
     /// archetype match. Never returns a flag already active in `activeFlags` — those
     /// are confirmed, not candidates. Ranked highest-confidence first.
-    static func candidates(destinationStateBucket: String, activeFlags: Set<LifestyleFlag>) -> [MoveImpactItem] {
+    static func candidates(
+        destinationStateBucket: String,
+        activeFlags: Set<LifestyleFlag>,
+        originStateBucket: String? = nil
+    ) -> [MoveImpactItem] {
         let matches = RegionalArchetypeService.matches(forStateBucket: destinationStateBucket)
         var items: [MoveImpactItem] = []
         var seen: Set<LifestyleFlag> = []
+
+        let regionalSimilarity: Double? = originStateBucket.map {
+            RegionalSimilarityService.similarity(between: $0, and: destinationStateBucket)
+        }
 
         for match in matches {
             guard let flags = candidateFlags[match.archetype] else { continue }
             for flag in flags {
                 guard !activeFlags.contains(flag), !seen.contains(flag) else { continue }
                 seen.insert(flag)
+
+                var confidence: MoveImpactConfidence = match.strength == .high ? .inferredHigh : .suggested
+                if confidence == .suggested, let regionalSimilarity, regionalSimilarity > similarityUpgradeThreshold {
+                    confidence = .inferredHigh
+                }
+
                 items.append(MoveImpactItem(
                     flag: flag,
-                    confidence: match.strength == .high ? .inferredHigh : .suggested,
+                    confidence: confidence,
                     archetype: match.archetype,
                     rationale: "This move includes \(match.archetype.displayName) — worth checking if this applies to you."
                 ))
