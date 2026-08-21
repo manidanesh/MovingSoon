@@ -115,7 +115,7 @@ struct CoreIntakeView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 24) {
-                Text("When's the\nbig day?")
+                Text("When's the\nday?")
                     .font(.system(size: 40, weight: .bold, design: .serif))
                     .foregroundColor(Theme.textPrimary)
                     .lineSpacing(4)
