@@ -333,6 +333,20 @@ enum PetSpecies: String, Codable, CaseIterable {
 }
 
 // MARK: - Lifestyle Profile (SwiftData model)
+//
+// SCHEMA VERSIONING — deliberately deferred, not forgotten. This model has taken
+// three purely-additive changes (signalRecordsJSON, childCount, petSpeciesJSON) via
+// SwiftData's automatic lightweight migration, verified empirically each time — an
+// in-place install over the existing on-disk store, on both simulator and the real
+// device, confirmed no data loss and no forced re-onboarding.
+//
+// Introducing VersionedSchema/SchemaMigrationPlan now would require also versioning
+// Move (its `lifestyleProfile: LifestyleProfile?` relationship forces the type it
+// points to into the same versioning scheme) even though Move itself never changed —
+// real complexity for a migration path already proven safe. Add real schema
+// versioning at the point it's actually needed: the first NON-additive change to this
+// model (renaming, retyping, or removing a stored property) — lightweight migration
+// cannot handle that, and that is the correct trigger, not "before it's needed."
 
 import SwiftData
 
