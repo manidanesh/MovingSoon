@@ -138,4 +138,35 @@ final class Move {
         guard totalCount > 0 else { return 0 }
         return Double(completedCount) / Double(totalCount)
     }
+
+    /// Per-category completion, sorted least-complete-first (then by nearest
+    /// deadline among that category's incomplete tasks) — the ordering a user
+    /// actually wants: "which category needs me next," not alphabetical.
+    var categoryProgress: [CategoryProgress] {
+        let grouped = Dictionary(grouping: tasks, by: { $0.category })
+        let items = grouped.map { category, categoryTasks -> CategoryProgress in
+            let completed = categoryTasks.filter { $0.status == .completed }.count
+            let nextDueInDays = categoryTasks.filter { $0.status != .completed }.map(\.tMinusDays).min()
+            return CategoryProgress(category: category, completed: completed, total: categoryTasks.count, nextDueInDays: nextDueInDays)
+        }
+        return items.sorted { lhs, rhs in
+            if lhs.fraction != rhs.fraction { return lhs.fraction < rhs.fraction }
+            switch (lhs.nextDueInDays, rhs.nextDueInDays) {
+            case let (l?, r?) where l != r: return l < r
+            case (nil, .some): return false
+            case (.some, nil): return true
+            default: return lhs.category.rawValue < rhs.category.rawValue
+            }
+        }
+    }
+}
+
+struct CategoryProgress: Identifiable {
+    var id: TaskCategory { category }
+    let category: TaskCategory
+    let completed: Int
+    let total: Int
+    let nextDueInDays: Int?
+
+    var fraction: Double { total > 0 ? Double(completed) / Double(total) : 0 }
 }

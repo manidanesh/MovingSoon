@@ -473,6 +473,75 @@ struct LifestyleFlagReachabilityTests {
     }
 }
 
+@Suite("Move — Category Progress")
+struct CategoryProgressTests {
+
+    private func makeMove(tasks: [ChecklistTask]) -> Move {
+        let move = Move(anchorDate: Date(), originZip: nil, destinationZip: "80202",
+                         destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+        move.tasks = tasks
+        return move
+    }
+
+    private func task(category: TaskCategory, status: TaskStatus, tMinusDays: Int = 0) -> ChecklistTask {
+        let t = ChecklistTask(title: "t", category: category, priority: .medium, tMinusDays: tMinusDays)
+        t.statusRaw = status.rawValue
+        return t
+    }
+
+    @Test func groupsAndCountsCorrectlyPerCategory() {
+        let move = makeMove(tasks: [
+            task(category: .utilities, status: .completed),
+            task(category: .utilities, status: .toDo),
+            task(category: .financial, status: .completed),
+        ])
+        let utilities = move.categoryProgress.first { $0.category == .utilities }
+        let financial = move.categoryProgress.first { $0.category == .financial }
+        #expect(utilities?.completed == 1 && utilities?.total == 2)
+        #expect(financial?.completed == 1 && financial?.total == 1)
+    }
+
+    @Test func sortsLeastCompleteFirst() {
+        let move = makeMove(tasks: [
+            task(category: .insurance, status: .completed),
+            task(category: .education, status: .toDo),
+            task(category: .education, status: .toDo),
+        ])
+        #expect(move.categoryProgress.first?.category == .education)
+        #expect(move.categoryProgress.last?.category == .insurance)
+    }
+
+    @Test func tiesBrokenByNearestDeadline() {
+        let move = makeMove(tasks: [
+            task(category: .legal, status: .toDo, tMinusDays: -3),
+            task(category: .digital, status: .toDo, tMinusDays: -20),
+        ])
+        // Both 0% complete — tMinusDays -20 was supposed to happen earlier in the
+        // pre-move timeline than -3, so it's the more urgent (more overdue-feeling)
+        // of the two and should lead.
+        #expect(move.categoryProgress.first?.category == .digital)
+    }
+
+    @Test func emptyTaskList_returnsEmptyProgress() {
+        #expect(makeMove(tasks: []).categoryProgress.isEmpty)
+    }
+}
+
+@Suite("ItemCatalog — Flag Lookup")
+struct ItemCatalogFlagLookupTests {
+
+    @Test func returnsTheDedicatedItemForASingleFlagCandidate() {
+        #expect(ItemCatalog.item(for: .hasEpicPass)?.id == "epic_pass")
+        #expect(ItemCatalog.item(for: .hasIkonPass)?.id == "ikon_pass")
+    }
+
+    @Test func returnsNilForAFlagWithNoDedicatedSingleItem() {
+        // isAmerican gates via `excludes` across many items, never as the sole
+        // `requires` on any one — there is no single dedicated item for it.
+        #expect(ItemCatalog.item(for: .isAmerican) == nil)
+    }
+}
+
 @Suite("SignalEmitter (WS1)")
 struct SignalEmitterTests {
 

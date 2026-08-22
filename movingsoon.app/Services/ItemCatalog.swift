@@ -6,6 +6,13 @@ enum ItemCatalog {
     // MARK: - All items merged
     static var all: [CatalogItem] { government + transport + housing + financial + allLifestyle + allTravel + allInsurance + allDigital + allCanada }
 
+    /// The catalog item gated by exactly this one flag, if any — used to get a
+    /// title/emoji for a MoveImpactEngine suggestion without depending on the
+    /// interview screens' UI-only chip registry (LifestyleViewModel.extraChips).
+    static func item(for flag: LifestyleFlag) -> CatalogItem? {
+        all.first { $0.requires == [flag] }
+    }
+
     // MARK: - 🏛️ GOVERNMENT (always shown)
     static let government: [CatalogItem] = [
         CatalogItem(id: "usps", title: "USPS Mail Forwarding", emoji: "📬",

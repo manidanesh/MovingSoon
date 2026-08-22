@@ -287,6 +287,93 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
+                    // MARK: Category Progress Rail
+                    if !move.categoryProgress.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Progress By Category")
+                                .themeText(11, weight: .semibold)
+                                .foregroundColor(Theme.textSecondary)
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                                .padding(.horizontal, 24)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(move.categoryProgress) { progress in
+                                        CategoryProgressChip(progress: progress)
+                                    }
+                                }
+                                .padding(.horizontal, 24)
+                            }
+                        }
+                    }
+
+                    // MARK: For Your Move (spotlight — same MoveImpactEngine
+                    // suggestions AddMoreServicesView shows, surfaced here instead
+                    // of requiring Settings > Edit Move > Add More Services to find)
+                    if !move.moveImpactCandidates.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("For Your Move")
+                                .themeText(11, weight: .semibold)
+                                .foregroundColor(Theme.textSecondary)
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+
+                            VStack(spacing: 0) {
+                                ForEach(Array(move.moveImpactCandidates.prefix(2).enumerated()), id: \.element.id) { index, item in
+                                    if let catalogItem = ItemCatalog.item(for: item.flag) {
+                                        Button {
+                                            move.lifestyleProfile?.set(item.flag, to: true)
+                                            SignalEmitter.emit(item: item, accepted: true, move: move, into: modelContext)
+                                            modelContext.saveOrLog()
+                                        } label: {
+                                            HStack(alignment: .top, spacing: 10) {
+                                                Text(catalogItem.emoji)
+                                                    .font(.system(size: 18))
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(catalogItem.title)
+                                                        .themeText(13, weight: .semibold)
+                                                        .foregroundColor(Theme.textPrimary)
+                                                    Text(item.rationale)
+                                                        .themeText(10.5, weight: .regular)
+                                                        .foregroundColor(Theme.textSecondary)
+                                                        .lineLimit(2)
+                                                }
+                                                Spacer()
+                                                Image(systemName: "plus.circle")
+                                                    .foregroundColor(Theme.accentPrimary)
+                                            }
+                                            .padding(.vertical, 8)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        if index < min(move.moveImpactCandidates.count, 2) - 1 {
+                                            Divider().background(Theme.backgroundElevated)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(
+                                LinearGradient(colors: [Theme.accentPrimary.opacity(0.16), Theme.backgroundCard],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                                in: RoundedRectangle(cornerRadius: 14)
+                            )
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.accentPrimary.opacity(0.35), lineWidth: 1))
+
+                            if move.moveImpactCandidates.count > 2 {
+                                Button { showingEditMove = true } label: {
+                                    Text("See \(move.moveImpactCandidates.count - 2) more suggestion\(move.moveImpactCandidates.count - 2 == 1 ? "" : "s")")
+                                        .themeText(11, weight: .medium)
+                                        .foregroundColor(Theme.textSecondary)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+
                     // MARK: Location Consent Card
                     if shouldShowConsentCard {
                         LocationConsentCard(
@@ -659,6 +746,41 @@ struct ZenDashboardView: View {
             locationManager.activeContextualTask = nil
             locationManager.taskStatusDidChange(task)
         }
+    }
+}
+
+// MARK: - Category Progress Chip
+
+struct CategoryProgressChip: View {
+    let progress: CategoryProgress
+
+    private var barColor: Color {
+        if progress.fraction >= 1.0 { return Theme.accentSuccess }
+        if progress.fraction <= 0.0 { return Theme.priorityCritical }
+        return Theme.accentPrimary
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(progress.category.emoji)
+                .font(.system(size: 16))
+            Text(progress.category.rawValue)
+                .themeText(9, weight: .medium)
+                .foregroundColor(Theme.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule().fill(barColor).frame(width: geo.size.width * max(progress.fraction, 0.04))
+                }
+            }
+            .frame(height: 3)
+        }
+        .padding(10)
+        .frame(minWidth: 64)
+        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
