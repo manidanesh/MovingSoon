@@ -402,6 +402,12 @@ struct ZenDashboardView: View {
                             },
                             onRemindTomorrow: {
                                 snoozeContextualTask(contextualTask)
+                            },
+                            onUpdateNow: {
+                                // Opens the link but doesn't mark complete — matches
+                                // Hero Card's Update Now, which only starts the process.
+                                // Dismiss the prompt; it's served its purpose once acted on.
+                                locationManager.activeContextualTask = nil
                             }
                         )
                         .padding(.horizontal, 20)
@@ -912,28 +918,42 @@ struct ZenHeroCard: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Secondary: already done
+                        // Secondary: already done. Green = "confirmed done," everywhere
+                        // in the app — never blue, which is reserved for "take the
+                        // external action." See MoveImpactEngine-adjacent surfaces for
+                        // the same rule applied consistently.
                         Button(action: onComplete) {
-                            Text("I already updated this ✓")
-                                .themeText(15, weight: .semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Theme.backgroundElevated)
-                                .foregroundColor(Theme.accentSuccess)
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark")
+                                    .themeText(13, weight: .bold)
+                                Text("Mark as Done")
+                                    .themeText(15, weight: .semibold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Theme.backgroundElevated)
+                            .foregroundColor(Theme.accentSuccess)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
                     } else {
-                        // No deep link — just mark done
+                        // No deep link — this task was never going to have an "Update
+                        // Now" option, so "Mark as Done" is the only action here. It
+                        // still gets accentSuccess (green), not accentPrimary (blue) —
+                        // "done" is "done" regardless of whether a link exists.
                         Button(action: onComplete) {
-                            Text("Mark as Done")
-                                .themeText(16, weight: .bold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Theme.accentPrimary)
-                                .foregroundColor(.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark")
+                                    .themeText(14, weight: .bold)
+                                Text("Mark as Done")
+                                    .themeText(16, weight: .bold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Theme.accentSuccess)
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .shadow(color: Theme.accentSuccess.opacity(0.35), radius: 10, x: 0, y: 4)
                         }
                         .buttonStyle(.plain)
                     }
@@ -960,6 +980,7 @@ struct ContextualPromptCard: View {
     let task: ChecklistTask
     let onYes: () -> Void
     let onRemindTomorrow: () -> Void
+    var onUpdateNow: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -986,26 +1007,58 @@ struct ContextualPromptCard: View {
                     .foregroundColor(Theme.textPrimary)
                     .lineSpacing(4)
 
-                HStack(spacing: 10) {
-                    Button(action: onRemindTomorrow) {
-                        Text("Remind me tomorrow")
-                            .themeText(15, weight: .semibold)
-                            .foregroundColor(Theme.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
+                VStack(spacing: 10) {
+                    // Primary: confirm done. Green — the same "confirmed done" color
+                    // used everywhere else in the app, not blue (blue is reserved for
+                    // "take the external action," below). Primary here, not secondary,
+                    // because this prompt only fires when the user is physically near
+                    // the place — the likely case is they just handled it.
+                    Button(action: onYes) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .themeText(14, weight: .bold)
+                            Text("Mark as Done")
+                                .themeText(15, weight: .bold)
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Theme.accentSuccess, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
 
-                    Button(action: onYes) {
-                        Text("Yes, I updated it")
-                            .themeText(15, weight: .bold)
-                            .foregroundColor(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Theme.accentPrimary, in: RoundedRectangle(cornerRadius: 14))
+                    HStack(spacing: 10) {
+                        // Previously missing entirely — if the user hasn't actually
+                        // done this yet, there was no way to act on the prompt itself.
+                        if let url = task.deepLinkURL, let onUpdateNow {
+                            Button {
+                                UIApplication.shared.open(url)
+                                onUpdateNow()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.right")
+                                        .themeText(12, weight: .bold)
+                                    Text("Update Now")
+                                        .themeText(14, weight: .semibold)
+                                }
+                                .foregroundColor(Theme.accentPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button(action: onRemindTomorrow) {
+                            Text("Remind Tomorrow")
+                                .themeText(14, weight: .semibold)
+                                .foregroundColor(Theme.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(24)
@@ -1139,8 +1192,6 @@ struct UpcomingTaskRow: View {
     let moveDate: Date
     let onComplete: () -> Void
 
-    @State private var showingCompleteConfirmation = false
-
     private var dueLabel: String {
         let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
         let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
@@ -1161,24 +1212,18 @@ struct UpcomingTaskRow: View {
             // Explicit checkbox — the ONLY way this row marks a task complete.
             // A row with no link used to complete on any tap, which meant an
             // accidental tap anywhere on it silently finished the task — the
-            // checkbox is a small, deliberate target instead. It asks for
-            // confirmation rather than completing instantly, since the only
-            // prior feedback was a 4-second undo toast before the row vanished.
-            Button {
-                showingCompleteConfirmation = true
-            } label: {
+            // checkbox stays a small, deliberate target for exactly that reason.
+            // Completes instantly on tap rather than behind a native alert: the
+            // same small-target-plus-undo-toast pattern the All Tasks list already
+            // uses live (ZenDashboardView.completeTask's 4-second undo toast is the
+            // safety net here, not a blocking modal on every single tap).
+            Button(action: onComplete) {
                 Image(systemName: "circle")
                     .themeText(20, weight: .regular)
                     .foregroundColor(isOverdue ? Theme.priorityCritical : task.priority.color.opacity(0.5))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Mark \(task.title) complete")
-            .alert("Mark as done?", isPresented: $showingCompleteConfirmation) {
-                Button("Yes, it's done") { onComplete() }
-                Button("Not yet", role: .cancel) {}
-            } message: {
-                Text("Have you updated your address or finished \"\(task.title)\"?")
-            }
 
             // Rest of the row — only tappable (to open the link) when a link exists.
             // With no link, it's inert: informational, not an accidental "complete" trigger.
