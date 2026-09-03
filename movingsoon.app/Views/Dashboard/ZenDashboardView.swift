@@ -840,12 +840,19 @@ struct ZenDashboardView: View {
 struct CategoryProgressChip: View {
     let progress: CategoryProgress
 
+    /// Ring, not a bar — reuses the same "progress = ring" language the dashboard
+    /// header's completion ring already established, rather than a second, competing
+    /// progress metaphor. Sized up from the original bar chip specifically so it can
+    /// hold its own next to the Hero Card below it, which was the actual complaint:
+    /// the old thin bottom-track bar was too easy to skip past entirely.
+    private static let ringDiameter: CGFloat = 54
+    private static let ringLineWidth: CGFloat = 4.5
+
     /// Escalates by deadline proximity, not just completion — a category that's 60%
     /// done but has something overdue in it needs to read as urgent, not "mostly
-    /// fine." Previously this only ever reflected fraction complete, so a category
-    /// with a task quietly going overdue looked identical to one with no urgency at
-    /// all, as long as *something* in it was checked off.
-    private var barColor: Color {
+    /// fine." A category with a task quietly going overdue looks identical to one
+    /// with no urgency at all if this only ever reflected fraction complete.
+    private var ringColor: Color {
         if progress.fraction >= 1.0 { return Theme.accentSuccess }
         if let due = progress.nextDueInDays {
             if due < 0 { return Theme.priorityCritical }   // overdue
@@ -861,37 +868,35 @@ struct CategoryProgressChip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 4) {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.08), lineWidth: Self.ringLineWidth)
+                Circle()
+                    // Full-ring minimum so a freshly-started category still reads as
+                    // "a little progress," matching the old bar's `max(fraction, 0.04)` floor.
+                    .trim(from: 0, to: max(progress.fraction, 0.03))
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: Self.ringLineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
                 Text(progress.category.emoji)
-                    .font(.system(size: 16))
+                    .font(.system(size: 19))
                 if isUrgent {
                     Circle()
                         .fill(Theme.priorityCritical)
-                        .frame(width: 6, height: 6)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(Theme.backgroundElevated, lineWidth: 1.5))
+                        .offset(x: Self.ringDiameter / 2 - 6, y: -Self.ringDiameter / 2 + 6)
                 }
             }
+            .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+
             Text(progress.category.rawValue)
-                .themeText(9, weight: .medium)
+                .themeText(10, weight: .medium)
                 .foregroundColor(Theme.textSecondary)
                 .lineLimit(1)
                 .fixedSize()
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08))
-                    Capsule().fill(barColor).frame(width: geo.size.width * max(progress.fraction, 0.04))
-                }
-            }
-            .frame(height: 3)
         }
-        .padding(10)
-        .frame(minWidth: 64)
-        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isUrgent ? Theme.priorityCritical.opacity(0.5) : .clear, lineWidth: 1.5)
-        )
+        .frame(width: 68)
     }
 }
 
