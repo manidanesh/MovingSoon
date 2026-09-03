@@ -34,11 +34,6 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
-    /// Backs the Next Up drawer's TaskActionSheet — a real miss found after the
-    /// Coming Up fix: this section had ZERO action affordance at all, not even an
-    /// instant-complete. The whole row only promoted a task to hero; there was no
-    /// way to mark it done or open its link from here.
-    @State private var nextUpSelectedTask: ChecklistTask? = nil
 
     // Reminders
     @State private var reminderService = SmartReminderService()
@@ -50,9 +45,6 @@ struct ZenDashboardView: View {
     @State private var lastCompletedTask: ChecklistTask? = nil
     @State private var undoVisible: Bool = false
     @State private var undoTimer: Timer? = nil
-
-    // Pinned hero override — user promoted a Next Up task to hero
-    @State private var pinnedHeroID: UUID? = nil
 
     // Celebration (unused but kept for overlay compatibility)
     @State private var celebrationTask: ChecklistTask? = nil
@@ -90,19 +82,9 @@ struct ZenDashboardView: View {
     }
 
     private var heroTask: ChecklistTask? {
-        // If user pinned a specific task to hero, show it (if still pending)
-        if let pinned = pinnedHeroID,
-           let task = pendingTasks.first(where: { $0.id == pinned }) {
-            return task
-        }
         // USPS (isHeroItem) gets priority
         if let usps = pendingTasks.first(where: { $0.isHeroItem }) { return usps }
         return pendingTasks.first
-    }
-
-    private var nextUpTasks: [ChecklistTask] {
-        guard let hero = heroTask else { return [] }
-        return Array(pendingTasks.filter { $0.id != hero.id }.prefix(2))
     }
 
     private var daysUntilMoveLabel: String {
@@ -532,97 +514,11 @@ struct ZenDashboardView: View {
                         }
                     }
 
-                    // MARK: Next Up Drawer
-                    if !nextUpTasks.isEmpty {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("Next Up")
-                                .themeText(12, weight: .semibold)
-                                .foregroundColor(Theme.textSecondary)
-                                .textCase(.uppercase)
-                                .tracking(2)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, 16)
-
-                            VStack(spacing: 0) {
-                                ForEach(nextUpTasks) { task in
-                                    HStack(spacing: 12) {
-                                        // Explicit action affordance — previously this row had
-                                        // none at all beyond promoting to hero, with no way to
-                                        // mark done or open the link from here.
-                                        Button {
-                                            nextUpSelectedTask = task
-                                        } label: {
-                                            Image(systemName: "circle")
-                                                .themeText(18, weight: .regular)
-                                                .foregroundColor(task.priority.color.opacity(0.5))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel("Open \(task.title)")
-
-                                        // #10 — tapping the rest of the row promotes to hero
-                                        Button {
-                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                                                pinnedHeroID = task.id
-                                            }
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        } label: {
-                                            ZenDrawerRow(task: task)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 16)
-                                    if task.id != nextUpTasks.last?.id {
-                                        Rectangle()
-                                            .fill(Theme.backgroundElevated)
-                                            .frame(height: 0.5)
-                                            .padding(.horizontal, 24)
-                                    }
-                                }
-                            }
-                            .background(Theme.backgroundCard.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .padding(.horizontal, 20)
-
-                            // #3 — See all tasks link
-                            Button { allTasksSheetContext = AllTasksSheetContext() } label: {
-                                HStack(spacing: 4) {
-                                    Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
-                                        .themeText(13, weight: .medium)
-                                        .foregroundColor(Theme.textSecondary)
-                                    Image(systemName: "chevron.right")
-                                        .themeText(11, weight: .semibold)
-                                        .foregroundColor(Theme.textTertiary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.horizontal, 24)
-                            .padding(.top, 10)
-                        }
-                        .padding(.bottom, 24)
-                    } else if !pendingTasks.isEmpty {
-                        // No "Next Up" tasks but still have pending — still show the link
-                        Button { allTasksSheetContext = AllTasksSheetContext() } label: {
-                            HStack(spacing: 4) {
-                                Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
-                                    .themeText(13, weight: .medium)
-                                    .foregroundColor(Theme.textSecondary)
-                                Image(systemName: "chevron.right")
-                                    .themeText(11, weight: .semibold)
-                                    .foregroundColor(Theme.textTertiary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 16)
-                    }
-
-                    // MARK: Today's Priorities — urgent tasks, not a flat list of 68
-                    TodaysPrioritiesSection(
+                    // MARK: Up Next — single ranked list, replacing the old Next Up /
+                    // Coming Up split (see UpNextSection's header comment for why).
+                    UpNextSection(
                         move: move,
-                        excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }).union(nextUpTasks.map(\.id)),
+                        excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }),
                         onTaskComplete: { task in completeTask(task) },
                         onViewAll: { allTasksSheetContext = AllTasksSheetContext() }
                     )
@@ -695,27 +591,6 @@ struct ZenDashboardView: View {
                         }
                     }
             }
-            .preferredColorScheme(.dark)
-        }
-        .sheet(item: $nextUpSelectedTask) { task in
-            TaskActionSheet(
-                task: task,
-                onAlreadyDone: {
-                    completeTask(task)
-                    nextUpSelectedTask = nil
-                },
-                onUpdateNow: {
-                    // Opens the link only — matches Hero Card's Update Now, which
-                    // likewise only starts the process, never auto-completes.
-                    if let url = task.deepLinkURL {
-                        UIApplication.shared.open(url)
-                    }
-                    nextUpSelectedTask = nil
-                },
-                onLater: { nextUpSelectedTask = nil }
-            )
-            .presentationDetents([.height(280)])
-            .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showingEditMove) {
@@ -1217,54 +1092,32 @@ struct ContextualPromptCard: View {
     }
 }
 
-// MARK: - Zen Drawer Row
-struct ZenDrawerRow: View {
-    let task: ChecklistTask
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(task.priority.color)
-                .frame(width: 6, height: 6)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(task.title)
-                    .themeText(16, weight: .medium)
-                    .foregroundColor(Theme.textSecondary)
-                Text(task.category.rawValue)
-                    .themeText(12)
-                    .foregroundColor(Theme.textSecondary.opacity(0.5))
-            }
-            Spacer()
-            if task.actionType == .agenticUpdate {
-                Image(systemName: "sparkles")
-                    .foregroundColor(Theme.accentPrimary.opacity(0.5))
-            } else if task.deepLinkURL != nil {
-                Image(systemName: "arrow.up.right.circle")
-                    .themeText(16)
-                    .foregroundColor(Theme.textTertiary.opacity(0.4))
-            }
-        }
-    }
-}
-
-// MARK: - Today's Priorities Section
-struct TodaysPrioritiesSection: View {
+// MARK: - Up Next Section
+//
+// Formerly two sections — "Next Up" (ranks 2-3 of the pending-task list) and
+// "Coming Up" / TodaysPrioritiesSection (ranks 4-8) — that were never actually
+// distinct: both drew from the identical tMinusDays sort, split at an arbitrary
+// count. Merged into one list, one row style (UpcomingTaskRow, which already had
+// the richer detail — due date, checkbox, TaskActionSheet — the other section
+// lacked). ZenDrawerRow and the tap-to-promote-to-hero interaction it carried are
+// retired along with it; nothing downstream depended on either.
+struct UpNextSection: View {
     let move: Move
-    /// Ids already shown as the Hero card or in the Next Up drawer — excluded here to avoid
-    /// showing the same task three times on one screen.
+    /// Just the hero task's id — this section now owns everything else.
     let excludedTaskIDs: Set<UUID>
     let onTaskComplete: (ChecklistTask) -> Void
     let onViewAll: () -> Void
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTask: ChecklistTask? = nil
 
-    /// Tasks due soonest that aren't the hero item or already shown in Next Up — up to 5
+    /// Tasks due soonest that aren't the hero item — up to 6 (previously 2 in "Next
+    /// Up" + 5 in "Coming Up" = 7 visible without tapping through; 6 keeps that same
+    /// ballpark as one continuous list instead of two visually separate blocks).
     private var urgentTasks: [ChecklistTask] {
         move.tasks
             .filter { $0.status == .toDo && !$0.isHeroItem && !excludedTaskIDs.contains($0.id) }
             .sorted { $0.tMinusDays < $1.tMinusDays }
-            .prefix(5)
+            .prefix(6)
             .map { $0 }
     }
 
@@ -1282,7 +1135,7 @@ struct TodaysPrioritiesSection: View {
             // Section header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Coming Up")
+                    Text("Up Next")
                         .themeText(12, weight: .semibold)
                         .foregroundColor(Theme.textSecondary)
                         .textCase(.uppercase)
