@@ -512,7 +512,8 @@ struct ZenDashboardView: View {
                                 task: hero,
                                 onComplete: { completeTask(hero) },
                                 onAgenticAction: { triggerAgenticAction(for: hero) },
-                                onSkip: { skipTask(hero) }
+                                onSkip: { skipTask(hero) },
+                                onNotApplicable: { removeTaskNotApplicable(hero) }
                             )
                             .padding(.horizontal, 20)
                             .transition(.asymmetric(
@@ -724,6 +725,21 @@ struct ZenDashboardView: View {
         }
     }
 
+    /// A real deletion, not a status change — the task is gone from move.tasks
+    /// and the SwiftData store, so it can't resurface as the hero task, in Up
+    /// Next, in category progress counts, or in any notification/geofence surface
+    /// that re-derives its list from move.tasks. Confirmed via TaskActionSheet/
+    /// ZenHeroCard's confirmationDialog before this ever runs.
+    private func removeTaskNotApplicable(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            move.tasks.removeAll { $0.id == task.id }
+            modelContext.delete(task)
+            modelContext.saveOrLog()
+        }
+    }
+
     private func triggerAgenticAction(for task: ChecklistTask) {
         // Only open mail composer if the device can send mail
         guard MFMailComposeViewController.canSendMail() else {
@@ -861,6 +877,13 @@ struct ZenHeroCard: View {
     let onComplete: () -> Void
     let onAgenticAction: () -> Void
     let onSkip: () -> Void
+    /// Permanently removes the task — see TaskActionSheet's onNotApplicable for
+    /// why catalog tasks (Mathnasium, Goldfish Swim School, etc.) need this: a
+    /// broad lifestyle flag can put an irrelevant task in front of any user, and
+    /// once one lands here as the most urgent thing, it needs a real way out.
+    let onNotApplicable: () -> Void
+
+    @State private var showingRemoveConfirm = false
 
     /// Human-readable due date label derived from tMinusDays relative to move anchor.
     private var dueDateLabel: String? {
@@ -1033,9 +1056,32 @@ struct ZenHeroCard: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
+
+                    // Destructive: not applicable to this user at all — distinct
+                    // from "remind me later" (still relevant, just not now).
+                    Button {
+                        showingRemoveConfirm = true
+                    } label: {
+                        Text("Not Applicable")
+                            .themeText(13, weight: .medium)
+                            .foregroundColor(Theme.priorityCritical.opacity(0.75))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(24)
+        }
+        .confirmationDialog(
+            "Remove \"\(task.title)\"?",
+            isPresented: $showingRemoveConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive, action: onNotApplicable)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It won't be shown again. This can't be undone.")
         }
     }
 }
@@ -1246,11 +1292,28 @@ struct UpNextSection: View {
                     }
                     selectedTask = nil
                 },
-                onLater: { selectedTask = nil }
+                onLater: { selectedTask = nil },
+                onNotApplicable: {
+                    removeTaskNotApplicable(task)
+                    selectedTask = nil
+                }
             )
             .presentationDetents([.height(280)])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
+        }
+    }
+
+    /// See ZenDashboardView.removeTaskNotApplicable — same real-deletion contract,
+    /// duplicated here because this section owns its own `move`/`modelContext`
+    /// rather than reaching back up to the parent view.
+    private func removeTaskNotApplicable(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            move.tasks.removeAll { $0.id == task.id }
+            modelContext.delete(task)
+            modelContext.saveOrLog()
         }
     }
 }
@@ -1767,11 +1830,26 @@ struct AchievementMilestoneSection: View {
                 },
                 onLater: {
                     selectedTask = nil
+                },
+                onNotApplicable: {
+                    removeTaskNotApplicable(task)
+                    selectedTask = nil
                 }
             )
             .presentationDetents([.height(280)])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
+        }
+    }
+
+    /// See ZenDashboardView.removeTaskNotApplicable — same real-deletion contract.
+    private func removeTaskNotApplicable(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            move.tasks.removeAll { $0.id == task.id }
+            modelContext.delete(task)
+            modelContext.saveOrLog()
         }
     }
 
@@ -1867,7 +1945,12 @@ struct ZenMilestoneTaskRow: View {
     }
 }
 
-private struct CombinedAccessibilityIfPending: ViewModifier {
+/// Shared by every task row that puts the action-sheet trigger on the whole row
+/// instead of the leading circle (UnifiedTaskRow in DashboardView.swift is the
+/// other user): only the pending row folds into one VoiceOver stop, since it's
+/// a single button now. Completed rows leave their nested undo button reachable
+/// on its own — combining here would swallow it.
+struct CombinedAccessibilityIfPending: ViewModifier {
     let task: ChecklistTask
 
     func body(content: Content) -> some View {
@@ -1888,6 +1971,15 @@ struct TaskActionSheet: View {
     let onAlreadyDone: () -> Void
     let onUpdateNow: () -> Void
     let onLater: () -> Void
+    /// Permanently removes the task from the move — not a status, an actual
+    /// deletion (see the confirmation copy below). Catalog-generated tasks like
+    /// "Mathnasium — Update Account" or "Goldfish Swim School" are matched from
+    /// broad lifestyle flags (e.g. "has children") that can't know which specific
+    /// activities a family actually uses, so a wrong match needs a real way to
+    /// leave and never come back — not just a snooze.
+    let onNotApplicable: () -> Void
+
+    @State private var showingRemoveConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -1951,11 +2043,35 @@ struct TaskActionSheet: View {
                         .padding(.vertical, 12)
                 }
                 .buttonStyle(.plain)
+
+                // Destructive: not applicable to this user at all — distinct from
+                // "later" (still on the list, just deferred). Tinted, not filled,
+                // so it doesn't compete visually with Update Now / Mark as Done.
+                Button {
+                    showingRemoveConfirm = true
+                } label: {
+                    Text("Not Applicable")
+                        .themeText(13, weight: .medium)
+                        .foregroundColor(Theme.priorityCritical.opacity(0.75))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.backgroundCard)
+        .confirmationDialog(
+            "Remove \"\(task.title)\"?",
+            isPresented: $showingRemoveConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive, action: onNotApplicable)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It won't be shown again. This can't be undone.")
+        }
     }
 }

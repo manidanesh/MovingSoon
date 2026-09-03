@@ -220,7 +220,11 @@ struct DashboardView: View {
                     }
                     selectedTask = nil
                 },
-                onLater: { selectedTask = nil }
+                onLater: { selectedTask = nil },
+                onNotApplicable: {
+                    removeTaskNotApplicable(task)
+                    selectedTask = nil
+                }
             )
             .presentationDetents([.height(280)])
             .presentationDragIndicator(.visible)
@@ -229,6 +233,20 @@ struct DashboardView: View {
     }
 
     // MARK: - Helpers
+
+    /// A real deletion, not a status change — see TaskActionSheet.onNotApplicable
+    /// for why (catalog tasks like Mathnasium/Goldfish Swim School get matched
+    /// from broad lifestyle flags that can't know which activities a family
+    /// actually uses, so a wrong match needs a permanent way out).
+    private func removeTaskNotApplicable(_ task: ChecklistTask) {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        withAnimation {
+            move.tasks.removeAll { $0.id == task.id }
+            modelContext.delete(task)
+            modelContext.saveOrLog()
+        }
+    }
 
     private func countFor(_ tab: TaskFilter) -> Int {
         let calendar = Calendar.current
@@ -403,24 +421,8 @@ struct UnifiedTaskRow: View {
         .onTapGesture {
             if task.status != .completed { onTap() }
         }
-        // Only the pending row folds into one VoiceOver stop (it's a single button
-        // now). Completed rows leave the nested undo button reachable on its own —
-        // combining here would swallow it.
+        // Shared with ZenMilestoneTaskRow in ZenDashboardView.swift — see that
+        // type's doc comment for why only the pending row combines.
         .modifier(CombinedAccessibilityIfPending(task: task))
-    }
-}
-
-private struct CombinedAccessibilityIfPending: ViewModifier {
-    let task: ChecklistTask
-
-    func body(content: Content) -> some View {
-        if task.status == .completed {
-            content
-        } else {
-            content
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Open \(task.title)")
-        }
     }
 }

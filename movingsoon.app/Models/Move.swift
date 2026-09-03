@@ -179,8 +179,9 @@ final class Move {
     /// lands in On Track here, not Overdue — the tier grouping is meant to read as
     /// "what actually needs attention right now," not just "what's imperfect."
     var categoryProgressByTier: [(tier: CategoryUrgencyTier, items: [CategoryProgress])] {
-        CategoryUrgencyTier.allCases.compactMap { tier in
-            let items = categoryProgress.filter { $0.urgencyTier == tier }
+        let progress = categoryProgress
+        return CategoryUrgencyTier.allCases.compactMap { tier in
+            let items = progress.filter { $0.urgencyTier == tier }
             return items.isEmpty ? nil : (tier, items)
         }
     }
