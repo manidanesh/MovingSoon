@@ -8,6 +8,10 @@ struct DashboardView: View {
     /// to that one category on top of whatever TaskFilter tab is selected, so "which
     /// category am I behind on" (the rail's whole point) actually leads somewhere.
     var categoryFilter: TaskCategory? = nil
+    /// Fired after a task is deleted (Not Applicable) so the presenting screen
+    /// can resync notifications/geofences — this sheet doesn't own those
+    /// services itself. Defaults to a no-op so existing call sites still compile.
+    var onTaskRemoved: (ChecklistTask) -> Void = { _ in }
     @Environment(\.modelContext) private var modelContext
     @State private var filter: TaskFilter = .pending
     @State private var searchText: String = ""
@@ -246,6 +250,7 @@ struct DashboardView: View {
             modelContext.delete(task)
             modelContext.saveOrLog()
         }
+        onTaskRemoved(task)
     }
 
     private func countFor(_ tab: TaskFilter) -> Int {

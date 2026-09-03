@@ -529,6 +529,7 @@ struct ZenDashboardView: View {
                         move: move,
                         excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }),
                         onTaskComplete: { task in completeTask(task) },
+                        onTaskRemoved: { _ in resyncNotificationsAndGeofences() },
                         onViewAll: { allTasksSheetContext = AllTasksSheetContext() }
                     )
 
@@ -590,7 +591,11 @@ struct ZenDashboardView: View {
         }
         .sheet(item: $allTasksSheetContext) { context in
             NavigationStack {
-                DashboardView(move: move, categoryFilter: context.categoryFilter)
+                DashboardView(
+                    move: move,
+                    categoryFilter: context.categoryFilter,
+                    onTaskRemoved: { _ in resyncNotificationsAndGeofences() }
+                )
                     .navigationTitle(context.categoryFilter?.rawValue ?? "All Tasks")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -727,9 +732,12 @@ struct ZenDashboardView: View {
 
     /// A real deletion, not a status change — the task is gone from move.tasks
     /// and the SwiftData store, so it can't resurface as the hero task, in Up
-    /// Next, in category progress counts, or in any notification/geofence surface
-    /// that re-derives its list from move.tasks. Confirmed via TaskActionSheet/
-    /// ZenHeroCard's confirmationDialog before this ever runs.
+    /// Next, or in category progress counts, all of which re-derive their list
+    /// from move.tasks live. Confirmed via ZenHeroCard's confirmationDialog
+    /// before this ever runs. Local notifications and geofences are a separate
+    /// concern — they're OS-level state scheduled with baked-in content, not
+    /// re-derived on read — so resyncNotificationsAndGeofences() below handles
+    /// those explicitly.
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
@@ -738,6 +746,19 @@ struct ZenDashboardView: View {
             modelContext.delete(task)
             modelContext.saveOrLog()
         }
+        resyncNotificationsAndGeofences()
+    }
+
+    /// Re-derives the T-minus digest queue and geofence regions from the current
+    /// move.tasks. Needed after any deletion: scheduleTMinusReminders() bakes
+    /// task names into notification content at schedule time and only otherwise
+    /// runs once at dashboard load, so a removed task's name can linger in an
+    /// already-queued notification, and a removed task's geofence region keeps
+    /// being monitored, until this runs. (The hero reminder doesn't need this —
+    /// it already re-schedules reactively via .onChange(of: heroTask?.id).)
+    private func resyncNotificationsAndGeofences() {
+        reminderService.scheduleTMinusReminders(tasks: move.tasks, moveDate: move.anchorDate)
+        locationManager.syncGeofencesIfActive()
     }
 
     private func triggerAgenticAction(for task: ChecklistTask) {
@@ -1191,6 +1212,10 @@ struct UpNextSection: View {
     /// Just the hero task's id — this section now owns everything else.
     let excludedTaskIDs: Set<UUID>
     let onTaskComplete: (ChecklistTask) -> Void
+    /// Fired after a task is deleted (Not Applicable) so the parent can resync
+    /// notifications/geofences — this section doesn't own reminderService or
+    /// locationManager itself. See ZenDashboardView.resyncNotificationsAndGeofences.
+    let onTaskRemoved: (ChecklistTask) -> Void
     let onViewAll: () -> Void
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTask: ChecklistTask? = nil
@@ -1315,6 +1340,7 @@ struct UpNextSection: View {
             modelContext.delete(task)
             modelContext.saveOrLog()
         }
+        onTaskRemoved(task)
     }
 }
 
