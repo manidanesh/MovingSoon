@@ -34,6 +34,7 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
+    @State private var categoryGridExpanded = false
 
     // Reminders
     @State private var reminderService = SmartReminderService()
@@ -316,27 +317,53 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
-                    // MARK: Category Progress Rail
+                    // MARK: Categories — Reminders-app-style grid, not a horizontal
+                    // rail. A ring's arc needs interpreting ("is that 60%? how many is
+                    // that?") to answer the one question this component exists for:
+                    // how many are left in this category. A bold count answers that
+                    // instantly and, unlike the rail, shows every category at once —
+                    // no horizontal scroll hiding categories off-screen.
                     if !move.categoryProgress.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Progress By Category")
+                            Text("Categories")
                                 .themeText(11, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(1.5)
                                 .padding(.horizontal, 24)
 
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(move.categoryProgress) { progress in
-                                        Button {
-                                            allTasksSheetContext = AllTasksSheetContext(categoryFilter: progress.category)
-                                        } label: {
-                                            CategoryProgressChip(progress: progress)
-                                        }
-                                        .buttonStyle(.plain)
+                            let visibleCategories = categoryGridExpanded
+                                ? move.categoryProgress
+                                : Array(move.categoryProgress.prefix(6))
+
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                                ForEach(visibleCategories) { progress in
+                                    Button {
+                                        allTasksSheetContext = AllTasksSheetContext(categoryFilter: progress.category)
+                                    } label: {
+                                        CategoryGridCard(progress: progress)
                                     }
+                                    .buttonStyle(.plain)
                                 }
+                            }
+                            .padding(.horizontal, 24)
+
+                            // Capped at 6 (3 rows) by default — a grid grows downward,
+                            // unlike the rail's fixed-height horizontal scroll, so most
+                            // moves (6-9 active categories) shouldn't need this at all.
+                            if move.categoryProgress.count > 6 {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        categoryGridExpanded.toggle()
+                                    }
+                                } label: {
+                                    Text(categoryGridExpanded ? "Show less" : "Show all \(move.categoryProgress.count) categories")
+                                        .themeText(12, weight: .medium)
+                                        .foregroundColor(Theme.accentPrimary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 4)
+                                }
+                                .buttonStyle(.plain)
                                 .padding(.horizontal, 24)
                             }
                         }
@@ -751,28 +778,26 @@ struct ZenDashboardView: View {
     }
 }
 
-// MARK: - Category Progress Chip
-
-struct CategoryProgressChip: View {
+// MARK: - Category Grid Card
+//
+// Replaces the ring rail. A ring communicates a fraction — the right shape for the
+// header's overall-completion ring, the wrong shape for this component's actual job
+// (how many are left in this one category), which is a counting question a bold
+// number answers instantly with no interpretation required. Modeled on Reminders'
+// own list-of-lists grid — same domain, same job (categories of to-dos + counts).
+struct CategoryGridCard: View {
     let progress: CategoryProgress
 
-    /// Ring, not a bar — reuses the same "progress = ring" language the dashboard
-    /// header's completion ring already established, rather than a second, competing
-    /// progress metaphor. Sized up from the original bar chip specifically so it can
-    /// hold its own next to the Hero Card below it, which was the actual complaint:
-    /// the old thin bottom-track bar was too easy to skip past entirely.
-    private static let ringDiameter: CGFloat = 54
-    private static let ringLineWidth: CGFloat = 4.5
+    private var remaining: Int { progress.total - progress.completed }
 
-    /// Escalates by deadline proximity, not just completion — a category that's 60%
-    /// done but has something overdue in it needs to read as urgent, not "mostly
-    /// fine." A category with a task quietly going overdue looks identical to one
-    /// with no urgency at all if this only ever reflected fraction complete.
-    private var ringColor: Color {
+    /// Same escalation rule as before (deadline proximity, not just completion
+    /// fraction) — only the shape communicating it changed, from a ring's arc color
+    /// to this card's icon-background tint.
+    private var severityColor: Color {
         if progress.fraction >= 1.0 { return Theme.accentSuccess }
         if let due = progress.nextDueInDays {
-            if due < 0 { return Theme.priorityCritical }   // overdue
-            if due <= 3 { return Theme.accentWarning }      // due soon
+            if due < 0 { return Theme.priorityCritical }
+            if due <= 3 { return Theme.accentWarning }
         }
         if progress.fraction <= 0.0 { return Theme.priorityCritical }
         return Theme.accentPrimary
@@ -784,35 +809,48 @@ struct CategoryProgressChip: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(0.08), lineWidth: Self.ringLineWidth)
-                Circle()
-                    // Full-ring minimum so a freshly-started category still reads as
-                    // "a little progress," matching the old bar's `max(fraction, 0.04)` floor.
-                    .trim(from: 0, to: max(progress.fraction, 0.03))
-                    .stroke(ringColor, style: StrokeStyle(lineWidth: Self.ringLineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text(progress.category.emoji)
-                    .font(.system(size: 19))
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                ZStack {
+                    Circle().fill(severityColor.opacity(0.16))
+                    Text(progress.category.emoji)
+                        .font(.system(size: 15))
+                }
+                .frame(width: 30, height: 30)
+
+                Spacer()
+
                 if isUrgent {
-                    Circle()
-                        .fill(Theme.priorityCritical)
-                        .frame(width: 9, height: 9)
-                        .overlay(Circle().stroke(Theme.backgroundElevated, lineWidth: 1.5))
-                        .offset(x: Self.ringDiameter / 2 - 6, y: -Self.ringDiameter / 2 + 6)
+                    Text("OVERDUE")
+                        .themeText(8.5, weight: .bold)
+                        .foregroundColor(Theme.priorityCritical)
+                        .tracking(0.5)
                 }
             }
-            .frame(width: Self.ringDiameter, height: Self.ringDiameter)
 
-            Text(progress.category.rawValue)
-                .themeText(10, weight: .medium)
-                .foregroundColor(Theme.textSecondary)
-                .lineLimit(1)
-                .fixedSize()
+            VStack(alignment: .leading, spacing: 2) {
+                if remaining == 0 {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(Theme.accentSuccess)
+                } else {
+                    Text("\(remaining)")
+                        .themeSerif(24, weight: .bold)
+                        .foregroundColor(Theme.textPrimary)
+                }
+                Text(progress.category.rawValue)
+                    .themeText(12, weight: .medium)
+                    .foregroundColor(Theme.textSecondary)
+                    .lineLimit(1)
+            }
         }
-        .frame(width: 68)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(isUrgent ? Theme.priorityCritical.opacity(0.55) : .clear, lineWidth: 1.5)
+        )
     }
 }
 
