@@ -11,6 +11,11 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var filter: TaskFilter = .pending
     @State private var searchText: String = ""
+    // Circle tap opens this instead of completing instantly — same reasoning as the
+    // main dashboard's TaskActionSheet: a single tap shouldn't silently close a task
+    // out from under the user with no chance to see what it is or pick "Update Now"
+    // vs. "Mark as Done" first.
+    @State private var selectedTask: ChecklistTask? = nil
 
     enum TaskFilter: String, CaseIterable {
         case pending   = "Pending"
@@ -184,6 +189,7 @@ struct DashboardView: View {
                                 UnifiedTaskRow(
                                     task: task,
                                     moveDate: move.anchorDate,
+                                    onTap: { selectedTask = task },
                                     onComplete: { toggleTask(task) }
                                 )
                                 Rectangle().fill(Theme.hairline).frame(height: 0.5)
@@ -199,6 +205,27 @@ struct DashboardView: View {
         .toolbarBackground(Theme.backgroundPrimary, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .dynamicTypeSize(...(.accessibility1))
+        .sheet(item: $selectedTask) { task in
+            TaskActionSheet(
+                task: task,
+                onAlreadyDone: {
+                    toggleTask(task)
+                    selectedTask = nil
+                },
+                onUpdateNow: {
+                    // Opens the link only — does not auto-complete, matching the main
+                    // dashboard's Update Now, which likewise only starts the process.
+                    if let url = task.deepLinkURL {
+                        UIApplication.shared.open(url)
+                    }
+                    selectedTask = nil
+                },
+                onLater: { selectedTask = nil }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
+        }
     }
 
     // MARK: - Helpers
@@ -259,6 +286,10 @@ struct DashboardView: View {
 struct UnifiedTaskRow: View {
     let task: ChecklistTask
     let moveDate: Date
+    /// Circle tap on a pending task opens the action sheet — it never completes the
+    /// task directly. Only an already-completed task's checkmark reacts to onComplete,
+    /// as an undo.
+    let onTap: () -> Void
     let onComplete: () -> Void
 
     private var dueLabel: String? {
@@ -287,8 +318,9 @@ struct UnifiedTaskRow: View {
     var body: some View {
         HStack(spacing: 14) {
 
-            // Completion ring
-            Button(action: onComplete) {
+            // Completion ring — pending tasks open the action sheet; only a
+            // completed task's checkmark toggles directly, as an undo.
+            Button(action: task.status == .completed ? onComplete : onTap) {
                 Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
                     .themeText(22)
                     .foregroundColor(task.status == .completed ? Theme.accentSuccess :
@@ -297,7 +329,7 @@ struct UnifiedTaskRow: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(task.status == .completed ? "Mark \(task.title) not complete" : "Mark \(task.title) complete")
+            .accessibilityLabel(task.status == .completed ? "Mark \(task.title) not complete" : "Open \(task.title)")
 
             // Icon
             if let emoji = task.institutionInitials, task.institutionName == nil {
