@@ -34,6 +34,11 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
+    /// Backs the Next Up drawer's TaskActionSheet — a real miss found after the
+    /// Coming Up fix: this section had ZERO action affordance at all, not even an
+    /// instant-complete. The whole row only promoted a task to hero; there was no
+    /// way to mark it done or open its link from here.
+    @State private var nextUpSelectedTask: ChecklistTask? = nil
 
     // Reminders
     @State private var reminderService = SmartReminderService()
@@ -540,18 +545,33 @@ struct ZenDashboardView: View {
 
                             VStack(spacing: 0) {
                                 ForEach(nextUpTasks) { task in
-                                    // #10 — tapping promotes to hero
-                                    Button {
-                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                                            pinnedHeroID = task.id
+                                    HStack(spacing: 12) {
+                                        // Explicit action affordance — previously this row had
+                                        // none at all beyond promoting to hero, with no way to
+                                        // mark done or open the link from here.
+                                        Button {
+                                            nextUpSelectedTask = task
+                                        } label: {
+                                            Image(systemName: "circle")
+                                                .themeText(18, weight: .regular)
+                                                .foregroundColor(task.priority.color.opacity(0.5))
                                         }
-                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    } label: {
-                                        ZenDrawerRow(task: task)
-                                            .padding(.horizontal, 24)
-                                            .padding(.vertical, 16)
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Open \(task.title)")
+
+                                        // #10 — tapping the rest of the row promotes to hero
+                                        Button {
+                                            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                                                pinnedHeroID = task.id
+                                            }
+                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        } label: {
+                                            ZenDrawerRow(task: task)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 16)
                                     if task.id != nextUpTasks.last?.id {
                                         Rectangle()
                                             .fill(Theme.backgroundElevated)
@@ -675,6 +695,27 @@ struct ZenDashboardView: View {
                         }
                     }
             }
+            .preferredColorScheme(.dark)
+        }
+        .sheet(item: $nextUpSelectedTask) { task in
+            TaskActionSheet(
+                task: task,
+                onAlreadyDone: {
+                    completeTask(task)
+                    nextUpSelectedTask = nil
+                },
+                onUpdateNow: {
+                    // Opens the link only — matches Hero Card's Update Now, which
+                    // likewise only starts the process, never auto-completes.
+                    if let url = task.deepLinkURL {
+                        UIApplication.shared.open(url)
+                    }
+                    nextUpSelectedTask = nil
+                },
+                onLater: { nextUpSelectedTask = nil }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showingEditMove) {
