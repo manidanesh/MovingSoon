@@ -318,18 +318,27 @@ struct UnifiedTaskRow: View {
     var body: some View {
         HStack(spacing: 14) {
 
-            // Completion ring — pending tasks open the action sheet; only a
-            // completed task's checkmark toggles directly, as an undo.
-            Button(action: task.status == .completed ? onComplete : onTap) {
-                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+            // Status only for pending tasks — not a button. A circle signifies
+            // "tap to toggle directly," same as Reminders/Things; using that shape
+            // to instead open a 3-choice menu breaks that trained mapping. The row
+            // content (below) is the actual call to action. Completed tasks keep a
+            // real, direct-toggle checkmark, which a checkbox shape correctly signifies.
+            if task.status == .completed {
+                Button(action: onComplete) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .themeText(22)
+                        .foregroundColor(Theme.accentSuccess)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Mark \(task.title) not complete")
+            } else {
+                Image(systemName: "circle")
                     .themeText(22)
-                    .foregroundColor(task.status == .completed ? Theme.accentSuccess :
-                                     isOverdue ? Theme.priorityCritical :
-                                     task.priority.color.opacity(0.5))
+                    .foregroundColor(isOverdue ? Theme.priorityCritical : task.priority.color.opacity(0.5))
                     .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(task.status == .completed ? "Mark \(task.title) not complete" : "Open \(task.title)")
 
             // Icon
             if let emoji = task.institutionInitials, task.institutionName == nil {
@@ -373,7 +382,8 @@ struct UnifiedTaskRow: View {
                     .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08), in: Capsule())
             }
 
-            // Deep link
+            // Deep link — a distinct, explicitly link-shaped affordance, separate
+            // from the row's own "open the action sheet" tap target below.
             if let url = task.deepLinkURL, task.status != .completed {
                 Button {
                     UIApplication.shared.open(url)
@@ -389,5 +399,28 @@ struct UnifiedTaskRow: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(task.isHeroItem && task.status != .completed ? Theme.uspsBlue.opacity(0.08) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if task.status != .completed { onTap() }
+        }
+        // Only the pending row folds into one VoiceOver stop (it's a single button
+        // now). Completed rows leave the nested undo button reachable on its own —
+        // combining here would swallow it.
+        .modifier(CombinedAccessibilityIfPending(task: task))
+    }
+}
+
+private struct CombinedAccessibilityIfPending: ViewModifier {
+    let task: ChecklistTask
+
+    func body(content: Content) -> some View {
+        if task.status == .completed {
+            content
+        } else {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Open \(task.title)")
+        }
     }
 }

@@ -1215,7 +1215,7 @@ struct UpNextSection: View {
                             // instantly — a bare checkbox tap gave no way to see what
                             // the task actually was, or choose "take the action" vs.
                             // "confirm it's already done," before finishing it.
-                            onComplete: { selectedTask = task }
+                            onTap: { selectedTask = task }
                         )
                         if task.id != urgentTasks.last?.id {
                             Rectangle()
@@ -1259,7 +1259,7 @@ struct UpNextSection: View {
 struct UpcomingTaskRow: View {
     let task: ChecklistTask
     let moveDate: Date
-    let onComplete: () -> Void
+    let onTap: () -> Void
 
     private var dueLabel: String {
         let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
@@ -1295,34 +1295,24 @@ struct UpcomingTaskRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Checkbox opens the detail/confirm sheet (TaskActionSheet) rather than
-            // completing instantly — shows what the task actually is and offers
-            // "Update Now" vs. "Mark as Done" as an explicit choice, instead of
-            // finishing the task on a single tap with no way to see details first.
-            Button(action: onComplete) {
-                Image(systemName: "circle")
-                    .themeText(20, weight: .regular)
-                    .foregroundColor(severityColor)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open \(task.title)")
+            // Status only — not a button. A circle signifies "tap this to toggle
+            // directly," same as Reminders/Things; using that shape to trigger a
+            // 3-choice menu instead breaks that trained mapping. The row itself is
+            // the call to action (below), so the circle just shows state.
+            Image(systemName: "circle")
+                .themeText(20, weight: .regular)
+                .foregroundColor(severityColor)
+                .accessibilityHidden(true)
 
-            // Rest of the row — only tappable (to open the link) when a link exists.
-            // With no link, it's inert: informational, not an accidental "complete" trigger.
-            if let url = task.deepLinkURL {
-                Button {
-                    UIApplication.shared.open(url)
-                } label: {
-                    rowContent
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open \(task.institutionName ?? task.title) website")
-            } else {
-                rowContent
-            }
+            rowContent
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Open \(task.title)")
     }
 
     private var rowContent: some View {
@@ -1362,7 +1352,8 @@ struct UpcomingTaskRow: View {
                 )
                 .clipShape(Capsule())
 
-            // Decorative link indicator — only shown (and only tappable) when a link exists
+            // Decorative — hints a link exists; the whole row is the tap target (opens
+            // the action sheet), not this icon specifically.
             if task.deepLinkURL != nil {
                 Image(systemName: "arrow.up.right.circle.fill")
                     .themeText(18)
@@ -1806,15 +1797,28 @@ struct ZenMilestoneTaskRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Circle tap → show action sheet (or undo if already completed)
-            Button(action: task.status == .completed ? onComplete : onTap) {
-                Image(systemName: task.status == .completed ? "checkmark.circle.fill" : "circle")
+            // Pending: status only, not a button — the whole row is the call to
+            // action (onTapGesture below), so the circle shouldn't also masquerade
+            // as a second, checkbox-shaped trigger for the same menu. Completed:
+            // the checkmark stays a real, direct toggle (undo), which a checkbox
+            // shape correctly signifies.
+            if task.status == .completed {
+                Button(action: onComplete) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .themeText(22, weight: .semibold)
+                        .foregroundColor(Theme.accentSuccess)
+                        .contentShape(Rectangle())
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Mark \(task.title) not complete")
+            } else {
+                Image(systemName: "circle")
                     .themeText(22, weight: .semibold)
-                    .foregroundColor(task.status == .completed ? Theme.accentSuccess : Theme.textSecondary.opacity(0.5))
-                    .contentShape(Rectangle())
+                    .foregroundColor(Theme.textSecondary.opacity(0.5))
                     .frame(width: 36, height: 36)
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.title)
@@ -1855,6 +1859,25 @@ struct ZenMilestoneTaskRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 12))
         .onTapGesture {
             if task.status != .completed { onTap() }
+        }
+        // Only the pending row folds into one VoiceOver stop (it's a single button
+        // now). Completed rows leave the nested undo button reachable on its own —
+        // combining here would swallow it.
+        .modifier(CombinedAccessibilityIfPending(task: task))
+    }
+}
+
+private struct CombinedAccessibilityIfPending: ViewModifier {
+    let task: ChecklistTask
+
+    func body(content: Content) -> some View {
+        if task.status == .completed {
+            content
+        } else {
+            content
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Open \(task.title)")
         }
     }
 }
