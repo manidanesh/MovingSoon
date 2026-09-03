@@ -245,6 +245,29 @@ struct ZenDashboardView: View {
                                     .clipShape(Capsule())
                             }
 
+                            // Both pills above require an origin ZIP (RegionalEconomicsService.compare
+                            // and RegionalSimilarityService.similarity both guard on originStateBucket).
+                            // Skipping origin ZIP during onboarding is a supported path — but it silently
+                            // hid two features with zero indication anything was missing. This surfaces
+                            // that gap directly and routes to the exact field that unlocks it, rather
+                            // than leaving the user to wonder why nothing showed up.
+                            if move.originZip == nil {
+                                Button { showingEditMove = true } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "plus.circle")
+                                            .themeText(10, weight: .semibold)
+                                        Text("Add your previous ZIP for cost & lifestyle comparison")
+                                    }
+                                    .themeText(11, weight: .medium)
+                                    .foregroundColor(Theme.accentPrimary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Theme.accentPrimary.opacity(0.12))
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+
                             // Progress context (#5)
                             if let context = progressContextLabel {
                                 Text(context)
@@ -650,7 +673,11 @@ struct ZenDashboardView: View {
             // Ask for notification permission here, contextually — once the user has reached
             // their dashboard and reminders are actually about to be scheduled — rather than
             // at cold launch before onboarding, where there's no reason yet to say yes.
-            reminderService.requestPermissions()
+            // TEMPORARY: skipped during screenshot seeding so the system prompt doesn't
+            // cover the dashboard in captures. Remove alongside the other seed-flag checks.
+            if ProcessInfo.processInfo.environment["SEED_SCREENSHOT_DATA"] != "1" {
+                reminderService.requestPermissions()
+            }
             // Schedule hero task daily reminder
             reminderService.scheduleHeroTaskReminder(heroTask: heroTask)
             // Schedule T-minus reminders for tasks due in 3 days
