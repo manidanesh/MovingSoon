@@ -103,6 +103,17 @@ final class Move {
         return RegionalSimilarityService.similarity(between: originStateBucket, and: destinationStateBucket)
     }
 
+    /// Distinct POI categories GeofenceCoordinator will watch for near the destination
+    /// once location consent is granted — the pending, uncompleted tasks that carry a
+    /// physical place type. Surfaced on the dashboard so location-based reminders are
+    /// a visible, inspectable feature rather than an entirely silent background system.
+    var trackedPOICategories: [POICategory] {
+        let categories = tasks
+            .filter { $0.status == .toDo }
+            .compactMap { $0.poiCategory }
+        return Array(Set(categories)).sorted { $0.rawValue < $1.rawValue }
+    }
+
     /// Flags suggested-but-unconfirmed based on the destination's regional archetype
     /// (e.g. Epic/Ikon in a Mountain & Ski Corridor state). Never auto-applied to
     /// LifestyleProfile — this is a suggestion surface only. See MoveImpactEngine.

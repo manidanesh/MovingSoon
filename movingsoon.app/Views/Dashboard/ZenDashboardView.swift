@@ -20,7 +20,19 @@ struct ZenDashboardView: View {
     @State private var consentCardDismissed = false
 
     // Navigation
-    @State private var showingAllTasks = false
+    /// Single, atomically-set value for the All Tasks sheet — replaced a pair of
+    /// separate `showingAllTasks: Bool` / `allTasksCategoryFilter: TaskCategory?`
+    /// state vars set together in one Button action. `.sheet(isPresented:)` doesn't
+    /// reliably observe a second @State mutation made in the same action as the one
+    /// that triggers presentation — confirmed live via debug logging: the category
+    /// was correctly set to `.postal` before the sheet appeared, yet the sheet
+    /// rendered with no filter applied. `.sheet(item:)` on one Identifiable value
+    /// removes the race by construction rather than by timing luck.
+    struct AllTasksSheetContext: Identifiable {
+        let id = UUID()
+        var categoryFilter: TaskCategory? = nil
+    }
+    @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
 
     // Reminders
@@ -41,10 +53,17 @@ struct ZenDashboardView: View {
     @State private var celebrationTask: ChecklistTask? = nil
 
     // MARK: - Consent card visibility predicate
+    //
+    // Previously gated on `daysUntilMove <= 30`, which meant the ONLY entry point to
+    // grant location consent was invisible for any move more than a month out — the
+    // whole geofence/location-reminder system (built, tested, working) was
+    // unreachable in practice for most of a move's timeline. Removed: consent should
+    // be requestable any time, not just in the final month. SuppressionEngine's own
+    // gates (not this card) are what actually pace notification frequency once
+    // consent is granted, so removing this doesn't risk over-notifying early.
     private var shouldShowConsentCard: Bool {
         // Never show again once consent has been granted (even after expiry)
         guard move.locationConsentGrantedAt == nil else { return false }
-        guard move.daysUntilMove <= 30 else { return false }
         // Session-dismissed
         guard !consentCardDismissed else { return false }
         // Only show when permission is not yet granted
@@ -323,7 +342,12 @@ struct ZenDashboardView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
                                     ForEach(move.categoryProgress) { progress in
-                                        CategoryProgressChip(progress: progress)
+                                        Button {
+                                            allTasksSheetContext = AllTasksSheetContext(categoryFilter: progress.category)
+                                        } label: {
+                                            CategoryProgressChip(progress: progress)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -413,6 +437,35 @@ struct ZenDashboardView: View {
                         )
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    // MARK: Location Reminders Visibility
+                    // Previously a fully silent background system — consent granted or
+                    // not, nothing on screen ever showed what it was actually watching
+                    // for. This makes it inspectable: which place types near the
+                    // destination will trigger a nudge, once you're actually near one.
+                    if move.locationConsentGrantedAt != nil, !move.trackedPOICategories.isEmpty {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "location.fill")
+                                .themeText(13, weight: .semibold)
+                                .foregroundColor(Theme.accentPrimary)
+                                .padding(.top, 1)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Watching Nearby")
+                                    .themeText(11, weight: .semibold)
+                                    .foregroundColor(Theme.textSecondary)
+                                    .textCase(.uppercase)
+                                    .tracking(1)
+                                Text("We'll nudge you when you're near a " +
+                                     move.trackedPOICategories.map(\.displayName).joined(separator: ", "))
+                                    .themeText(12, weight: .regular)
+                                    .foregroundColor(Theme.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(14)
+                        .background(Theme.backgroundElevated.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 20)
                     }
 
                     // MARK: Contextual Prompt Card
@@ -512,7 +565,7 @@ struct ZenDashboardView: View {
                             .padding(.horizontal, 20)
 
                             // #3 — See all tasks link
-                            Button { showingAllTasks = true } label: {
+                            Button { allTasksSheetContext = AllTasksSheetContext() } label: {
                                 HStack(spacing: 4) {
                                     Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
                                         .themeText(13, weight: .medium)
@@ -530,7 +583,7 @@ struct ZenDashboardView: View {
                         .padding(.bottom, 24)
                     } else if !pendingTasks.isEmpty {
                         // No "Next Up" tasks but still have pending — still show the link
-                        Button { showingAllTasks = true } label: {
+                        Button { allTasksSheetContext = AllTasksSheetContext() } label: {
                             HStack(spacing: 4) {
                                 Text("See all \(move.tasks.filter { $0.status != .completed }.count) tasks")
                                     .themeText(13, weight: .medium)
@@ -551,7 +604,7 @@ struct ZenDashboardView: View {
                         move: move,
                         excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }).union(nextUpTasks.map(\.id)),
                         onTaskComplete: { task in completeTask(task) },
-                        onViewAll: { showingAllTasks = true }
+                        onViewAll: { allTasksSheetContext = AllTasksSheetContext() }
                     )
 
                     // MARK: Move Timeline — when do things need to happen
@@ -610,14 +663,14 @@ struct ZenDashboardView: View {
                 )
             }
         }
-        .sheet(isPresented: $showingAllTasks) {
+        .sheet(item: $allTasksSheetContext) { context in
             NavigationStack {
-                DashboardView(move: move)
-                    .navigationTitle("All Tasks")
+                DashboardView(move: move, categoryFilter: context.categoryFilter)
+                    .navigationTitle(context.categoryFilter?.rawValue ?? "All Tasks")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Done") { showingAllTasks = false }
+                            Button("Done") { allTasksSheetContext = nil }
                                 .foregroundColor(Theme.accentPrimary)
                         }
                     }
@@ -787,16 +840,37 @@ struct ZenDashboardView: View {
 struct CategoryProgressChip: View {
     let progress: CategoryProgress
 
+    /// Escalates by deadline proximity, not just completion — a category that's 60%
+    /// done but has something overdue in it needs to read as urgent, not "mostly
+    /// fine." Previously this only ever reflected fraction complete, so a category
+    /// with a task quietly going overdue looked identical to one with no urgency at
+    /// all, as long as *something* in it was checked off.
     private var barColor: Color {
         if progress.fraction >= 1.0 { return Theme.accentSuccess }
+        if let due = progress.nextDueInDays {
+            if due < 0 { return Theme.priorityCritical }   // overdue
+            if due <= 3 { return Theme.accentWarning }      // due soon
+        }
         if progress.fraction <= 0.0 { return Theme.priorityCritical }
         return Theme.accentPrimary
     }
 
+    private var isUrgent: Bool {
+        guard let due = progress.nextDueInDays else { return false }
+        return due < 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(progress.category.emoji)
-                .font(.system(size: 16))
+            HStack(spacing: 4) {
+                Text(progress.category.emoji)
+                    .font(.system(size: 16))
+                if isUrgent {
+                    Circle()
+                        .fill(Theme.priorityCritical)
+                        .frame(width: 6, height: 6)
+                }
+            }
             Text(progress.category.rawValue)
                 .themeText(9, weight: .medium)
                 .foregroundColor(Theme.textSecondary)
@@ -814,6 +888,10 @@ struct CategoryProgressChip: View {
         .padding(10)
         .frame(minWidth: 64)
         .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isUrgent ? Theme.priorityCritical.opacity(0.5) : .clear, lineWidth: 1.5)
+        )
     }
 }
 
@@ -1133,6 +1211,7 @@ struct TodaysPrioritiesSection: View {
     let onTaskComplete: (ChecklistTask) -> Void
     let onViewAll: () -> Void
     @Environment(\.modelContext) private var modelContext
+    @State private var selectedTask: ChecklistTask? = nil
 
     /// Tasks due soonest that aren't the hero item or already shown in Next Up — up to 5
     private var urgentTasks: [ChecklistTask] {
@@ -1194,7 +1273,11 @@ struct TodaysPrioritiesSection: View {
                         UpcomingTaskRow(
                             task: task,
                             moveDate: move.anchorDate,
-                            onComplete: { onTaskComplete(task) }
+                            // Opens the detail/confirm sheet rather than completing
+                            // instantly — a bare checkbox tap gave no way to see what
+                            // the task actually was, or choose "take the action" vs.
+                            // "confirm it's already done," before finishing it.
+                            onComplete: { selectedTask = task }
                         )
                         if task.id != urgentTasks.last?.id {
                             Rectangle()
@@ -1210,6 +1293,27 @@ struct TodaysPrioritiesSection: View {
             }
         }
         .padding(.bottom, 40)
+        .sheet(item: $selectedTask) { task in
+            TaskActionSheet(
+                task: task,
+                onAlreadyDone: {
+                    onTaskComplete(task)
+                    selectedTask = nil
+                },
+                onUpdateNow: {
+                    // Opens the link only — does not auto-complete, matching Hero
+                    // Card's Update Now, which likewise only starts the process.
+                    if let url = task.deepLinkURL {
+                        UIApplication.shared.open(url)
+                    }
+                    selectedTask = nil
+                },
+                onLater: { selectedTask = nil }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
+        }
     }
 }
 
@@ -1234,23 +1338,36 @@ struct UpcomingTaskRow: View {
         return dueDate < Calendar.current.startOfDay(for: Date())
     }
 
+    /// Escalating severity: overdue (red) > due within 3 days (amber) > everything
+    /// else (neutral). Previously this row only had two states — overdue or not —
+    /// so a task due tomorrow looked exactly as calm as one due in six weeks.
+    private var isDueSoon: Bool {
+        guard !isOverdue else { return false }
+        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
+                                                    to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
+        return days <= 3
+    }
+
+    private var severityColor: Color {
+        if isOverdue { return Theme.priorityCritical }
+        if isDueSoon { return Theme.accentWarning }
+        return task.priority.color.opacity(0.5)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
-            // Explicit checkbox — the ONLY way this row marks a task complete.
-            // A row with no link used to complete on any tap, which meant an
-            // accidental tap anywhere on it silently finished the task — the
-            // checkbox stays a small, deliberate target for exactly that reason.
-            // Completes instantly on tap rather than behind a native alert: the
-            // same small-target-plus-undo-toast pattern the All Tasks list already
-            // uses live (ZenDashboardView.completeTask's 4-second undo toast is the
-            // safety net here, not a blocking modal on every single tap).
+            // Checkbox opens the detail/confirm sheet (TaskActionSheet) rather than
+            // completing instantly — shows what the task actually is and offers
+            // "Update Now" vs. "Mark as Done" as an explicit choice, instead of
+            // finishing the task on a single tap with no way to see details first.
             Button(action: onComplete) {
                 Image(systemName: "circle")
                     .themeText(20, weight: .regular)
-                    .foregroundColor(isOverdue ? Theme.priorityCritical : task.priority.color.opacity(0.5))
+                    .foregroundColor(severityColor)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Mark \(task.title) complete")
+            .accessibilityLabel("Open \(task.title)")
 
             // Rest of the row — only tappable (to open the link) when a link exists.
             // With no link, it's inert: informational, not an accidental "complete" trigger.
@@ -1295,13 +1412,16 @@ struct UpcomingTaskRow: View {
 
             Spacer()
 
-            // Due label
+            // Due label — same escalating severity as the checkbox
             Text(dueLabel)
                 .themeText(11, weight: .semibold)
-                .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
+                .foregroundColor(isOverdue ? Theme.priorityCritical : isDueSoon ? Theme.accentWarning : Theme.textTertiary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
+                .background(
+                    (isOverdue ? Theme.priorityCritical : isDueSoon ? Theme.accentWarning : Color.white)
+                        .opacity(isOverdue || isDueSoon ? 0.14 : 0.08)
+                )
                 .clipShape(Capsule())
 
             // Decorative link indicator — only shown (and only tappable) when a link exists
@@ -1812,9 +1932,11 @@ struct TaskActionSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             // Handle + title
             VStack(alignment: .leading, spacing: 6) {
-                Text("Have you updated your address?")
-                    .themeText(13, weight: .regular)
-                    .foregroundColor(Theme.textSecondary)
+                Text(task.category.rawValue)
+                    .themeText(11, weight: .semibold)
+                    .foregroundColor(Theme.accentPrimary)
+                    .textCase(.uppercase)
+                    .tracking(1.5)
                 Text("\(task.category.emoji) \(task.title)")
                     .themeSerif(20, weight: .bold)
                     .foregroundColor(Theme.textPrimary)
@@ -1822,35 +1944,42 @@ struct TaskActionSheet: View {
             .padding(.top, 8)
 
             VStack(spacing: 10) {
-                // Primary: already done
-                Button(action: onAlreadyDone) {
-                    Text("Yes, already done ✓")
-                        .themeText(16, weight: .bold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .background(Theme.accentSuccess)
-                        .foregroundColor(.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-
-                // Secondary: update now (only if deep link exists)
+                // Primary: take the action, if there's a link to take it with —
+                // matches Hero Card's hierarchy (Update Now leads when possible).
+                // Blue = "take the external action" everywhere in this app.
                 if task.deepLinkURL != nil {
                     Button(action: onUpdateNow) {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.up.right")
-                                .themeText(14, weight: .semibold)
-                            Text("Update now")
-                                .themeText(16, weight: .semibold)
+                                .themeText(14, weight: .bold)
+                            Text("Update Now")
+                                .themeText(16, weight: .bold)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)
-                        .background(Theme.backgroundElevated)
-                        .foregroundColor(Theme.textPrimary)
+                        .background(Theme.accentPrimary)
+                        .foregroundColor(.black)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
                 }
+
+                // Confirm done. Green = "confirmed done" everywhere in this app —
+                // the same color law as Hero Card and the geofence prompt.
+                Button(action: onAlreadyDone) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark")
+                            .themeText(14, weight: .bold)
+                        Text("Mark as Done")
+                            .themeText(16, weight: .semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(task.deepLinkURL != nil ? Theme.backgroundElevated : Theme.accentSuccess)
+                    .foregroundColor(task.deepLinkURL != nil ? Theme.accentSuccess : .black)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
 
                 // Tertiary: later
                 Button(action: onLater) {

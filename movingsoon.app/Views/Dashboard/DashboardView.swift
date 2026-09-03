@@ -4,6 +4,10 @@ import SwiftData
 
 struct DashboardView: View {
     let move: Move
+    /// Set when arriving from a Category Progress Rail chip tap — restricts the list
+    /// to that one category on top of whatever TaskFilter tab is selected, so "which
+    /// category am I behind on" (the rail's whole point) actually leads somewhere.
+    var categoryFilter: TaskCategory? = nil
     @Environment(\.modelContext) private var modelContext
     @State private var filter: TaskFilter = .pending
     @State private var searchText: String = ""
@@ -36,6 +40,10 @@ struct DashboardView: View {
             tasks = move.tasks.filter { $0.priority == .critical && $0.status != .completed }
         case .completed:
             tasks = move.tasks.filter { $0.status == .completed }
+        }
+
+        if let categoryFilter {
+            tasks = tasks.filter { $0.category == categoryFilter }
         }
 
         // Search filter

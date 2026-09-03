@@ -473,6 +473,45 @@ struct LifestyleFlagReachabilityTests {
     }
 }
 
+@Suite("Move — Tracked POI Categories")
+struct TrackedPOICategoriesTests {
+
+    private func makeMove(tasks: [ChecklistTask]) -> Move {
+        let move = Move(anchorDate: Date(), originZip: nil, destinationZip: "80202",
+                         destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+        move.tasks = tasks
+        return move
+    }
+
+    private func task(status: TaskStatus, poi: POICategory?) -> ChecklistTask {
+        let t = ChecklistTask(title: "t", category: .government, priority: .medium, tMinusDays: 0)
+        t.statusRaw = status.rawValue
+        t.poiCategory = poi
+        return t
+    }
+
+    @Test func includesOnlyPendingTasksWithAPOICategory() {
+        let move = makeMove(tasks: [
+            task(status: .toDo, poi: .bank),
+            task(status: .completed, poi: .dmv),  // completed — excluded
+            task(status: .toDo, poi: nil),         // no POI — excluded
+        ])
+        #expect(move.trackedPOICategories == [.bank])
+    }
+
+    @Test func deduplicatesRepeatedCategories() {
+        let move = makeMove(tasks: [
+            task(status: .toDo, poi: .bank),
+            task(status: .toDo, poi: .bank),
+        ])
+        #expect(move.trackedPOICategories == [.bank])
+    }
+
+    @Test func emptyWhenNothingPendingHasAPOICategory() {
+        #expect(makeMove(tasks: [task(status: .completed, poi: .bank)]).trackedPOICategories.isEmpty)
+    }
+}
+
 @Suite("Move — Category Progress")
 struct CategoryProgressTests {
 
