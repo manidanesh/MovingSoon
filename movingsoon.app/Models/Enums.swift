@@ -99,6 +99,34 @@ enum TaskCategory: String, Codable, CaseIterable {
         }
     }
 
+    /// One deliberate hue per category (top/bottom of a gradient) — not one repeated
+    /// color. Home Screen icons are scannable specifically because every app has a
+    /// distinct color; making every category tile the same gradient would work
+    /// against that reference, forcing users to read the glyph alone to tell
+    /// categories apart. Semantically anchored where a mapping exists unforced
+    /// (green for Financial, rose for Healthcare, amber for Utilities — echoing
+    /// Theme.accentWarning's "due soon" amber), spread hue-wise elsewhere so no two
+    /// categories collide. Severity/urgency lives at the section header, not here —
+    /// this palette is purely for category identity.
+    var iconGradient: (top: Color, bottom: Color) {
+        switch self {
+        case .postal:        return (Color(hex: "#3B82F6"), Color(hex: "#1E3A8A"))  // blue
+        case .government:    return (Color(hex: "#6366F1"), Color(hex: "#3730A3"))  // indigo
+        case .financial:     return (Color(hex: "#22C55E"), Color(hex: "#15803D"))  // green
+        case .utilities:     return (Color(hex: "#F59E0B"), Color(hex: "#B45309"))  // amber
+        case .subscriptions: return (Color(hex: "#D946EF"), Color(hex: "#86198F"))  // magenta
+        case .healthcare:    return (Color(hex: "#FB7185"), Color(hex: "#9F1239"))  // rose
+        case .education:     return (Color(hex: "#22D3EE"), Color(hex: "#0E7490"))  // cyan
+        case .insurance:     return (Color(hex: "#14B8A6"), Color(hex: "#0F766E"))  // teal
+        case .legal:         return (Color(hex: "#64748B"), Color(hex: "#334155"))  // slate
+        case .employer:      return (Color(hex: "#FB923C"), Color(hex: "#C2410C"))  // orange
+        case .travel:        return (Color(hex: "#0EA5E9"), Color(hex: "#075985"))  // sky
+        case .estate:        return (Color(hex: "#A8A29E"), Color(hex: "#57534E"))  // warm stone
+        case .digital:       return (Color(hex: "#8B5CF6"), Color(hex: "#5B21B6"))  // violet
+        case .other:         return (Color(hex: "#9CA3AF"), Color(hex: "#4B5563"))  // neutral gray
+        }
+    }
+
     var emoji: String {
         switch self {
         case .postal:        return "📬"

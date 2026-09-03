@@ -170,6 +170,26 @@ final class Move {
             }
         }
     }
+
+    /// categoryProgress grouped into urgency tiers — Overdue first, then Due Soon,
+    /// then On Track (which includes both fully-complete categories and ones simply
+    /// not urgent yet). Empty tiers are omitted entirely rather than rendered as a
+    /// header with nothing under it. Deliberately simpler than the old per-tile
+    /// severity color logic: a category that's 0% started but due two months out
+    /// lands in On Track here, not Overdue — the tier grouping is meant to read as
+    /// "what actually needs attention right now," not just "what's imperfect."
+    var categoryProgressByTier: [(tier: CategoryUrgencyTier, items: [CategoryProgress])] {
+        CategoryUrgencyTier.allCases.compactMap { tier in
+            let items = categoryProgress.filter { $0.urgencyTier == tier }
+            return items.isEmpty ? nil : (tier, items)
+        }
+    }
+}
+
+enum CategoryUrgencyTier: String, CaseIterable {
+    case overdue  = "Overdue"
+    case dueSoon  = "Due Soon"
+    case onTrack  = "On Track"
 }
 
 struct CategoryProgress: Identifiable {
@@ -180,4 +200,12 @@ struct CategoryProgress: Identifiable {
     let nextDueInDays: Int?
 
     var fraction: Double { total > 0 ? Double(completed) / Double(total) : 0 }
+
+    var urgencyTier: CategoryUrgencyTier {
+        if let due = nextDueInDays {
+            if due < 0 { return .overdue }
+            if due <= 3 { return .dueSoon }
+        }
+        return .onTrack
+    }
 }

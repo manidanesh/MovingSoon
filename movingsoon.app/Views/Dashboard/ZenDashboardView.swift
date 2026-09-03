@@ -34,7 +34,6 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
-    @State private var categoryGridExpanded = false
 
     // Reminders
     @State private var reminderService = SmartReminderService()
@@ -317,54 +316,36 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
-                    // MARK: Categories — Reminders-app-style grid, not a horizontal
-                    // rail. A ring's arc needs interpreting ("is that 60%? how many is
-                    // that?") to answer the one question this component exists for:
-                    // how many are left in this category. A bold count answers that
-                    // instantly and, unlike the rail, shows every category at once —
-                    // no horizontal scroll hiding categories off-screen.
-                    if !move.categoryProgress.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Categories")
-                                .themeText(11, weight: .semibold)
-                                .foregroundColor(Theme.textSecondary)
-                                .textCase(.uppercase)
-                                .tracking(1.5)
-                                .padding(.horizontal, 24)
+                    // MARK: Categories — Home Screen-style icon tiles, grouped by
+                    // urgency tier rather than a flat/expandable grid. Grouping is
+                    // what keeps the grid digestible without a cap: a move with 12
+                    // active categories reads as three short, scannable groups
+                    // ("2 Overdue, 3 Due Soon, 7 On Track") instead of one long grid
+                    // needing a "show all" toggle. Each tile carries its own category
+                    // color (TaskCategory.iconGradient) — identity lives on the tile,
+                    // urgency lives on the section header, and the two never conflate.
+                    if !move.categoryProgressByTier.isEmpty {
+                        VStack(alignment: .leading, spacing: 28) {
+                            ForEach(move.categoryProgressByTier, id: \.tier) { group in
+                                VStack(alignment: .leading, spacing: 14) {
+                                    CategoryTierHeader(tier: group.tier, count: group.items.count)
+                                        .padding(.horizontal, 24)
 
-                            let visibleCategories = categoryGridExpanded
-                                ? move.categoryProgress
-                                : Array(move.categoryProgress.prefix(6))
-
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                                ForEach(visibleCategories) { progress in
-                                    Button {
-                                        allTasksSheetContext = AllTasksSheetContext(categoryFilter: progress.category)
-                                    } label: {
-                                        CategoryGridCard(progress: progress)
+                                    LazyVGrid(
+                                        columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+                                        spacing: 18
+                                    ) {
+                                        ForEach(group.items) { progress in
+                                            Button {
+                                                allTasksSheetContext = AllTasksSheetContext(categoryFilter: progress.category)
+                                            } label: {
+                                                CategoryIconTile(progress: progress)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(.horizontal, 24)
                                 }
-                            }
-                            .padding(.horizontal, 24)
-
-                            // Capped at 6 (3 rows) by default — a grid grows downward,
-                            // unlike the rail's fixed-height horizontal scroll, so most
-                            // moves (6-9 active categories) shouldn't need this at all.
-                            if move.categoryProgress.count > 6 {
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        categoryGridExpanded.toggle()
-                                    }
-                                } label: {
-                                    Text(categoryGridExpanded ? "Show less" : "Show all \(move.categoryProgress.count) categories")
-                                        .themeText(12, weight: .medium)
-                                        .foregroundColor(Theme.accentPrimary)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.top, 4)
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 24)
                             }
                         }
                     }
@@ -778,79 +759,99 @@ struct ZenDashboardView: View {
     }
 }
 
-// MARK: - Category Grid Card
+// MARK: - Category Tier Header
 //
-// Replaces the ring rail. A ring communicates a fraction — the right shape for the
-// header's overall-completion ring, the wrong shape for this component's actual job
-// (how many are left in this one category), which is a counting question a bold
-// number answers instantly with no interpretation required. Modeled on Reminders'
-// own list-of-lists grid — same domain, same job (categories of to-dos + counts).
-struct CategoryGridCard: View {
-    let progress: CategoryProgress
+// One header per urgency tier (Overdue / Due Soon / On Track), colored to match
+// the tier's severity. This is where urgency lives now — the tiles beneath it
+// carry category identity only, never severity, so the two signals never fight
+// for the same pixel.
+struct CategoryTierHeader: View {
+    let tier: CategoryUrgencyTier
+    let count: Int
 
-    private var remaining: Int { progress.total - progress.completed }
-
-    /// Same escalation rule as before (deadline proximity, not just completion
-    /// fraction) — only the shape communicating it changed, from a ring's arc color
-    /// to this card's icon-background tint.
-    private var severityColor: Color {
-        if progress.fraction >= 1.0 { return Theme.accentSuccess }
-        if let due = progress.nextDueInDays {
-            if due < 0 { return Theme.priorityCritical }
-            if due <= 3 { return Theme.accentWarning }
+    private var color: Color {
+        switch tier {
+        case .overdue: return Theme.priorityCritical
+        case .dueSoon: return Theme.accentWarning
+        case .onTrack: return Theme.accentSuccess
         }
-        if progress.fraction <= 0.0 { return Theme.priorityCritical }
-        return Theme.accentPrimary
-    }
-
-    private var isUrgent: Bool {
-        guard let due = progress.nextDueInDays else { return false }
-        return due < 0
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                ZStack {
-                    Circle().fill(severityColor.opacity(0.16))
-                    Text(progress.category.emoji)
-                        .font(.system(size: 15))
-                }
-                .frame(width: 30, height: 30)
-
-                Spacer()
-
-                if isUrgent {
-                    Text("OVERDUE")
-                        .themeText(8.5, weight: .bold)
-                        .foregroundColor(Theme.priorityCritical)
-                        .tracking(0.5)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                if remaining == 0 {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(Theme.accentSuccess)
-                } else {
-                    Text("\(remaining)")
-                        .themeSerif(24, weight: .bold)
-                        .foregroundColor(Theme.textPrimary)
-                }
-                Text(progress.category.rawValue)
-                    .themeText(12, weight: .medium)
-                    .foregroundColor(Theme.textSecondary)
-                    .lineLimit(1)
-            }
+        HStack(spacing: 8) {
+            Text(tier.rawValue)
+                .themeText(12, weight: .bold)
+                .foregroundColor(color)
+                .textCase(.uppercase)
+                .tracking(1.2)
+            Text("\(count)")
+                .themeText(12, weight: .semibold)
+                .foregroundColor(color.opacity(0.7))
+            Rectangle()
+                .fill(color.opacity(0.25))
+                .frame(height: 1)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(isUrgent ? Theme.priorityCritical.opacity(0.55) : .clear, lineWidth: 1.5)
-        )
+    }
+}
+
+// MARK: - Category Icon Tile
+//
+// iOS Home Screen icon convention, applied to categories: a fixed-color squircle
+// per category (TaskCategory.iconGradient) with an SF Symbol glyph, a soft top
+// highlight sheen like a real app icon, and a red count badge in the corner that
+// disappears entirely once nothing's left — the same "no badge = nothing
+// outstanding" signal every iPhone user already reads from their Home Screen.
+// No card container: tiles float on the dashboard background the way Home
+// Screen icons float on wallpaper, which is most of what makes this read as
+// smaller/lighter than the old card grid despite the icon itself being bigger.
+struct CategoryIconTile: View {
+    let progress: CategoryProgress
+
+    private var remaining: Int { progress.total - progress.completed }
+    private var gradient: (top: Color, bottom: Color) { progress.category.iconGradient }
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(LinearGradient(colors: [gradient.top, gradient.bottom], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 58, height: 58)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.28), Color.white.opacity(0)],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                )
+                            )
+                    )
+                    .overlay(
+                        Image(systemName: progress.category.icon)
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(.white)
+                    )
+                    .shadow(color: gradient.bottom.opacity(0.35), radius: 6, x: 0, y: 3)
+
+                if remaining > 0 {
+                    Text("\(remaining)")
+                        .themeText(11, weight: .bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, remaining > 9 ? 5 : 0)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .background(Theme.priorityCritical, in: Circle())
+                        .overlay(Circle().stroke(Theme.backgroundPrimary, lineWidth: 2))
+                        .offset(x: 8, y: -8)
+                }
+            }
+
+            Text(progress.category.rawValue)
+                .themeText(12.5, weight: .semibold)
+                .foregroundColor(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity)
+        }
     }
 }
 
