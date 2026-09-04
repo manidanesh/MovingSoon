@@ -27,10 +27,10 @@ xcodebuild test -project movingsoon.app.xcodeproj -scheme movingsoon.app \
 
 Or open `movingsoon.app.xcodeproj` in Xcode and press ⌘U.
 
-**Important — two test folders exist, only one is live:**
-- `movingsoon.appTests/movingsoon_appTests.swift` is the **active** suite, wired into the `movingsoon.appTests` target and written with the Swift **Testing** framework (`@Suite` / `@Test` / `#expect`, `@testable import movingsoon_app`). This is what `xcodebuild test` actually runs.
-- `movingsoonTests/` is a **legacy, unwired** XCTest-based suite (`XCTestCase`, `@testable import movingsoon_app`) covering the same ground in more detail (ChecklistGenerator, Move, ZipBucketService, RegionalIntelligence, etc. — see `movingsoonTests/README.md`). It is not attached to any build target and `xcodebuild test` silently ignores it. If you add coverage, prefer extending `movingsoon.appTests/movingsoon_appTests.swift` (Swift Testing) unless the user asks you to wire `movingsoonTests` into the project first.
-- `GeofenceCoordinator`, `SmartReminderService`, `LocationManager`, and dashboard UI are not unit-testable (need CoreLocation / UNUserNotificationCenter / XCUIApplication) — see `movingsoonTests/README.md` for the full breakdown of what's covered vs. device-only.
+**One test suite, one target:**
+- `movingsoon.appTests/movingsoon_appTests.swift` is the only test suite, wired into the `movingsoon.appTests` target and written with the Swift **Testing** framework (`@Suite` / `@Test` / `#expect`, `@testable import movingsoon_app`). This is what `xcodebuild test` runs. Add new coverage here.
+- There used to be a second, unwired legacy `movingsoonTests/` folder (XCTest-based, silently ignored by `xcodebuild test`). Its coverage was ported into `movingsoon.appTests/movingsoon_appTests.swift` and the folder was deleted — don't recreate a second test folder.
+- `GeofenceCoordinator`, `SmartReminderService`, `LocationManager`, and dashboard UI are not unit-testable (need CoreLocation / UNUserNotificationCenter / XCUIApplication) — those stay device/simulator-verified only.
 
 ## Architecture
 
@@ -63,9 +63,9 @@ This subsystem was built from a formal spec — see `.kiro/specs/smart-location-
 - `Services/SmartReminderService.swift` also runs two independent notification protocols: a daily 10am reminder for the hero task *only if* it's `.critical` priority ("anti-nag"), and a T-minus-3-days **digest** notification (one push per day summarizing all tasks due soon, not one per task).
 - Consent, once granted, is never re-requested — `locationConsentGrantedAt` on `Move` is the only source of truth; there's no separate "denied" flag to re-check.
 
-### Privacy telemetry (dormant)
+### Privacy telemetry
 
-`Models/PendingSignal.swift` is a fully-defined on-device queue model (Laplace noise on embeddings, timestamps floored to the hour, persona/region buckets only — no PII) but **no service currently emits into it**. `PersonaEngine.swift` similarly exists (maps onboarding answers → `PersonaKey`) but isn't called during onboarding; `Move.personaKey` derives the persona lazily from `LifestyleProfile` flags instead. Don't assume either is wired up without checking call sites first.
+`Models/PendingSignal.swift` is an on-device queue model (Laplace noise on embeddings, timestamps floored to the hour, persona/region buckets only — no PII). `Services/SignalEmitter.swift` is its writer — called from `AddMoreServicesView.swift` and `ZenDashboardView.swift` on every MoveImpactEngine suggestion accept/reject — so it's live, not dormant. There is still no transmission path out of the on-device queue (`isPending` stays `true` forever); that's a deliberate, not-yet-built next step, not a bug. `Move.personaKey` derives persona lazily from `LifestyleProfile` flags — there is no separate persona-from-onboarding-answers engine (an earlier one, `PersonaEngine.swift`, was unused and removed).
 
 ### Catalog/institution data files
 

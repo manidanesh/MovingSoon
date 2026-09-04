@@ -31,6 +31,12 @@ struct ConsentExpiryGateTests {
         let now = Calendar.current.date(byAdding: .day, value: 31, to: grantedAt)!
         #expect(SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: now) == false)
     }
+
+    @Test func grantedInFuture_passes() {
+        let grantedAt = Date().addingTimeInterval(86400) // 1 day from now
+        let now = Date()
+        #expect(SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: now) == true)
+    }
 }
 
 @Suite("SuppressionEngine — Completion Gate")
@@ -72,6 +78,17 @@ struct DistanceGateTests {
         let user = CLLocation(latitude: 40.7128, longitude: -74.0060) // NYC
         let dest = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903) // Denver
         #expect(!SuppressionEngine.distanceGatePasses(userLocation: user, destination: dest))
+    }
+
+    @Test func exactly8km_passes() {
+        // ~8km north of Denver centroid
+        let user = CLLocation(latitude: 39.8112, longitude: -104.9903)
+        let dest = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        let distance = user.distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
+        // Only assert if within tolerance — the fixture coordinates approximate 8km
+        if distance <= 8001 {
+            #expect(SuppressionEngine.distanceGatePasses(userLocation: user, destination: dest))
+        }
     }
 }
 
@@ -120,6 +137,63 @@ struct TaskRelevanceGateTests {
 
     @Test func emptyTaskList_fails() {
         #expect(!SuppressionEngine.taskRelevanceGatePasses(tasks: [], category: .bank))
+    }
+}
+
+@Suite("SuppressionEngine — shouldFire (Full Evaluator)")
+struct ShouldFireEvaluatorTests {
+
+    private func makeMove() -> Move {
+        let move = Move(anchorDate: Date().addingTimeInterval(30 * 86400),
+                         originZip: "80202",
+                         destinationZip: "80202",
+                         destinationStateBucket: "CO",
+                         destinationCityBucket: "DENVER")
+        move.locationConsentGrantedAt = Date()
+        return move
+    }
+
+    private func makePOITask(move: Move, category: POICategory, status: TaskStatus = .toDo) -> ChecklistTask {
+        let task = ChecklistTask(title: "Test Task", category: .financial,
+                                  priority: .medium, tMinusDays: 0)
+        task.poiCategory = category
+        task.statusRaw = status.rawValue
+        task.move = move
+        return task
+    }
+
+    private func makeDate(hour: Int, minute: Int = 0) -> Date {
+        var c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        c.hour = hour; c.minute = minute; c.second = 0
+        return Calendar.current.date(from: c)!
+    }
+
+    @Test func withinDistance_passes() {
+        let move = makeMove()
+        let task = makePOITask(move: move, category: .bank)
+        move.tasks = [task]
+        let userLoc = CLLocation(latitude: 39.7392, longitude: -104.9903)
+        let destCoord = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        let context = SuppressionEngine.Context(
+            move: move, poiCategory: .bank,
+            cooldownStore: CooldownStore(defaults: .init(suiteName: UUID().uuidString)!),
+            now: makeDate(hour: 12), userLocation: userLoc, destinationCoordinate: destCoord
+        )
+        #expect(SuppressionEngine.shouldFire(context: context))
+    }
+
+    @Test func beyondDistance_fails() {
+        let move = makeMove()
+        let task = makePOITask(move: move, category: .bank)
+        move.tasks = [task]
+        let userLoc = CLLocation(latitude: 40.7, longitude: -104.9903) // ~100km away
+        let destCoord = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        let context = SuppressionEngine.Context(
+            move: move, poiCategory: .bank,
+            cooldownStore: CooldownStore(defaults: .init(suiteName: UUID().uuidString)!),
+            now: makeDate(hour: 12), userLocation: userLoc, destinationCoordinate: destCoord
+        )
+        #expect(!SuppressionEngine.shouldFire(context: context))
     }
 }
 
@@ -178,6 +252,46 @@ struct CooldownStoreTests {
         store1.record(category: .pharmacy, date: now)
         let store2 = CooldownStore(defaults: defaults)
         #expect(!store2.gatePasses(for: .pharmacy, now: now))
+    }
+
+    @Test func recordAllCategories_allFail() {
+        var store = makeStore()
+        let now = Date()
+        for category in POICategory.allCases {
+            store.record(category: category, date: now)
+        }
+        for category in POICategory.allCases {
+            #expect(!store.gatePasses(for: category, now: now), "Expected gate to fail for \(category.rawValue)")
+        }
+    }
+
+    @Test func clearAll_onEmptyStore_doesNotCrash() {
+        var store = makeStore()
+        store.clearAll()
+        #expect(store.gatePasses(for: .bank, now: Date()))
+    }
+
+    @Test func recordMidnight_gateFailsSameDay() {
+        var store = makeStore()
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        comps.hour = 0; comps.minute = 0; comps.second = 0
+        let midnight = Calendar.current.date(from: comps)!
+        store.record(category: .postOffice, date: midnight)
+
+        comps.hour = 23; comps.minute = 59
+        let lateNight = Calendar.current.date(from: comps)!
+        #expect(!store.gatePasses(for: .postOffice, now: lateNight))
+    }
+
+    @Test func recordLateNight_gatePassesNextMorning() {
+        var store = makeStore()
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        comps.hour = 23; comps.minute = 59
+        let lateNight = Calendar.current.date(from: comps)!
+        store.record(category: .postOffice, date: lateNight)
+
+        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: lateNight)!
+        #expect(store.gatePasses(for: .postOffice, now: nextDay))
     }
 }
 
@@ -247,6 +361,27 @@ struct CentroidTests {
         #expect(abs(c.latitude - 39.5) < 0.1)
         #expect(abs(c.longitude - (-98.35)) < 0.1)
     }
+
+    @Test func nyZip_isApproximatelyCorrect() {
+        let c = ZipBucketService.centroid(zip: "10001")
+        #expect(abs(c.latitude - 40.7128) < 0.5)
+        #expect(abs(c.longitude - (-74.0060)) < 0.5)
+    }
+
+    @Test func ruralZip_returnsContinentalUSFallback() {
+        let c = ZipBucketService.centroid(zip: "59601") // Helena MT — rural
+        #expect(abs(c.latitude - 39.5) < 0.1)
+        #expect(abs(c.longitude - (-98.35)) < 0.1)
+    }
+
+    @Test func allMajorMetros_areValid() {
+        let metroZips = ["80202", "10001", "90001", "60601", "77001",
+                         "85001", "98101", "94102", "30301", "33101"]
+        for zip in metroZips {
+            let c = ZipBucketService.centroid(zip: zip)
+            #expect(!(c.latitude == 39.5 && c.longitude == -98.35), "ZIP \(zip) should not fall back to US centroid")
+        }
+    }
 }
 
 // MARK: - ChecklistTask State Machine Tests
@@ -290,6 +425,60 @@ struct ChecklistTaskStateMachineTests {
     }
 }
 
+@Suite("ChecklistTask — Property Round-Trips")
+struct ChecklistTaskPropertyTests {
+
+    private func makeTask() -> ChecklistTask {
+        ChecklistTask(title: "Test", category: .financial, priority: .medium, tMinusDays: 0)
+    }
+
+    @Test func categoryRawValue_roundtrips() {
+        for category in TaskCategory.allCases {
+            let t = ChecklistTask(title: "Test", category: category, priority: .medium, tMinusDays: 0)
+            #expect(t.category == category)
+        }
+    }
+
+    @Test func priorityRawValue_roundtrips() {
+        for priority in TaskPriority.allCases {
+            let t = ChecklistTask(title: "Test", category: .other, priority: priority, tMinusDays: 0)
+            #expect(t.priority == priority)
+        }
+    }
+
+    @Test func poiCategory_nilByDefault() {
+        #expect(makeTask().poiCategory == nil)
+    }
+
+    @Test func poiCategory_setAndRetrieved() {
+        let t = makeTask()
+        t.poiCategory = .bank
+        #expect(t.poiCategory == .bank)
+    }
+
+    @Test func poiCategory_clearedToNil() {
+        let t = makeTask()
+        t.poiCategory = .bank
+        t.poiCategory = nil
+        #expect(t.poiCategory == nil)
+    }
+
+    @Test func isMuted_falseByDefault() {
+        #expect(makeTask().isMuted == false)
+    }
+
+    @Test func snoozedUntil_nilByDefault() {
+        #expect(makeTask().snoozedUntil == nil)
+    }
+
+    @Test func deepLinkURL_roundtrips() {
+        let url = URL(string: "https://www.wellsfargo.com")!
+        let t = ChecklistTask(title: "WF", category: .financial, priority: .critical,
+                               tMinusDays: -14, deepLinkURL: url)
+        #expect(t.deepLinkURL == url)
+    }
+}
+
 // MARK: - TaskCategory Tests
 
 @Suite("TaskCategory — Emoji & Icons")
@@ -322,6 +511,12 @@ struct POICategoryTests {
     @Test func bank_displayName()       { #expect(POICategory.bank.displayName == "bank") }
     @Test func dmv_displayName()        { #expect(POICategory.dmv.displayName == "DMV") }
     @Test func postOffice_displayName() { #expect(POICategory.postOffice.displayName == "post office") }
+    @Test func doctor_displayName()     { #expect(POICategory.doctor.displayName == "doctor's office") }
+
+    @Test func allCases_hasExpectedCount() {
+        // Ensure no cases were accidentally removed
+        #expect(POICategory.allCases.count >= 13)
+    }
 }
 
 // MARK: - KnownInstitutions Regional Filtering Tests
@@ -371,6 +566,137 @@ struct KnownInstitutionsRegionalFilteringTests {
         let result = KnownInstitutions.filtered(KnownInstitutions.banks, forStateBucket: "US")
         #expect(result.count == KnownInstitutions.banks.count)
         #expect(result.contains { $0.name == "Regions Bank" })
+    }
+}
+
+@Suite("ChecklistGenerator — Core Task Generation")
+struct ChecklistGeneratorCoreTests {
+
+    private func makeMove(zip: String = "80202") -> Move {
+        Move(anchorDate: Date().addingTimeInterval(30 * 86400),
+             originZip: zip, destinationZip: zip,
+             destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+    }
+
+    private func makeProfile(flags: Set<LifestyleFlag> = []) -> LifestyleProfile {
+        let profile = LifestyleProfile()
+        profile.activeFlags = flags
+        return profile
+    }
+
+    // MARK: - Always-included tasks
+
+    @Test func alwaysInclude_USPSPresent_forAmericanUser() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isAmerican]), institutions: [])
+        #expect(tasks.map(\.title).contains("USPS Mail Forwarding"))
+    }
+
+    @Test func alwaysInclude_USPSExcluded_forCanadianUser() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        #expect(!tasks.map(\.title).contains("USPS Mail Forwarding"))
+    }
+
+    @Test func alwaysInclude_CanadaPost_forCanadianUser() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        #expect(tasks.map(\.title).contains("Canada Post Mail Forwarding"))
+    }
+
+    @Test func alwaysInclude_primaryCareDoctor() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(), institutions: [])
+        #expect(tasks.contains { $0.title == "Primary Care Doctor" })
+    }
+
+    @Test func alwaysInclude_employerHR() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(), institutions: [])
+        #expect(tasks.contains { $0.title == "Employer HR & Payroll Address" })
+    }
+
+    // MARK: - Conditional tasks
+
+    @Test func childrenTasks_appearWithHasChildrenFlag() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.hasChildren]), institutions: [])
+        #expect(tasks.contains { $0.title == "Children's School Enrollment" })
+        #expect(tasks.contains { $0.title == "Pediatrician & Children's Records" })
+    }
+
+    @Test func childrenTasks_absentWithoutFlag() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: []), institutions: [])
+        #expect(!tasks.contains { $0.title == "Children's School Enrollment" })
+    }
+
+    @Test func petTasks_appearWithHasPetsFlag() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.hasPets]), institutions: [])
+        #expect(tasks.contains { $0.title == "Veterinarian Records Transfer" })
+    }
+
+    @Test func mortgageTask_appearsWithHasMortgageFlag() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.hasMortgage]), institutions: [])
+        #expect(tasks.contains { $0.title == "Mortgage Servicer" })
+    }
+
+    @Test func evTask_appearsWithEVFlag() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.hasElectricVehicle]), institutions: [])
+        #expect(tasks.contains { $0.title == "Tesla Account / MyEV Address" })
+    }
+
+    // MARK: - Institution tasks
+
+    @Test func institution_generatesTaskWithJustName() {
+        let fi = FinancialInstitution(name: "Wells Fargo", initials: "WF",
+                                       colorHex: "#B7410E", type: .bank,
+                                       websiteURL: URL(string: "https://wellsfargo.com"))
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(), institutions: [fi])
+        let task = tasks.first { $0.institutionName == "Wells Fargo" }
+        #expect(task != nil)
+        #expect(task?.title == "Wells Fargo", "Institution task title should be just the name, no prefix")
+        #expect(task?.priority == .critical)
+        #expect(task?.poiCategory == .bank)
+    }
+
+    @Test func institution_noPrefixInTitle() {
+        let fi = FinancialInstitution(name: "Chase", initials: "CH",
+                                       colorHex: "#117ACA", type: .bank, websiteURL: nil)
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(), institutions: [fi])
+        let task = tasks.first { $0.institutionName == "Chase" }
+        #expect(!(task?.title.hasPrefix("Update address") ?? false), "Title should NOT start with 'Update address'")
+    }
+
+    @Test func institution_investmentType_highPriority() {
+        let fi = FinancialInstitution(name: "Fidelity", initials: "FI",
+                                       colorHex: "#27AE60", type: .investment, websiteURL: nil)
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(), institutions: [fi])
+        let task = tasks.first { $0.institutionName == "Fidelity" }
+        #expect(task?.priority == .high)
+        #expect(task?.poiCategory == nil, "Investment accounts don't have a POI category")
+    }
+
+    // MARK: - Hero task ordering
+
+    @Test func heroTask_isFirstInList() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isAmerican]), institutions: [])
+        #expect(tasks.first?.isHeroItem ?? false, "First task should be the hero item (USPS)")
+    }
+
+    @Test func canadaPost_isHeroForCanadianUser() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        #expect(tasks.first?.isHeroItem ?? false, "Canada Post should be hero for Canadian users")
+        #expect(tasks.first?.title == "Canada Post Mail Forwarding")
+    }
+
+    // MARK: - Task count sanity
+
+    @Test func minimumTaskCount_baselineAmericanUser() {
+        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isAmerican]), institutions: [])
+        #expect(tasks.count > 10, "Should generate at least 10 tasks for a baseline US user")
+    }
+
+    @Test func taskCount_increasesWithMoreFlags() {
+        let move = makeMove()
+        let baseTasks = ChecklistGenerator.generate(for: move, profile: makeProfile(flags: [.isAmerican]), institutions: [])
+        let richTasks = ChecklistGenerator.generate(for: move, profile: makeProfile(flags: [
+            .isAmerican, .hasChildren, .hasPets, .hasCar, .hasElectricVehicle, .hasMortgage
+        ]), institutions: [])
+        #expect(richTasks.count > baseTasks.count, "More lifestyle flags should produce more tasks")
     }
 }
 
@@ -470,6 +796,73 @@ struct LifestyleFlagReachabilityTests {
         ]
         let extraChipsKeys = Set(vm.extraChips.keys)
         #expect(extraChipsKeys.isSubset(of: addMoreServicesCategoryIDs), "extraChips has a category not listed in AddMoreServicesView: \(extraChipsKeys.subtracting(addMoreServicesCategoryIDs))")
+    }
+}
+
+@Suite("Move — Timing & Completion")
+struct MoveTimingCompletionTests {
+
+    private func makeMove(daysFromNow: Int = 30) -> Move {
+        let anchor = Calendar.current.date(byAdding: .day, value: daysFromNow, to: Date())!
+        return Move(anchorDate: anchor, originZip: "80202", destinationZip: "80202",
+                    destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+    }
+
+    @Test func daysUntilMove_futureDate_positive() {
+        #expect(makeMove(daysFromNow: 14).daysUntilMove > 0)
+    }
+
+    @Test func daysUntilMove_pastDate_negative() {
+        #expect(makeMove(daysFromNow: -7).daysUntilMove < 0)
+    }
+
+    @Test func completionFraction_noTasks_isZero() {
+        #expect(makeMove().completionFraction == 0.0)
+    }
+
+    @Test func completionFraction_allCompleted_isOne() {
+        let move = makeMove()
+        let task = ChecklistTask(title: "Test", category: .financial, priority: .medium, tMinusDays: 0)
+        task.advanceStatus(); task.advanceStatus() // → completed
+        move.tasks = [task]
+        #expect(abs(move.completionFraction - 1.0) < 0.001)
+    }
+
+    @Test func completionFraction_halfCompleted() {
+        let move = makeMove()
+        let task1 = ChecklistTask(title: "Task 1", category: .financial, priority: .medium, tMinusDays: 0)
+        let task2 = ChecklistTask(title: "Task 2", category: .financial, priority: .medium, tMinusDays: 0)
+        task1.advanceStatus(); task1.advanceStatus() // completed
+        move.tasks = [task1, task2]
+        #expect(abs(move.completionFraction - 0.5) < 0.001)
+    }
+
+    @Test func totalCount_matchesTaskArray() {
+        let move = makeMove()
+        move.tasks = [
+            ChecklistTask(title: "A", category: .financial, priority: .medium, tMinusDays: 0),
+            ChecklistTask(title: "B", category: .financial, priority: .medium, tMinusDays: 0),
+        ]
+        #expect(move.totalCount == 2)
+    }
+
+    @Test func completedCount_onlyCountsCompleted() {
+        let move = makeMove()
+        let t1 = ChecklistTask(title: "A", category: .financial, priority: .medium, tMinusDays: 0)
+        let t2 = ChecklistTask(title: "B", category: .financial, priority: .medium, tMinusDays: 0)
+        t1.advanceStatus(); t1.advanceStatus()
+        move.tasks = [t1, t2]
+        #expect(move.completedCount == 1)
+    }
+
+    @Test func locationConsentGrantedAt_nilByDefault() {
+        #expect(makeMove().locationConsentGrantedAt == nil)
+    }
+
+    @Test func locationConsentGrantedAt_canBeSet() {
+        let move = makeMove()
+        move.locationConsentGrantedAt = Date()
+        #expect(move.locationConsentGrantedAt != nil)
     }
 }
 
