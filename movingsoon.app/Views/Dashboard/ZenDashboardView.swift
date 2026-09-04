@@ -536,6 +536,16 @@ struct ZenDashboardView: View {
                     // MARK: Move Timeline — when do things need to happen
                     MoveTimelineSection(move: move)
 
+                    // MARK: Achievement Milestones — same tasks as the tiles/Up Next
+                    // above, regrouped into 5 broader lifestyle themes with a
+                    // gamified "fully cleared" celebration. A complementary view,
+                    // not competing with the primary do-this-next flow above it.
+                    AchievementMilestoneSection(
+                        move: move,
+                        onTaskComplete: { task in completeTask(task) },
+                        onNotApplicable: { task in removeTaskNotApplicable(task) }
+                    )
+
                 } // end VStack
                 .frame(width: geo.size.width) // ← pins content to exact screen width
                 .padding(.bottom, 40)
@@ -1706,6 +1716,12 @@ enum AchievementClusterType: String, CaseIterable {
 
 struct AchievementMilestoneSection: View {
     let move: Move
+    /// Reuses the parent's completeTask/removeTaskNotApplicable rather than owning
+    /// local copies — this section previously had its own completeTask that skipped
+    /// the toDo → pendingVerification → completed double-advance, so "Mark as Done"
+    /// left tasks stuck showing as pending instead of moving to Completed Achievements.
+    let onTaskComplete: (ChecklistTask) -> Void
+    let onNotApplicable: (ChecklistTask) -> Void
     @State private var expandedClusters: Set<AchievementClusterType> = []
     @State private var selectedTask: ChecklistTask? = nil
     @Environment(\.modelContext) private var modelContext
@@ -1802,7 +1818,7 @@ struct AchievementMilestoneSection: View {
                                             ZenMilestoneTaskRow(
                                                 task: task,
                                                 onTap: { selectedTask = task },
-                                                onComplete: { completeTask(task) }
+                                                onComplete: { undoCompletion(task) }
                                             )
                                         }
                                     }
@@ -1821,7 +1837,7 @@ struct AchievementMilestoneSection: View {
                                             ZenMilestoneTaskRow(
                                                 task: task,
                                                 onTap: { selectedTask = task },
-                                                onComplete: { completeTask(task) }
+                                                onComplete: { undoCompletion(task) }
                                             )
                                         }
                                     }
@@ -1844,21 +1860,22 @@ struct AchievementMilestoneSection: View {
             TaskActionSheet(
                 task: task,
                 onAlreadyDone: {
-                    completeTask(task)
+                    onTaskComplete(task)
                     selectedTask = nil
                 },
                 onUpdateNow: {
+                    // Opens the link only — does not auto-complete, matching every
+                    // other Update Now in the app (Hero Card, Up Next, All Tasks).
                     if let url = task.deepLinkURL {
                         UIApplication.shared.open(url)
                     }
-                    completeTask(task)
                     selectedTask = nil
                 },
                 onLater: {
                     selectedTask = nil
                 },
                 onNotApplicable: {
-                    removeTaskNotApplicable(task)
+                    onNotApplicable(task)
                     selectedTask = nil
                 }
             )
@@ -1868,26 +1885,15 @@ struct AchievementMilestoneSection: View {
         }
     }
 
-    /// See ZenDashboardView.removeTaskNotApplicable — same real-deletion contract.
-    private func removeTaskNotApplicable(_ task: ChecklistTask) {
+    /// ZenMilestoneTaskRow's checkmark tap is exclusively an undo — the parent's
+    /// onTaskComplete is one-way (advanceStatus() no-ops on an already-completed
+    /// task), so it can't handle this. Kept local since "tap checkmark to undo"
+    /// is specific to this row/section, not shared elsewhere.
+    private func undoCompletion(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         withAnimation {
-            move.tasks.removeAll { $0.id == task.id }
-            modelContext.delete(task)
-            modelContext.saveOrLog()
-        }
-    }
-
-    private func completeTask(_ task: ChecklistTask) {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        withAnimation {
-            if task.status == .completed {
-                task.resetStatus()
-            } else {
-                task.advanceStatus()
-            }
+            task.resetStatus()
             modelContext.saveOrLog()
         }
     }
