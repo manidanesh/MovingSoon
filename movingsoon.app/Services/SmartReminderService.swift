@@ -74,19 +74,22 @@ final class SmartReminderService {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+        NotificationBudget.recordFired()
     }
 
     // MARK: - Hero task daily reminder
 
-    /// Schedules a daily nagging push notification ONLY for the current Hero Task,
-    /// and ONLY if it is a Critical Priority.
-    func scheduleHeroTaskReminder(heroTask: ChecklistTask?) {
+    /// Schedules a nagging push notification ONLY for the current Hero Task, and ONLY
+    /// if it is a Critical Priority. Cadence escalates as the move gets closer — a flat
+    /// once-a-day nudge either nags too early or falls silent exactly when it matters
+    /// most, so within the final 3 days a second, evening nudge is added.
+    func scheduleHeroTaskReminder(heroTask: ChecklistTask?, daysUntilMove: Int) {
         let center = UNUserNotificationCenter.current()
-        // Only remove the previous hero task reminder — not ALL pending notifications
-        center.removePendingNotificationRequests(withIdentifiers: ["HeroTaskReminder"])
+        // Only remove the previous hero task reminders — not ALL pending notifications
+        center.removePendingNotificationRequests(withIdentifiers: ["HeroTaskReminder", "HeroTaskReminderEvening"])
 
         guard let task = heroTask, task.status == .toDo else { return }
-        
+
         // Anti-Nag Protocol: Only nag for Critical operations
         guard task.priority == .critical, !task.isMuted else { return }
 
@@ -100,15 +103,21 @@ final class SmartReminderService {
         content.userInfo = userInfo
         content.sound = .default
         content.categoryIdentifier = "TaskReminder"
-        
-        // Schedule for 10:00 AM daily
+
+        scheduleDailyHero(identifier: "HeroTaskReminder", hour: 10, content: content, center: center)
+
+        // Final stretch — add an evening nudge on top of the morning one.
+        if daysUntilMove <= 3 {
+            scheduleDailyHero(identifier: "HeroTaskReminderEvening", hour: 18, content: content, center: center)
+        }
+    }
+
+    private func scheduleDailyHero(identifier: String, hour: Int, content: UNMutableNotificationContent, center: UNUserNotificationCenter) {
         var dateComponents = DateComponents()
-        dateComponents.hour = 10
+        dateComponents.hour = hour
         dateComponents.minute = 0
-        
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        
-        let request = UNNotificationRequest(identifier: "HeroTaskReminder", content: content, trigger: trigger)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         center.add(request)
     }
 
@@ -133,34 +142,48 @@ final class SmartReminderService {
         let today = calendar.startOfDay(for: Date())
         let moveStartOfDay = calendar.startOfDay(for: moveDate)
 
-        // Group pending tasks by the day their 3-day warning should fire
-        var tasksByFireDay: [Date: [ChecklistTask]] = [:]
+        // Two tiers per task: a 3-day warning, and a same-day nudge on the due date
+        // itself — previously a task that slipped past its one T-3 warning generated
+        // zero further pushes, however overdue it became.
+        struct Tier { let offsetFromDue: Int; let label: String }
+        let tiers = [Tier(offsetFromDue: -3, label: "in 3 days"), Tier(offsetFromDue: 0, label: "today")]
+
+        // Group pending tasks by (fire day, tier label) so a same-day due task and a
+        // 3-days-out task never merge into one confusingly-worded digest.
+        var tasksByFireDay: [Date: (label: String, tasks: [ChecklistTask])] = [:]
 
         for task in tasks where task.status != .completed && !task.isMuted {
             guard let dueDate = calendar.date(byAdding: .day, value: task.tMinusDays, to: moveStartOfDay) else { continue }
-            guard let fireDay = calendar.date(byAdding: .day, value: -3, to: dueDate) else { continue }
-            let fireDayStart = calendar.startOfDay(for: fireDay)
-            // Only schedule future notifications
-            guard fireDayStart >= today else { continue }
-            tasksByFireDay[fireDayStart, default: []].append(task)
+            for tier in tiers {
+                guard let fireDay = calendar.date(byAdding: .day, value: tier.offsetFromDue, to: dueDate) else { continue }
+                let fireDayStart = calendar.startOfDay(for: fireDay)
+                guard fireDayStart >= today else { continue }
+                // Key by day + tier so the two tiers never collide into one bucket.
+                let key = calendar.date(byAdding: .hour, value: tier.offsetFromDue == 0 ? 1 : 0, to: fireDayStart) ?? fireDayStart
+                var bucket = tasksByFireDay[key] ?? (label: tier.label, tasks: [])
+                bucket.tasks.append(task)
+                tasksByFireDay[key] = bucket
+            }
         }
 
-        // Schedule ONE digest notification per unique fire day
-        for (fireDay, dayTasks) in tasksByFireDay {
+        // Schedule ONE digest notification per unique (fire day, tier) bucket
+        for (fireDay, bucket) in tasksByFireDay {
             let content = UNMutableNotificationContent()
-            let count = dayTasks.count
+            let count = bucket.tasks.count
+            let dayTasks = bucket.tasks
+            let when = bucket.label
 
             if count == 1 {
                 let name = dayTasks[0].institutionName ?? dayTasks[0].title
-                content.title = "Address update due soon"
-                content.body = "\(name) needs your new address in 3 days."
+                content.title = when == "today" ? "Address update due today" : "Address update due soon"
+                content.body = "\(name) needs your new address \(when)."
             } else {
                 // List up to 3 task names, then summarise the rest
                 let names = dayTasks.prefix(3).map { $0.institutionName ?? $0.title }
                 let listed = names.joined(separator: ", ")
                 let extra = count > 3 ? " and \(count - 3) more" : ""
-                content.title = "\(count) address updates due soon"
-                content.body = "\(listed)\(extra) — all due in 3 days."
+                content.title = when == "today" ? "\(count) address updates due today" : "\(count) address updates due soon"
+                content.body = "\(listed)\(extra) — all due \(when)."
             }
 
             content.sound = .default
@@ -176,5 +199,70 @@ final class SmartReminderService {
             let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
             center.add(request)
         }
+    }
+
+    // MARK: - Re-engagement (win-back) reminder
+    //
+    // Every other channel is keyed to a task's due date. This one is keyed to the user
+    // going quiet: rescheduled forward every time the dashboard loads, so it only ever
+    // fires during a real gap in engagement — if the user reopens the app before it
+    // fires, this call replaces it with a new one further out.
+
+    func scheduleReengagementReminder(openTaskCount: Int, daysUntilMove: Int) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["ReengagementReminder"])
+
+        // Nothing to come back for, or the move already happened — digest/post-move
+        // channels cover those cases instead.
+        guard openTaskCount > 0, daysUntilMove > 0 else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Still there?"
+        content.body = openTaskCount == 1
+            ? "You have 1 address update still open, and moving day is in \(daysUntilMove) days."
+            : "You have \(openTaskCount) address updates still open, and moving day is in \(daysUntilMove) days."
+        content.sound = .default
+        content.categoryIdentifier = "DigestReminder"
+        content.userInfo = ["action": "openDashboard"]
+
+        // Closer to the move, a quiet spell matters faster — shrink the window from
+        // 4 days down to 1 as daysUntilMove runs out.
+        let delayDays = max(1, min(4, daysUntilMove / 3))
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(delayDays * 86400), repeats: false)
+        let request = UNNotificationRequest(identifier: "ReengagementReminder", content: content, trigger: trigger)
+        center.add(request)
+    }
+
+    // MARK: - Post-move check-in
+    //
+    // The one channel that must NOT depend on the user reopening the app to stay
+    // primed — its whole purpose is winning back someone who has stopped engaging
+    // right around the moment the move itself starts to feel "done." Scheduled once
+    // whenever the dashboard loads with a future move date; since it's a single
+    // calendar-triggered request already queued with the OS, it still fires two weeks
+    // after move day even if the app is never opened again before then.
+
+    func schedulePostMoveCheckIn(moveDate: Date) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["PostMoveCheckIn"])
+
+        let calendar = Calendar.current
+        guard let fireDate = calendar.date(byAdding: .day, value: 14, to: moveDate),
+              fireDate > Date() else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "How did the move go?"
+        content.body = "Check off anything you've finished — we'll remind you about what's still open."
+        content.sound = .default
+        content.categoryIdentifier = "DigestReminder"
+        content.userInfo = ["action": "openDashboard"]
+
+        var triggerDate = calendar.dateComponents([.year, .month, .day], from: fireDate)
+        triggerDate.hour = 11
+        triggerDate.minute = 0
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerDate, repeats: false)
+        let request = UNNotificationRequest(identifier: "PostMoveCheckIn", content: content, trigger: trigger)
+        center.add(request)
     }
 }

@@ -34,6 +34,11 @@ final class Move {
     // Location consent — set when user grants 30-day location access
     var locationConsentGrantedAt: Date?
 
+    // Set the first time every task is completed, so the celebration finale
+    // (confetti + review prompt) fires once per move, not on every dashboard
+    // load while the completion state happens to still be 100%.
+    var completionCelebratedAt: Date?
+
     init(
         anchorDate: Date,
         originZip: String?,

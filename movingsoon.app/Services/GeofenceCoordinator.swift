@@ -35,6 +35,8 @@ final class GeofenceCoordinator {
         case .hotel:         return "hotel resort"
         case .rentalCar:     return "car rental Hertz Enterprise Avis"
         case .autoRepair:    return "auto repair shop mechanic"
+        case .movieTheater:  return "movie theater cinema"
+        case .museum:        return "museum"
         case .other:         return "address update"
         }
     }
@@ -57,6 +59,8 @@ final class GeofenceCoordinator {
             .filter { $0.status == .toDo && $0.poiCategory != nil }
             .sorted { $0.tMinusDays < $1.tMinusDays }  // most urgent first
             .prefix(Self.maxGeofences)
+
+        logger.debug("GeofenceCoordinator: syncGeofences called with \(tasks.count) total tasks, \(pendingPOITasks.count) pending-POI candidates, destination=\(destinationCoordinate.latitude),\(destinationCoordinate.longitude)")
 
         for task in pendingPOITasks {
             guard let category = task.poiCategory else { continue }
@@ -81,6 +85,7 @@ final class GeofenceCoordinator {
 
             manager.startMonitoring(for: region)
             registeredRegionIDs.insert(task.id.uuidString)
+            logger.debug("GeofenceCoordinator: ✅ registered geofence for '\(task.title)' (\(category.rawValue)) at \(coordinate.latitude),\(coordinate.longitude)")
         }
     }
 
@@ -105,7 +110,61 @@ final class GeofenceCoordinator {
         registeredRegionIDs.removeAll()
     }
 
+    // MARK: - Visit-triggered category matching (citywide, not destination-bound)
+
+    /// Matches a `CLVisit` coordinate against a set of candidate POI categories — used by
+    /// `LocationManager.didVisit` to identify what kind of place the user just dwelled at,
+    /// anywhere, not just near the destination. Reuses the same query strings as
+    /// `syncGeofences` rather than reverse-classifying via `MKPointOfInterestCategory`,
+    /// which doesn't cover categories like DMV, bookstore, or hardware store at all.
+    ///
+    /// - Parameter candidateCategories: Distinct `poiCategory` values drawn from the move's
+    ///   pending tasks — checked in order, first confident match wins.
+    /// - Returns: The matched category, or nil if nothing resolved within `matchRadius` of
+    ///   the visit coordinate.
+    func matchVisitCategory(
+        at coordinate: CLLocationCoordinate2D,
+        candidateCategories: [POICategory]
+    ) async -> POICategory? {
+        // A visit's coordinate is the system's own estimate of where the user dwelled, not a
+        // GPS pin on the door — 75m keeps this from matching an unrelated place a block away.
+        let matchRadius: CLLocationDistance = 75
+
+        for category in candidateCategories {
+            let query = Self.searchQuery(for: category)
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            request.region = MKCoordinateRegion(center: coordinate, latitudinalMeters: 150, longitudinalMeters: 150)
+
+            do {
+                let response = try await MKLocalSearch(request: request).start()
+                guard let match = response.mapItems.first else { continue }
+                let matchLocation = CLLocation(
+                    latitude: match.placemark.coordinate.latitude,
+                    longitude: match.placemark.coordinate.longitude
+                )
+                let visitLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                if matchLocation.distance(from: visitLocation) <= matchRadius {
+                    return category
+                }
+            } catch {
+                logger.debug("GeofenceCoordinator: visit-match search failed for '\(query)': \(error.localizedDescription)")
+            }
+        }
+        return nil
+    }
+
     // MARK: - MKLocalSearch resolution
+
+    /// `MKLocalSearch.Request.region` is only a ranking *bias*, not a hard filter — for
+    /// some natural-language queries (confirmed live for "doctor physician clinic") MapKit
+    /// can rank a nationally/oddly-matched result above anything actually near the
+    /// requested region, returning a coordinate hundreds or thousands of km away. A
+    /// geofence built from that is dead weight at best (a Denver move will never cross it)
+    /// and, if the user is ever coincidentally near that real place, an actively wrong
+    /// notification at worst. 50km comfortably covers even large metro areas while
+    /// rejecting cross-country mismatches.
+    private static let maxResultDistanceFromBias: CLLocationDistance = 50_000
 
     private func resolveCoordinate(
         query: String,
@@ -123,7 +182,16 @@ final class GeofenceCoordinator {
         do {
             let search = MKLocalSearch(request: request)
             let response = try await search.start()
-            return response.mapItems.first?.placemark.coordinate
+            guard let result = response.mapItems.first?.placemark.coordinate else { return nil }
+
+            let biasLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            let resultLocation = CLLocation(latitude: result.latitude, longitude: result.longitude)
+            let distance = resultLocation.distance(from: biasLocation)
+            guard distance <= Self.maxResultDistanceFromBias else {
+                logger.debug("GeofenceCoordinator: MKLocalSearch result for '\(query)' was \(Int(distance / 1000))km from the bias point — discarding as a mismatch")
+                return nil
+            }
+            return result
         } catch {
             logger.debug("GeofenceCoordinator: MKLocalSearch error for '\(query)': \(error.localizedDescription)")
             return nil

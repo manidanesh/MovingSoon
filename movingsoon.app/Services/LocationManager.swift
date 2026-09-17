@@ -18,7 +18,24 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     // MARK: - Injected dependencies
 
     /// Set by the dashboard after the Move is loaded from SwiftData.
-    var move: Move?
+    var move: Move? {
+        didSet {
+            // Closes a real startup race: didEnterRegion (and didVisit) can fire before
+            // this is set — confirmed live, logged as "didEnterRegion fired but move is
+            // nil" — most plausibly exactly when the OS relaunches the app in the
+            // background because of the very region crossing this feature exists to
+            // catch. That event used to be silently dropped with no way to recover it.
+            // requestState(for:) is CoreLocation's own sanctioned way to ask "am I
+            // currently inside this region right now" — if the answer is yes, the user
+            // likely hasn't left since the dropped entry, so didDetermineState below
+            // reprocesses it as a fresh entry.
+            if oldValue == nil, move != nil {
+                for region in manager.monitoredRegions {
+                    manager.requestState(for: region)
+                }
+            }
+        }
+    }
     var cooldownStore = CooldownStore()
     var geofenceCoordinator = GeofenceCoordinator()
     var reminderService = SmartReminderService()
@@ -81,6 +98,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+        logger.debug("LocationManager: authorizationStatus changed to \(String(describing: manager.authorizationStatus)) (raw=\(manager.authorizationStatus.rawValue)), move=\(self.move != nil), consentAlreadySet=\(self.move?.locationConsentGrantedAt != nil)")
 
         switch manager.authorizationStatus {
         case .authorizedAlways:
@@ -93,10 +111,18 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             syncGeofencesIfActive()
 
         case .authorizedWhenInUse:
-            // Escalate to Always so the system's upgrade dialog appears. Guarded to fire once.
+            // Escalate to Always so the system's upgrade dialog appears. Guarded to fire once —
+            // CoreLocation itself only ever presents this dialog once per install; a repeat call
+            // silently does nothing, so if the user misses/declines it here, LocationAlwaysUpgradeCard
+            // (ZenDashboardView) is the only remaining path back in, via Settings.
             if !hasRequestedAlwaysUpgrade {
                 hasRequestedAlwaysUpgrade = true
-                manager.requestAlwaysAuthorization()
+                // Firing this the instant the WhenInUse alert closes has been observed to make iOS
+                // silently skip showing the Always dialog at all — a short delay avoids stacking
+                // it directly behind the system alert the user just dismissed.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    manager.requestAlwaysAuthorization()
+                }
             }
             // Attempt sync anyway — it's a no-op until locationConsentGrantedAt is set.
             syncGeofencesIfActive()
@@ -120,9 +146,26 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         guard let circularRegion = region as? CLCircularRegion else { return }
         guard let move else {
-            logger.error("LocationManager: didEnterRegion fired but move is nil")
+            // Not silently lost — see the `move` didSet above, which asks CoreLocation
+            // whether we're still inside every monitored region as soon as `move`
+            // becomes available, catching exactly this case.
+            logger.error("LocationManager: didEnterRegion fired but move is nil — will re-check once move is set")
             return
         }
+        handleRegionEntry(circularRegion, move: move)
+    }
+
+    // MARK: - CLLocationManagerDelegate — recovers entries missed while move was nil
+
+    func locationManager(_ manager: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
+        guard state == .inside,
+              let circularRegion = region as? CLCircularRegion,
+              let move else { return }
+        logger.debug("LocationManager: requestState confirms still inside \(circularRegion.identifier) — reprocessing as entry")
+        handleRegionEntry(circularRegion, move: move)
+    }
+
+    private func handleRegionEntry(_ circularRegion: CLCircularRegion, move: Move) {
         // Prefer a live fix, but fall back to the region's own center — didEnterRegion firing
         // already proves we're within its radius, and GeofenceCoordinator only ever places
         // regions near the destination, so the center is a sound stand-in for the distance
@@ -161,10 +204,93 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
             return
         }
 
-        // All gates passed — fire the notification and record the cooldown
-        reminderService.fireLocationNotification(task: task, poiCategory: poiCategory)
+        // Record the cooldown synchronously, immediately — not after the async budget
+        // check/fire below. Multiple tasks in the same POI category can share one
+        // real-world building (e.g. a DMV office that also handles vehicle registration
+        // and emissions inspection) and register overlapping geofences at the same
+        // coordinate; didEnterRegion then fires once per overlapping region in the same
+        // instant. Recording the cooldown only after an awaited step left a window where
+        // a second/third synchronous shouldFire check for the same category — running
+        // before the first call's Task had gotten around to recording anything — would
+        // read the cooldown gate as still open, letting all of them through. Confirmed
+        // live: three same-category geofences at one coordinate fired three notifications
+        // instead of the one the cooldown gate exists to guarantee.
         cooldownStore.record(category: poiCategory, date: Date())
-        logger.debug("LocationManager: ✅ fired notification for '\(poiCategory.rawValue)'")
+
+        Task { @MainActor in
+            guard await NotificationBudget.hasRoomToday() else {
+                logger.debug("LocationManager: notification budget exhausted — suppressing '\(poiCategory.rawValue)'")
+                return
+            }
+            // All gates passed — fire the notification
+            self.reminderService.fireLocationNotification(task: task, poiCategory: poiCategory)
+            logger.debug("LocationManager: ✅ fired notification for '\(poiCategory.rawValue)'")
+        }
+    }
+
+    // MARK: - CLLocationManagerDelegate — visit detection (citywide, not destination-bound)
+
+    /// Unlike `didEnterRegion` (fixed geofences pre-resolved near the destination, capped at
+    /// 20), `didVisit` fires anywhere the user actually dwells — driving around town, at the
+    /// old apartment, wherever — via CoreLocation's lowest-power "did the user stop somewhere"
+    /// detection. It doesn't tell us *what* is there, so GeofenceCoordinator resolves that
+    /// afterward against only the categories we actually have a pending task for.
+    func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        guard let move else {
+            logger.error("LocationManager: didVisit fired but move is nil")
+            return
+        }
+
+        let candidateCategories = Array(Set(
+            move.tasks.compactMap { task -> POICategory? in
+                guard task.status == .toDo, !task.isMuted else { return nil }
+                return task.poiCategory
+            }
+        ))
+        guard !candidateCategories.isEmpty else { return }
+
+        let coordinate = visit.coordinate
+        logger.debug("LocationManager: visit reported at \(coordinate.latitude), \(coordinate.longitude)")
+
+        Task { @MainActor in
+            guard let poiCategory = await self.geofenceCoordinator.matchVisitCategory(
+                at: coordinate,
+                candidateCategories: candidateCategories
+            ) else {
+                logger.debug("LocationManager: visit did not match any pending POI category")
+                return
+            }
+
+            guard let move = self.move,
+                  let task = move.tasks.first(where: { $0.status == .toDo && $0.poiCategory == poiCategory }) else { return }
+
+            let context = SuppressionEngine.Context(
+                move: move,
+                poiCategory: poiCategory,
+                cooldownStore: self.cooldownStore,
+                now: Date(),
+                userLocation: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
+                destinationCoordinate: coordinate // unused — shouldFireForVisit skips the distance gate
+            )
+
+            guard SuppressionEngine.shouldFireForVisit(context: context) else {
+                logger.debug("LocationManager: suppression engine blocked visit notification for '\(poiCategory.rawValue)'")
+                return
+            }
+
+            // Recorded immediately, before the awaited budget check — see the matching
+            // comment in didEnterRegion for why this ordering matters (closes the same
+            // class of race for a second visit reported before this one's Task finishes).
+            self.cooldownStore.record(category: poiCategory, date: Date())
+
+            guard await NotificationBudget.hasRoomToday() else {
+                logger.debug("LocationManager: notification budget exhausted — suppressing visit notification for '\(poiCategory.rawValue)'")
+                return
+            }
+
+            self.reminderService.fireLocationNotification(task: task, poiCategory: poiCategory)
+            logger.debug("LocationManager: ✅ fired visit-triggered notification for '\(poiCategory.rawValue)'")
+        }
     }
 
     // MARK: - CLLocationManagerDelegate — monitoring errors
@@ -184,6 +310,7 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         if expired {
             logger.debug("LocationManager: consent window expired — removing all geofences")
             geofenceCoordinator.removeAllGeofences(manager: manager)
+            manager.stopMonitoringVisits()
             cooldownStore.clearAll()
         }
     }
@@ -195,6 +322,13 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         guard let move else { return }
         guard let grantedAt = move.locationConsentGrantedAt,
               SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: Date()) else { return }
+
+        // Visit monitoring covers anywhere the user dwells (see didVisit), complementing the
+        // destination-only geofences below. Like region monitoring, it needs Always
+        // authorization for background delivery; CLLocationManager just no-ops otherwise.
+        if authorizationStatus == .authorizedAlways {
+            manager.startMonitoringVisits()
+        }
 
         // Resolve destination coordinate — prefer geocoded, fall back to ZIP centroid
         let destinationCoordinate = move.destinationCoordinate

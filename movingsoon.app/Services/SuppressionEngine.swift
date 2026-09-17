@@ -55,6 +55,36 @@ enum SuppressionEngine {
         return true
     }
 
+    /// Same evaluator as `shouldFire`, minus the distance gate — used for `CLVisit`-triggered
+    /// notifications, which can happen anywhere the user actually dwelled, not just near the
+    /// destination. A visit is already a strong relevance signal on its own (the system only
+    /// reports a visit after the user stayed somewhere), so the destination-radius check that
+    /// exists to keep destination-anchored geofences from over-firing doesn't apply here.
+    static func shouldFireForVisit(context: Context) -> Bool {
+        guard consentExpiryGatePasses(
+            grantedAt: context.move.locationConsentGrantedAt,
+            now: context.now
+        ) else { return false }
+
+        guard completionGatePasses(fraction: context.move.completionFraction) else { return false }
+
+        guard timeOfDayGatePasses(now: context.now) else { return false }
+
+        guard taskRelevanceGatePasses(
+            tasks: context.move.tasks,
+            category: context.poiCategory,
+            now: context.now
+        ) else { return false }
+
+        guard cooldownGatePasses(
+            store: context.cooldownStore,
+            category: context.poiCategory,
+            now: context.now
+        ) else { return false }
+
+        return true
+    }
+
     // MARK: - Individual gate evaluators (internal for testing)
 
     /// Gate 1: Consent must be granted and not expired (within 30 days).

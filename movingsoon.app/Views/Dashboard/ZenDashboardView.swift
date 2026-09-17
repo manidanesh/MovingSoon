@@ -3,6 +3,7 @@ import SwiftUI
 import SwiftData
 import CoreLocation
 import MessageUI
+import StoreKit
 
 struct ZenDashboardView: View {
     let move: Move
@@ -18,6 +19,12 @@ struct ZenDashboardView: View {
     // Smart Location Reminders
     @State private var locationManager = LocationManager()
     @State private var consentCardDismissed = false
+    @State private var alwaysUpgradeCardDismissed = false
+
+    // Notification tap routing — see NotificationRouter for why this can't be handled
+    // directly by NotificationDelegate.
+    private let notificationRouter = NotificationRouter.shared
+    @State private var notificationActionTask: ChecklistTask?
 
     // Navigation
     /// Single, atomically-set value for the All Tasks sheet — replaced a pair of
@@ -46,8 +53,13 @@ struct ZenDashboardView: View {
     @State private var undoVisible: Bool = false
     @State private var undoTimer: Timer? = nil
 
-    // Celebration (unused but kept for overlay compatibility)
-    @State private var celebrationTask: ChecklistTask? = nil
+    // "Not Applicable" undo support — same grace-period shape as completion above
+    @State private var lastRemovedTask: ChecklistTask? = nil
+    @State private var removeUndoVisible: Bool = false
+    @State private var removeUndoTimer: Timer? = nil
+
+    // Whole-move completion finale — fires once per move (see Move.completionCelebratedAt)
+    @State private var showingCompletionCelebration = false
 
     // MARK: - Consent card visibility predicate
     //
@@ -66,6 +78,17 @@ struct ZenDashboardView: View {
         // Only show when permission is not yet granted
         let status = locationManager.authorizationStatus
         return status == .notDetermined || status == .denied
+    }
+
+    /// True when consent was granted and is still active, but authorization never made it
+    /// past "While Using" — CoreLocation's one-shot Always-upgrade dialog was missed or
+    /// declined, so background geofence delivery is effectively dead until the user opens
+    /// Settings. See LocationAlwaysUpgradeCard.
+    private var needsAlwaysUpgrade: Bool {
+        guard let grantedAt = move.locationConsentGrantedAt else { return false }
+        guard SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: Date()) else { return false }
+        guard !alwaysUpgradeCardDismissed else { return false }
+        return locationManager.authorizationStatus == .authorizedWhenInUse
     }
 
     // 1. Sort pending tasks by urgency (tMinusDays relative to anchorDate).
@@ -279,6 +302,12 @@ struct ZenDashboardView: View {
                                 Text(context)
                                     .themeText(12, weight: .medium)
                                     .foregroundColor(overdueCount > 0 ? Theme.priorityCritical : Theme.textSecondary)
+                            } else if move.completedCount > 0, move.totalCount > move.completedCount {
+                                // Loss-aversion framing once there's real progress to protect —
+                                // a bare percentage doesn't give the user anything to lose.
+                                Text("\(move.completedCount) of \(move.totalCount) done — don't let the last \(move.totalCount - move.completedCount) slip")
+                                    .themeText(13, weight: .regular)
+                                    .foregroundColor(Theme.textSecondary)
                             } else {
                                 Text("\(Int(move.completionFraction * 100))% complete")
                                     .themeText(13, weight: .regular)
@@ -463,6 +492,17 @@ struct ZenDashboardView: View {
                         .padding(.horizontal, 20)
                     }
 
+                    // MARK: Always-Upgrade Nudge
+                    if needsAlwaysUpgrade {
+                        LocationAlwaysUpgradeCard(onDismiss: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                alwaysUpgradeCardDismissed = true
+                            }
+                        })
+                        .padding(.horizontal, 20)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     // MARK: Contextual Prompt Card
                     if let contextualTask = locationManager.activeContextualTask {
                         ContextualPromptCard(
@@ -621,6 +661,29 @@ struct ZenDashboardView: View {
             EditMoveView(move: move)
                 .preferredColorScheme(.dark)
         }
+        .sheet(item: $notificationActionTask) { task in
+            TaskActionSheet(
+                task: task,
+                onAlreadyDone: {
+                    completeTask(task)
+                    notificationActionTask = nil
+                },
+                onUpdateNow: {
+                    if let url = task.deepLinkURL {
+                        UIApplication.shared.open(url)
+                    }
+                    notificationActionTask = nil
+                },
+                onLater: { notificationActionTask = nil },
+                onNotApplicable: {
+                    removeTaskNotApplicable(task)
+                    notificationActionTask = nil
+                }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
+        }
         .toolbar(.hidden, for: .navigationBar)
         .overlay {
             // #2 — Undo toast
@@ -650,6 +713,87 @@ struct ZenDashboardView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: undoVisible)
         }
+        .overlay {
+            // "Not Applicable" undo toast — same grace-period pattern as completion above,
+            // so a mis-tap doesn't permanently lose a task the way it silently did before.
+            VStack {
+                Spacer()
+                if removeUndoVisible {
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash.fill")
+                            .foregroundColor(Theme.priorityCritical)
+                        Text("Removed from your list")
+                            .themeText(14, weight: .medium)
+                            .foregroundColor(Theme.textPrimary)
+                        Spacer()
+                        Button("Undo") { undoRemoval() }
+                            .themeText(14, weight: .bold)
+                            .foregroundColor(Theme.accentPrimary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Theme.backgroundCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.priorityCritical.opacity(0.3), lineWidth: 1))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: removeUndoVisible)
+        }
+        .overlay {
+            // Whole-move finale — the highest-emotion moment in the app previously did
+            // nothing with itself (a disconnected `celebrationTask` var, a static "All
+            // Caught Up." label). Fires once per move via Move.completionCelebratedAt.
+            if showingCompletionCelebration {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { withAnimation { showingCompletionCelebration = false } }
+                    VStack(spacing: 16) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(Theme.accentSuccess)
+                        Text("Every task is done.")
+                            .themeSerif(26, weight: .bold)
+                            .foregroundColor(Theme.textPrimary)
+                        Text("You handled the whole move — nothing left on the list.")
+                            .themeText(14, weight: .regular)
+                            .foregroundColor(Theme.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                        Button {
+                            withAnimation { showingCompletionCelebration = false }
+                        } label: {
+                            Text("Nice")
+                                .themeText(15, weight: .bold)
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 36)
+                                .padding(.vertical, 12)
+                                .background(Theme.accentSuccess, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
+                    }
+                    .padding(32)
+                    .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 24))
+                    .padding(.horizontal, 32)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+                .transition(.opacity)
+            }
+        }
+        .onChange(of: pendingTasks.isEmpty) { _, isEmpty in
+            guard isEmpty, move.totalCount > 0, move.completionCelebratedAt == nil else { return }
+            move.completionCelebratedAt = Date()
+            modelContext.saveOrLog()
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                showingCompletionCelebration = true
+            }
+            // Right at the peak positive moment, per Apple's own guidance — the OS
+            // throttles how often this can actually show, so calling it is always safe.
+            requestAppStoreReviewIfAppropriate()
+        }
         .task {
             // Fetch live background from Unsplash on load
             if ambientImageURL == nil {
@@ -657,6 +801,20 @@ struct ZenDashboardView: View {
             }
             // Wire the move into LocationManager and check consent expiry
             locationManager.move = move
+            // Covers a real race: locationManagerDidChangeAuthorization can fire (and
+            // often does, immediately on delegate assignment) before this line runs,
+            // so its own `if let move` guard silently no-ops when authorization is
+            // ALREADY .authorizedAlways at cold launch — e.g. any relaunch after the
+            // user accepted the Always-upgrade dialog while the app was backgrounded.
+            // Without this fallback, locationConsentGrantedAt would never get set and
+            // background geofencing/visit reminders would silently never activate,
+            // despite the user having correctly granted the exact permission asked for.
+            // Confirmed live via simulator testing — the delegate callback logged
+            // move=false at the moment authorization was reported as .authorizedAlways.
+            if locationManager.authorizationStatus == .authorizedAlways, move.locationConsentGrantedAt == nil {
+                move.locationConsentGrantedAt = Date()
+                modelContext.saveOrLog()
+            }
             locationManager.checkConsentExpiry()
             // If consent is already active, sync geofences
             locationManager.syncGeofencesIfActive()
@@ -671,13 +829,26 @@ struct ZenDashboardView: View {
             if ProcessInfo.processInfo.environment["SEED_SCREENSHOT_DATA"] != "1" {
                 reminderService.requestPermissions()
             }
-            // Schedule hero task daily reminder
-            reminderService.scheduleHeroTaskReminder(heroTask: heroTask)
-            // Schedule T-minus reminders for tasks due in 3 days
+            // Schedule hero task reminder (escalates to twice-daily in the final 3 days)
+            reminderService.scheduleHeroTaskReminder(heroTask: heroTask, daysUntilMove: move.daysUntilMove)
+            // Schedule T-minus reminders for tasks due soon, plus a same-day tier
             reminderService.scheduleTMinusReminders(tasks: move.tasks, moveDate: move.anchorDate)
+            // Win-back nudge if the user goes quiet — rescheduled forward on every load
+            reminderService.scheduleReengagementReminder(
+                openTaskCount: pendingTasks.count,
+                daysUntilMove: move.daysUntilMove
+            )
+            // One-time check-in two weeks after move day, independent of reopening the app
+            reminderService.schedulePostMoveCheckIn(moveDate: move.anchorDate)
+            // Covers a cold launch triggered by tapping a notification — the router's
+            // value was set before this view existed, so onChange below wouldn't fire.
+            presentPendingNotificationTaskIfNeeded()
         }
         .onChange(of: heroTask?.id) { _, _ in
-            reminderService.scheduleHeroTaskReminder(heroTask: heroTask)
+            reminderService.scheduleHeroTaskReminder(heroTask: heroTask, daysUntilMove: move.daysUntilMove)
+        }
+        .onChange(of: notificationRouter.pendingTaskID) { _, _ in
+            presentPendingNotificationTaskIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             // Stop continuous GPS the moment the app leaves the foreground — geofence
@@ -741,22 +912,49 @@ struct ZenDashboardView: View {
     }
 
     /// A real deletion, not a status change — the task is gone from move.tasks
-    /// and the SwiftData store, so it can't resurface as the hero task, in Up
-    /// Next, or in category progress counts, all of which re-derive their list
-    /// from move.tasks live. Confirmed via ZenHeroCard's confirmationDialog
-    /// before this ever runs. Local notifications and geofences are a separate
-    /// concern — they're OS-level state scheduled with baked-in content, not
-    /// re-derived on read — so resyncNotificationsAndGeofences() below handles
-    /// those explicitly.
+    /// and (after the undo grace period below) the SwiftData store, so it can't
+    /// resurface as the hero task, in Up Next, or in category progress counts,
+    /// all of which re-derive their list from move.tasks live. Confirmed via
+    /// ZenHeroCard's confirmationDialog before this ever runs. Local notifications
+    /// and geofences are a separate concern — they're OS-level state scheduled
+    /// with baked-in content, not re-derived on read — so
+    /// resyncNotificationsAndGeofences() below handles those explicitly.
+    ///
+    /// The actual `modelContext.delete` is deferred until the 4-second undo toast
+    /// expires — same shape as completeTask/undoLastCompletion — since a mis-tap
+    /// here was previously unrecoverable while a mis-tapped completion wasn't.
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         withAnimation {
             move.tasks.removeAll { $0.id == task.id }
-            modelContext.delete(task)
             modelContext.saveOrLog()
         }
         resyncNotificationsAndGeofences()
+
+        lastRemovedTask = task
+        withAnimation(.spring(response: 0.4)) { removeUndoVisible = true }
+        removeUndoTimer?.invalidate()
+        removeUndoTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) { removeUndoVisible = false }
+            if let pending = lastRemovedTask {
+                modelContext.delete(pending)
+                modelContext.saveOrLog()
+            }
+            lastRemovedTask = nil
+        }
+    }
+
+    private func undoRemoval() {
+        guard let task = lastRemovedTask else { return }
+        removeUndoTimer?.invalidate()
+        withAnimation(.spring(response: 0.4)) { removeUndoVisible = false }
+        withAnimation {
+            move.tasks.append(task)
+            modelContext.saveOrLog()
+        }
+        resyncNotificationsAndGeofences()
+        lastRemovedTask = nil
     }
 
     /// Re-derives the T-minus digest queue and geofence regions from the current
@@ -769,6 +967,20 @@ struct ZenDashboardView: View {
     private func resyncNotificationsAndGeofences() {
         reminderService.scheduleTMinusReminders(tasks: move.tasks, moveDate: move.anchorDate)
         locationManager.syncGeofencesIfActive()
+    }
+
+    private func requestAppStoreReviewIfAppropriate() {
+        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+            SKStoreReviewController.requestReview(in: scene)
+        }
+    }
+
+    /// Consumes a task ID dropped by NotificationRouter (from a tapped notification)
+    /// and presents the same TaskActionSheet used for in-dashboard taps.
+    private func presentPendingNotificationTaskIfNeeded() {
+        guard let taskID = notificationRouter.pendingTaskID else { return }
+        notificationRouter.pendingTaskID = nil
+        notificationActionTask = move.tasks.first(where: { $0.id == taskID })
     }
 
     private func triggerAgenticAction(for task: ChecklistTask) {

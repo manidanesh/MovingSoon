@@ -127,3 +127,67 @@ struct LocationConsentCard: View {
     }
     .preferredColorScheme(.dark)
 }
+
+/// Shown when consent was granted but authorization never escalated past "While Using."
+/// CoreLocation only ever shows the WhenInUse → Always upgrade dialog once automatically
+/// (see LocationManager.locationManagerDidChangeAuthorization) — if that was missed or
+/// declined, a silent background system with no visible reminders looks like a bug rather
+/// than a permission the user can still fix, so this surfaces the fix (Settings) directly.
+struct LocationAlwaysUpgradeCard: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .themeText(15, weight: .semibold)
+                .foregroundColor(Theme.priorityCritical)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Background reminders are off")
+                    .themeText(13, weight: .semibold)
+                    .foregroundColor(Theme.textPrimary)
+                Text("Location access is set to \u{201C}While Using\u{201D} — nearby reminders only fire while the app is open. Switch to \u{201C}Always\u{201D} in Settings to get them in the background.")
+                    .themeText(12, weight: .regular)
+                    .foregroundColor(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Open Settings")
+                        .themeText(13, weight: .semibold)
+                        .foregroundColor(Theme.accentPrimary)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .themeText(11, weight: .medium)
+                    .foregroundColor(Theme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(14)
+        .background(Theme.backgroundElevated.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Theme.priorityCritical.opacity(0.25), lineWidth: 1)
+        )
+    }
+}
+
+#Preview("Always upgrade nudge") {
+    ZStack {
+        Color.black.ignoresSafeArea()
+        LocationAlwaysUpgradeCard(onDismiss: { print("Dismiss tapped") })
+            .padding(24)
+    }
+    .preferredColorScheme(.dark)
+}
