@@ -16,6 +16,10 @@ struct CoreIntakeView: View {
     @State private var selectedDestination: NeighborhoodResult? = nil
     @State private var isLoadingDestination = false
     @State private var destGeocodeTask: Task<Void, Never>? = nil
+    /// True when a well-formed ZIP/postal code resolved to zero neighborhoods — the user
+    /// can still continue (the app falls back to a ZIP-prefix centroid), but silently
+    /// saying nothing left them with no idea their code wasn't recognized.
+    @State private var destinationLookupFailed = false
 
     // Neighborhood search state — origin
     @State private var originNeighborhoods: [NeighborhoodResult] = []
@@ -29,10 +33,26 @@ struct CoreIntakeView: View {
     private var isCurrentStepValid: Bool {
         switch step {
         case 0: return true
-        case 1: return destinationZip.count == 5
+        case 1: return Self.isValidPostalCode(destinationZip)
         case 2: return true // origin optional
         default: return false
         }
+    }
+
+    /// Accepts a 5-digit US ZIP or a 6-character Canadian postal code (letter-digit-letter
+    /// -digit-letter-digit, e.g. "K1A 0B1"), space optional, case-insensitive. Both ZIP
+    /// fields need this — a numeric-only keyboard plus a `count == 5` check previously
+    /// made it impossible to type a Canadian code at all, even though the rest of the app
+    /// (province detection, the Canadian catalog) already handles one correctly once entered.
+    static func isValidPostalCode(_ raw: String) -> Bool {
+        let clean = raw.replacingOccurrences(of: " ", with: "").uppercased()
+        if clean.count == 5, clean.allSatisfy(\.isNumber) { return true }
+        if clean.count == 6 {
+            let c = Array(clean)
+            return c[0].isLetter && c[1].isNumber && c[2].isLetter
+                && c[3].isNumber && c[4].isLetter && c[5].isNumber
+        }
+        return false
     }
 
     var body: some View {
@@ -76,8 +96,9 @@ struct CoreIntakeView: View {
         .onChange(of: destinationZip) { _, newZip in
             selectedDestination = nil
             destinationNeighborhoods = []
+            destinationLookupFailed = false
             destGeocodeTask?.cancel()
-            guard newZip.count == 5 else { isLoadingDestination = false; return }
+            guard Self.isValidPostalCode(newZip) else { isLoadingDestination = false; return }
             isLoadingDestination = true
             destGeocodeTask = Task {
                 let results = await GeocoderService.neighborhoods(for: newZip)
@@ -87,6 +108,7 @@ struct CoreIntakeView: View {
                         // Auto-select if there's exactly one result
                         if results.count == 1 { selectedDestination = results.first }
                         isLoadingDestination = false
+                        destinationLookupFailed = results.isEmpty
                     }
                 }
             }
@@ -95,7 +117,7 @@ struct CoreIntakeView: View {
         .onChange(of: originZip) { _, newZip in
             selectedOrigin = nil
             originNeighborhoods = []
-            guard newZip.count == 5 else { isLoadingOrigin = false; return }
+            guard Self.isValidPostalCode(newZip) else { isLoadingOrigin = false; return }
             isLoadingOrigin = true
             Task {
                 let results = await GeocoderService.neighborhoods(for: newZip)
@@ -176,15 +198,26 @@ struct CoreIntakeView: View {
                         .textCase(.uppercase)
                         .tracking(1.5)
 
-                    TextField("e.g. 80202", text: $destinationZip)
-                        .keyboardType(.numberPad)
+                    TextField("e.g. 80202 or K1A 0B1", text: $destinationZip)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundColor(Theme.textPrimary)
                         .padding(16)
                         .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
                         .onChange(of: destinationZip) { _, v in
-                            if v.count > 5 { destinationZip = String(v.prefix(5)) }
+                            // 7, not 6: a Canadian postal code plus its optional space.
+                            if v.count > 7 { destinationZip = String(v.prefix(7)) }
                         }
+
+                    if destinationLookupFailed {
+                        Text("We couldn't recognize that code — double check it, or continue anyway and add your neighborhood later.")
+                            .font(.system(size: 12.5))
+                            .foregroundColor(Theme.priorityCritical)
+                            .lineSpacing(2)
+                            .transition(.opacity)
+                    }
                 }
 
                 // Neighborhood picker
@@ -246,14 +279,16 @@ struct CoreIntakeView: View {
                         .textCase(.uppercase)
                         .tracking(1.5)
 
-                    TextField("e.g. 90210", text: $originZip)
-                        .keyboardType(.numberPad)
+                    TextField("e.g. 90210 or K1A 0B1", text: $originZip)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundColor(Theme.textPrimary)
                         .padding(16)
                         .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
                         .onChange(of: originZip) { _, v in
-                            if v.count > 5 { originZip = String(v.prefix(5)) }
+                            if v.count > 7 { originZip = String(v.prefix(7)) }
                         }
                 }
 
@@ -275,7 +310,7 @@ struct CoreIntakeView: View {
 
             HStack(spacing: 12) {
                 backButton { retreat() }
-                continueButton(originZip.count == 5 ? "Let's go →" : "Skip for now →") {
+                continueButton(Self.isValidPostalCode(originZip) ? "Let's go →" : "Skip for now →") {
                     completeIntake()
                 }
             }
@@ -416,7 +451,7 @@ struct CoreIntakeView: View {
         let (state, city) = ZipBucketService.bucket(zip: destinationZip)
         let move = Move(
             anchorDate: anchorDate,
-            originZip: originZip.count == 5 ? originZip : nil,
+            originZip: Self.isValidPostalCode(originZip) ? originZip : nil,
             originNeighborhood: selectedOrigin?.fullLabel,
             destinationZip: destinationZip,
             destinationNeighborhood: selectedDestination?.fullLabel,
