@@ -80,8 +80,8 @@ First release. Personalized moving address checklist with smart location reminde
 ---
 
 ## Review Notes for Apple
-This app helps users update their address with services when they move. The location permission is used to send proximity-based reminders when the user is near a bank, DMV, or other relevant location. Location access is time-limited to 30 days and is entirely optional — the app works fully without it.
+This app helps users update their address with services when they move. Location access is used two ways, both to send proximity-based reminders relevant to the user's pending address-change tasks: (1) a small number of specific places near the user's destination are monitored directly, and (2) Apple's low-power visit-detection API (`CLVisit`/`startMonitoringVisits`) is used to recognize relevant places anywhere the user goes, not only near the destination — this is why the app requests "Always" rather than "While Using" authorization. Location access is time-limited to a 30-day consent window and is entirely optional — the app works fully without it. No continuous background GPS is used; both mechanisms are Apple's low-power, event-driven APIs (region monitoring and visit detection).
 
 No login or account is required. All data is stored on-device using SwiftData.
 
-Test the app by entering any US ZIP code (e.g. 90210 for Beverly Hills, 80202 for Denver) and a future move date.
+Test the app by entering any US ZIP code (e.g. 90210 for Beverly Hills, 80202 for Denver) or Canadian postal code (e.g. K1A 0B1 for Ottawa) and a future move date.
