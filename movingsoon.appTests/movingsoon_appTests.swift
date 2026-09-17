@@ -197,6 +197,78 @@ struct ShouldFireEvaluatorTests {
     }
 }
 
+@Suite("SuppressionEngine — shouldFireForVisit (citywide, no distance gate)")
+struct ShouldFireForVisitEvaluatorTests {
+
+    private func makeMove() -> Move {
+        let move = Move(anchorDate: Date().addingTimeInterval(30 * 86400),
+                         originZip: "80202",
+                         destinationZip: "80202",
+                         destinationStateBucket: "CO",
+                         destinationCityBucket: "DENVER")
+        move.locationConsentGrantedAt = Date()
+        return move
+    }
+
+    private func makePOITask(move: Move, category: POICategory, status: TaskStatus = .toDo) -> ChecklistTask {
+        let task = ChecklistTask(title: "Test Task", category: .financial,
+                                  priority: .medium, tMinusDays: 0)
+        task.poiCategory = category
+        task.statusRaw = status.rawValue
+        task.move = move
+        return task
+    }
+
+    private func makeDate(hour: Int, minute: Int = 0) -> Date {
+        var c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        c.hour = hour; c.minute = minute; c.second = 0
+        return Calendar.current.date(from: c)!
+    }
+
+    /// Far from the destination — shouldFire would reject this, shouldFireForVisit shouldn't.
+    private func makeFarAwayContext(move: Move, category: POICategory, now: Date) -> SuppressionEngine.Context {
+        let farUserLoc = CLLocation(latitude: 40.7128, longitude: -74.0060) // NYC
+        let denverDest = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+        return SuppressionEngine.Context(
+            move: move, poiCategory: category,
+            cooldownStore: CooldownStore(defaults: .init(suiteName: UUID().uuidString)!),
+            now: now, userLocation: farUserLoc, destinationCoordinate: denverDest
+        )
+    }
+
+    @Test func farFromDestination_stillPasses() {
+        let move = makeMove()
+        let task = makePOITask(move: move, category: .gym)
+        move.tasks = [task]
+        let context = makeFarAwayContext(move: move, category: .gym, now: makeDate(hour: 12))
+        #expect(SuppressionEngine.shouldFireForVisit(context: context))
+    }
+
+    @Test func noMatchingTask_fails() {
+        let move = makeMove()
+        move.tasks = []
+        let context = makeFarAwayContext(move: move, category: .museum, now: makeDate(hour: 12))
+        #expect(!SuppressionEngine.shouldFireForVisit(context: context))
+    }
+
+    @Test func outsideTimeWindow_fails() {
+        let move = makeMove()
+        let task = makePOITask(move: move, category: .movieTheater)
+        move.tasks = [task]
+        let context = makeFarAwayContext(move: move, category: .movieTheater, now: makeDate(hour: 22))
+        #expect(!SuppressionEngine.shouldFireForVisit(context: context))
+    }
+
+    @Test func expiredConsent_fails() {
+        let move = makeMove()
+        move.locationConsentGrantedAt = Date().addingTimeInterval(-40 * 86400)
+        let task = makePOITask(move: move, category: .gym)
+        move.tasks = [task]
+        let context = makeFarAwayContext(move: move, category: .gym, now: makeDate(hour: 12))
+        #expect(!SuppressionEngine.shouldFireForVisit(context: context))
+    }
+}
+
 // MARK: - CooldownStore Tests
 
 @Suite("CooldownStore")
