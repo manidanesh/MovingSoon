@@ -42,17 +42,17 @@ extension ItemCatalog {
     static let canadaProvincial: [CatalogItem] = [
         // Ontario
         CatalogItem(id: "service_ontario", title: "ServiceOntario (Health Card & Driver's License)", emoji: "🪪",
-                    category: .government, priority: .critical, tMinusDays: -14,
+                    category: .government, priority: .critical, tMinusDays: 7,
                     deepLinkURL: URL(string: "https://www.ontario.ca/page/serviceontario"),
                     brandColorHex: "#000000",
-                    requires: [.isCanadian, .inOntario]),
-        
+                    requires: [.isCanadian, .inOntario], poiCategory: .dmv),
+
         // British Columbia
         CatalogItem(id: "icbc", title: "ICBC (Driver's License & Auto Insurance)", emoji: "🚗",
-                    category: .government, priority: .critical, tMinusDays: -14,
+                    category: .government, priority: .critical, tMinusDays: 7,
                     deepLinkURL: URL(string: "https://www.icbc.com/"),
                     brandColorHex: "#003366",
-                    requires: [.isCanadian, .inBritishColumbia]),
+                    requires: [.isCanadian, .inBritishColumbia], poiCategory: .dmv),
         CatalogItem(id: "health_bc", title: "Health Insurance BC (MSP)", emoji: "⚕️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www2.gov.bc.ca/gov/content/health/health-drug-coverage/msp"),
@@ -61,10 +61,10 @@ extension ItemCatalog {
 
         // Quebec
         CatalogItem(id: "saaq", title: "SAAQ (Driver's License & Vehicle Registration)", emoji: "🚗",
-                    category: .government, priority: .critical, tMinusDays: -14,
+                    category: .government, priority: .critical, tMinusDays: 7,
                     deepLinkURL: URL(string: "https://saaq.gouv.qc.ca/en/"),
                     brandColorHex: "#003399",
-                    requires: [.isCanadian, .inQuebec]),
+                    requires: [.isCanadian, .inQuebec], poiCategory: .dmv),
         CatalogItem(id: "ramq", title: "RAMQ (Health Insurance)", emoji: "⚕️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www.ramq.gouv.qc.ca/en"),
@@ -73,15 +73,103 @@ extension ItemCatalog {
 
         // Alberta
         CatalogItem(id: "service_alberta", title: "Service Alberta (Registry Agent)", emoji: "🪪",
-                    category: .government, priority: .critical, tMinusDays: -14,
+                    category: .government, priority: .critical, tMinusDays: 7,
                     deepLinkURL: URL(string: "https://www.alberta.ca/service-alberta.aspx"),
                     brandColorHex: "#003366",
-                    requires: [.isCanadian, .inAlberta]),
+                    requires: [.isCanadian, .inAlberta], poiCategory: .dmv),
         CatalogItem(id: "ahcip", title: "AHCIP (Alberta Health Care)", emoji: "⚕️",
                     category: .government, priority: .critical, tMinusDays: -14,
                     deepLinkURL: URL(string: "https://www.alberta.ca/ahcip-update-status.aspx"),
                     brandColorHex: "#003366",
                     requires: [.isCanadian, .inAlberta]),
+
+        // Manitoba — MPI uniquely bundles driver's licence, vehicle registration, and
+        // auto insurance into one crown corporation (same model as ICBC/SAAQ/SGI).
+        CatalogItem(id: "mpi", title: "MPI (Driver's Licence, Registration & Auto Insurance)", emoji: "🚗",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.mpi.mb.ca/"),
+                    brandColorHex: "#00563F",
+                    requires: [.isCanadian, .inManitoba], poiCategory: .dmv),
+        CatalogItem(id: "manitoba_health", title: "Manitoba Health (Health Card)", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    deepLinkURL: URL(string: "https://www.gov.mb.ca/health/"),
+                    brandColorHex: "#004B87",
+                    requires: [.isCanadian, .inManitoba]),
+
+        // Saskatchewan — SGI is the same crown-corp model as MPI/ICBC.
+        CatalogItem(id: "sgi", title: "SGI (Driver's Licence, Registration & Auto Insurance)", emoji: "🚗",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.sgi.sk.ca/"),
+                    brandColorHex: "#00843D",
+                    requires: [.isCanadian, .inSaskatchewan], poiCategory: .dmv),
+        CatalogItem(id: "ehealth_sk", title: "eHealth Saskatchewan (Health Card)", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    deepLinkURL: URL(string: "https://www.ehealthsask.ca/"),
+                    brandColorHex: "#005DAA",
+                    requires: [.isCanadian, .inSaskatchewan]),
+
+        // Nova Scotia
+        CatalogItem(id: "access_ns", title: "Access Nova Scotia (Driver's Licence & Registration)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://novascotia.ca/"),
+                    brandColorHex: "#00205B",
+                    requires: [.isCanadian, .inNovaScotia], poiCategory: .dmv),
+        CatalogItem(id: "msi_ns", title: "MSI — Nova Scotia Health Card", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    brandColorHex: "#00A0DF",
+                    requires: [.isCanadian, .inNovaScotia]),
+
+        // New Brunswick
+        CatalogItem(id: "snb", title: "Service New Brunswick (Driver's Licence & Registration)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www2.snb.ca/"),
+                    brandColorHex: "#00447C",
+                    requires: [.isCanadian, .inNewBrunswick], poiCategory: .dmv),
+        CatalogItem(id: "medicare_nb", title: "New Brunswick Medicare (Health Card)", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    brandColorHex: "#4E9F3D",
+                    requires: [.isCanadian, .inNewBrunswick]),
+
+        // Newfoundland and Labrador
+        CatalogItem(id: "service_nl", title: "Service NL (Driver's Licence & Registration)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.gov.nl.ca/"),
+                    brandColorHex: "#00274D",
+                    requires: [.isCanadian, .inNewfoundland], poiCategory: .dmv),
+        CatalogItem(id: "mcp_nl", title: "MCP — Newfoundland & Labrador Health Card", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    brandColorHex: "#006B54",
+                    requires: [.isCanadian, .inNewfoundland]),
+
+        // Prince Edward Island
+        CatalogItem(id: "access_pei", title: "Access PEI (Driver's Licence & Registration)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.princeedwardisland.ca/"),
+                    brandColorHex: "#C8102E",
+                    requires: [.isCanadian, .inPEI], poiCategory: .dmv),
+        CatalogItem(id: "health_pei", title: "Health PEI (Health Card)", emoji: "⚕️",
+                    category: .government, priority: .critical, tMinusDays: -14,
+                    brandColorHex: "#00563F",
+                    requires: [.isCanadian, .inPEI]),
+
+        // Territories — one combined item each; lower confidence on exact department
+        // names/sub-pages up here, so these link to the territorial government's root
+        // site rather than a guessed deep link.
+        CatalogItem(id: "yukon_gov", title: "Yukon Government Services (Licence & Health Card)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://yukon.ca/"),
+                    brandColorHex: "#003DA5",
+                    requires: [.isCanadian, .inYukon], poiCategory: .dmv),
+        CatalogItem(id: "nwt_gov", title: "NWT Government Services (Licence & Health Care Plan)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.gov.nt.ca/"),
+                    brandColorHex: "#005EB8",
+                    requires: [.isCanadian, .inNorthwestTerritories], poiCategory: .dmv),
+        CatalogItem(id: "nunavut_gov", title: "Nunavut Government Services (Licence & Health Card)", emoji: "🪪",
+                    category: .government, priority: .critical, tMinusDays: 7,
+                    deepLinkURL: URL(string: "https://www.gov.nu.ca/"),
+                    brandColorHex: "#8C1D40",
+                    requires: [.isCanadian, .inNunavut], poiCategory: .dmv),
     ]
 
     // MARK: - 📶 Telecom (The Big 3 + Regional)
@@ -166,6 +254,6 @@ extension ItemCatalog {
                     category: .subscriptions, priority: .medium, tMinusDays: 0,
                     deepLinkURL: URL(string: "https://www.goodlifefitness.com/"),
                     brandColorHex: "#C41230",
-                    requires: [.isCanadian]),
+                    requires: [.isCanadian], poiCategory: .gym),
     ]
 }

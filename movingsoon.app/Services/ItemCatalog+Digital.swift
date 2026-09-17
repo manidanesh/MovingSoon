@@ -194,7 +194,7 @@ extension ItemCatalog {
         CatalogItem(id: "safe_deposit_box", title: "Safe Deposit Box — Update Bank Branch Address", emoji: "🗄️",
                     category: .estate, priority: .medium, tMinusDays: 7,
                     brandColorHex: "#212F3D",
-                    requires: [.hasSafeDepositBox]),
+                    requires: [.hasSafeDepositBox], poiCategory: .bank),
     ]
 
     // MARK: - 🌐 Digital Identity

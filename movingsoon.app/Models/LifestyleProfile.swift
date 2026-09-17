@@ -6,18 +6,15 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasCar
     case hasElectricVehicle
     case usesRideShare          // Uber / Lyft
-    case hasBike                // E-bike / scooter
     case hasMotorcycle
     case hasTollRoads
     case hasMultipleCars
 
     // MARK: - Household
-    case hasPartner
+    case hasPartner       // drives personaKey (youngCouple vs. collegeGrad), not a catalog task
     case hasChildren
     case hasPets
-    case hasRoommates
     case workFromHome
-    case isMultiGenerational    // parents / in-laws in home
 
     // MARK: - Housing
     case isOwning
@@ -114,7 +111,6 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     // MARK: - More / Misc
     case isVeteran
     case hasMedicare
-    case isSelfEmployed
     case hasProfessionalLicenses
     case hasStudentLoans
     case hasMortgage
@@ -134,7 +130,6 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case runsBusiness
     case usesCloudInfrastructure
     case holdsCrypto
-    case frequentTraveler
     case hasTSAPreCheck
     case needsParkingPermit
     case hasAirlineLoyalty
@@ -248,7 +243,6 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasGoogleBusinessProfile
     case usesDomainRegistrar     // GoDaddy, Namecheap, etc.
     case usesPasswordManager     // 1Password, LastPass
-    case hasProfessionalOnlineProfile  // LinkedIn, Behance, etc.
 
     // MARK: - 🌿 Community & Faith
     case attendsReligiousInstitution

@@ -239,6 +239,8 @@ enum POICategory: String, Codable, CaseIterable {
     case hotel         = "Hotel"
     case rentalCar     = "Rental Car Agency"
     case autoRepair    = "Auto Repair Shop"
+    case movieTheater  = "Movie Theater"
+    case museum        = "Museum"
     case other         = "Other"
 
     var displayName: String {
@@ -257,6 +259,8 @@ enum POICategory: String, Codable, CaseIterable {
         case .hotel:         return "hotel"
         case .rentalCar:     return "rental car agency"
         case .autoRepair:    return "auto repair shop"
+        case .movieTheater:  return "movie theater"
+        case .museum:        return "museum"
         case .other:         return "location"
         }
     }

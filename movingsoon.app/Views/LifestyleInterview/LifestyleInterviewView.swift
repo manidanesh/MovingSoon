@@ -207,7 +207,6 @@ final class LifestyleViewModel {
             ChipSection(title: "More Vehicles", chips: [
                 BubbleChip(id: "hasMultipleCars", label: "Multiple Cars", emoji: "🚙", flag: .hasMultipleCars),
                 BubbleChip(id: "hasMotorcycle",   label: "Motorcycle",    emoji: "🏍️", flag: .hasMotorcycle),
-                BubbleChip(id: "hasBike",         label: "E-Bike / Scooter", emoji: "🛴", flag: .hasBike),
             ]),
             ChipSection(title: "Transit Cards", chips: [
                 BubbleChip(id: "hasPrestoCard",      label: "Presto (Ontario)",    emoji: "🚇", flag: .hasPrestoCard),
@@ -231,7 +230,6 @@ final class LifestyleViewModel {
                 BubbleChip(id: "crypto",          label: "Crypto",           emoji: "🪙", flag: .holdsCrypto),
             ]),
             ChipSection(title: "Financial & Professional", chips: [
-                BubbleChip(id: "isSelfEmployed",          label: "Self-Employed",       emoji: "💼", flag: .isSelfEmployed),
                 BubbleChip(id: "hasProfessionalLicenses", label: "Professional License", emoji: "📋", flag: .hasProfessionalLicenses),
                 BubbleChip(id: "hasInvestmentAccounts",   label: "Investment Accounts",  emoji: "📈", flag: .hasInvestmentAccounts),
                 BubbleChip(id: "hasLifeInsurance",        label: "Life Insurance",       emoji: "🛡️", flag: .hasLifeInsurance),
@@ -250,13 +248,9 @@ final class LifestyleViewModel {
         // MARK: New categories — only listed in AddMoreServicesView, so onboarding stays fast
 
         extraChips["household"] = [
-            ChipSection(title: "Who's Moving With You", chips: [
-                BubbleChip(id: "hasPartner",         label: "Partner / Spouse", emoji: "💑", flag: .hasPartner),
-                BubbleChip(id: "hasRoommates",       label: "Roommates",        emoji: "🛋️", flag: .hasRoommates),
-                BubbleChip(id: "isMultiGenerational",label: "Multi-Generational Household", emoji: "👨‍👩‍👧‍👦", flag: .isMultiGenerational),
-                BubbleChip(id: "workFromHome",       label: "Work From Home",   emoji: "💻", flag: .workFromHome),
-            ]),
             ChipSection(title: "Family Accounts", chips: [
+                BubbleChip(id: "hasPartner",          label: "Partner / Spouse", emoji: "💑", flag: .hasPartner),
+                BubbleChip(id: "workFromHome",       label: "Work From Home",   emoji: "💻", flag: .workFromHome),
                 BubbleChip(id: "hasHouseholdHelp",    label: "Household Help",   emoji: "🧹", flag: .hasHouseholdHelp),
                 BubbleChip(id: "has529",              label: "529 College Plan", emoji: "🎓", flag: .has529),
                 BubbleChip(id: "hasFSA",              label: "FSA",              emoji: "⚕️", flag: .hasFSA),
@@ -314,7 +308,6 @@ final class LifestyleViewModel {
 
         extraChips["travel"] = [
             ChipSection(title: "Travel Habits", chips: [
-                BubbleChip(id: "frequentTraveler",   label: "Frequent Traveler",  emoji: "✈️", flag: .frequentTraveler),
                 BubbleChip(id: "needsParkingPermit", label: "Airport Parking Permit", emoji: "🅿️", flag: .needsParkingPermit),
                 BubbleChip(id: "hasAirlineLoyalty",  label: "Other Airline Loyalty", emoji: "✈️", flag: .hasAirlineLoyalty),
                 BubbleChip(id: "hasPension",         label: "Pension",            emoji: "💰", flag: .hasPension),
@@ -402,7 +395,6 @@ final class LifestyleViewModel {
                 BubbleChip(id: "hasGoogleBusinessProfile",     label: "Google Business Profile",emoji: "🌐", flag: .hasGoogleBusinessProfile),
                 BubbleChip(id: "usesDomainRegistrar",          label: "Domain Registrar",       emoji: "🌐", flag: .usesDomainRegistrar),
                 BubbleChip(id: "usesPasswordManager",          label: "Password Manager",       emoji: "🔑", flag: .usesPasswordManager),
-                BubbleChip(id: "hasProfessionalOnlineProfile", label: "Professional Online Profile", emoji: "💼", flag: .hasProfessionalOnlineProfile),
             ]),
         ]
 
