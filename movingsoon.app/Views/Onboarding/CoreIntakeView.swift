@@ -34,7 +34,7 @@ struct CoreIntakeView: View {
         switch step {
         case 0: return true
         case 1: return Self.isValidPostalCode(destinationZip)
-        case 2: return true // origin optional
+        case 2: return originZip.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Self.isValidPostalCode(originZip)
         default: return false
         }
     }
@@ -45,14 +45,7 @@ struct CoreIntakeView: View {
     /// made it impossible to type a Canadian code at all, even though the rest of the app
     /// (province detection, the Canadian catalog) already handles one correctly once entered.
     static func isValidPostalCode(_ raw: String) -> Bool {
-        let clean = raw.replacingOccurrences(of: " ", with: "").uppercased()
-        if clean.count == 5, clean.allSatisfy(\.isNumber) { return true }
-        if clean.count == 6 {
-            let c = Array(clean)
-            return c[0].isLetter && c[1].isNumber && c[2].isLetter
-                && c[3].isNumber && c[4].isLetter && c[5].isNumber
-        }
-        return false
+        PostalCodeService.isValid(raw)
     }
 
     var body: some View {
@@ -228,7 +221,7 @@ struct CoreIntakeView: View {
                     accentColor: Theme.accentPrimary
                 )
 
-                Text("Your ZIP tells us which banks, gyms, and local services are in your area — so your list isn't cluttered with irrelevant items.")
+                Text("Your ZIP gives us broad regional context for your move. It doesn't tell us which services your household uses — you choose what to add to your list.")
                     .font(.system(size: 13))
                     .foregroundColor(Theme.textTertiary)
                     .lineSpacing(2)
@@ -300,7 +293,7 @@ struct CoreIntakeView: View {
                     accentColor: Theme.textSecondary
                 )
 
-                Text("Helps us find services you need to cancel or transfer from your current city.")
+                Text("Helps us remember accounts and services from your previous area. You can skip this and add it later in Move settings.")
                     .font(.system(size: 13))
                     .foregroundColor(Theme.textTertiary)
                     .lineSpacing(2)

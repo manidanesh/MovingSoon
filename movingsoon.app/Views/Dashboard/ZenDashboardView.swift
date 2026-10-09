@@ -16,8 +16,16 @@ struct ZenDashboardView: View {
     @State private var unsplashService = UnsplashService()
     @State private var ambientImageURL: URL?
 
+    // Aggregate Census context for the entered postal areas. This is distinct from
+    // the user's self-reported LifestyleProfile and is never used as a household fact.
+    @State private var areaMarketComparison: AreaMarketComparison?
+    @State private var isLoadingAreaMarketComparison = false
+    @State private var areaMarketUnavailableMessage: String?
+    @State private var moveFitTaskAdded = false
+    @State private var areaRefreshID = 0
+
     // Smart Location Reminders
-    @State private var locationManager = LocationManager()
+    @State private var locationManager = LocationManager.shared
     @State private var consentCardDismissed = false
     @State private var alwaysUpgradeCardDismissed = false
 
@@ -41,9 +49,10 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
+    @State private var showingAddMoreServices = false
 
     // Reminders
-    @State private var reminderService = SmartReminderService()
+    @State private var reminderService = SmartReminderService.shared
 
     // Snoozed task IDs (persisted via snoozedUntil on the task itself)
     @State private var sessionSkippedTaskIDs: Set<UUID> = []
@@ -55,44 +64,32 @@ struct ZenDashboardView: View {
 
     // "Not Applicable" undo support — same grace-period shape as completion above
     @State private var lastRemovedTask: ChecklistTask? = nil
+    @State private var lastRemovedResponse: ServiceResponse? = nil
     @State private var removeUndoVisible: Bool = false
     @State private var removeUndoTimer: Timer? = nil
 
     // Whole-move completion finale — fires once per move (see Move.completionCelebratedAt)
     @State private var showingCompletionCelebration = false
 
-    // MARK: - Consent card visibility predicate
-    //
-    // Previously gated on `daysUntilMove <= 30`, which meant the ONLY entry point to
-    // grant location consent was invisible for any move more than a month out — the
-    // whole geofence/location-reminder system (built, tested, working) was
-    // unreachable in practice for most of a move's timeline. Removed: consent should
-    // be requestable any time, not just in the final month. SuppressionEngine's own
-    // gates (not this card) are what actually pace notification frequency once
-    // consent is granted, so removing this doesn't risk over-notifying early.
     private var shouldShowConsentCard: Bool {
-        // Never show again once consent has been granted (even after expiry)
-        guard move.locationConsentGrantedAt == nil else { return false }
-        // Session-dismissed
-        guard !consentCardDismissed else { return false }
-        // Only show when permission is not yet granted
-        let status = locationManager.authorizationStatus
-        return status == .notDetermined || status == .denied
+        ReminderPolicy.showsConsent(grantedAt: move.locationConsentGrantedAt,
+            status: locationManager.authorizationStatus, dismissed: consentCardDismissed)
     }
 
-    /// True when consent was granted and is still active, but authorization never made it
-    /// past "While Using" — CoreLocation's one-shot Always-upgrade dialog was missed or
-    /// declined, so background geofence delivery is effectively dead until the user opens
-    /// Settings. See LocationAlwaysUpgradeCard.
     private var needsAlwaysUpgrade: Bool {
-        guard let grantedAt = move.locationConsentGrantedAt else { return false }
-        guard SuppressionEngine.consentExpiryGatePasses(grantedAt: grantedAt, now: Date()) else { return false }
-        guard !alwaysUpgradeCardDismissed else { return false }
-        return locationManager.authorizationStatus == .authorizedWhenInUse
+        ReminderPolicy.needsAlwaysUpgrade(grantedAt: move.locationConsentGrantedAt,
+            status: locationManager.authorizationStatus, dismissed: alwaysUpgradeCardDismissed)
     }
 
-    // 1. Sort pending tasks by urgency (tMinusDays relative to anchorDate).
-    // The lowest tMinusDays means it's due the earliest (e.g. -30 is due 30 days before move).
+    private var locationReminderStatus: String {
+        if !locationManager.consentActive { return "30-day location reminders have ended" }
+        if !locationManager.backgroundRemindersEnabled { return "Finish location setup below" }
+        if !reminderService.isAuthorized { return "Notifications are off" }
+        if locationManager.geofenceCoordinator.registeredRegionIDs.isEmpty { return "No nearby provider locations matched yet" }
+        return "Nearby reminders are on"
+    }
+
+    // Account dates can bring the move-relative address review forward.
     private var pendingTasks: [ChecklistTask] {
         let now = Date()
         return move.tasks
@@ -101,13 +98,14 @@ struct ZenDashboardView: View {
                 !sessionSkippedTaskIDs.contains($0.id) &&
                 ($0.snoozedUntil == nil || $0.snoozedUntil! < now)
             }
-            .sorted { $0.tMinusDays < $1.tMinusDays }
+            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
     }
 
     private var heroTask: ChecklistTask? {
-        // USPS (isHeroItem) gets priority
-        if let usps = pendingTasks.first(where: { $0.isHeroItem }) { return usps }
-        return pendingTasks.first
+        guard let earliest = pendingTasks.first else { return nil }
+        guard let preferred = pendingTasks.first(where: { $0.isHeroItem }) else { return earliest }
+        return earliest.dueDate(moveDate: move.anchorDate) < preferred.dueDate(moveDate: move.anchorDate)
+            ? earliest : preferred
     }
 
     private var daysUntilMoveLabel: String {
@@ -117,15 +115,12 @@ struct ZenDashboardView: View {
         return "Day \(abs(days)) in your new home"
     }
 
-    /// Count tasks that are genuinely overdue (fix #11: post-move tasks not overdue until move date passes)
+    /// Include account deadlines as well as ordinary move-relative due dates.
     private var overdueCount: Int {
         let today = Calendar.current.startOfDay(for: Date())
-        let moveDay = Calendar.current.startOfDay(for: move.anchorDate)
         return move.tasks.filter { task in
             guard task.status == .toDo else { return false }
-            // Positive tMinusDays = task meant for after the move — only overdue once move has passed
-            if task.tMinusDays > 0 && today <= moveDay { return false }
-            let due = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+            let due = task.dueDate(moveDate: move.anchorDate, calendar: Calendar.current)
             return Calendar.current.startOfDay(for: due) < today
         }.count
     }
@@ -136,7 +131,7 @@ struct ZenDashboardView: View {
         guard let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: today) else { return 0 }
         return move.tasks.filter { task in
             guard task.status == .toDo else { return false }
-            let due = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+            let due = task.dueDate(moveDate: move.anchorDate, calendar: Calendar.current)
             let dueDay = Calendar.current.startOfDay(for: due)
             return dueDay >= today && dueDay <= weekEnd
         }.count
@@ -184,17 +179,17 @@ struct ZenDashboardView: View {
         return "\(from)  →  \(to)"
     }
 
-    /// Cost-of-living delta pill next to the route — green when the destination is
-    /// cheaper, amber when pricier, neutral when comparable. Nil (shows nothing) when
+    /// State median home-value delta. This is not a full cost-of-living comparison.
+    /// Nil (shows nothing) when
     /// there's no origin ZIP on file or either side falls outside RegionalEconomicsService's
     /// US snapshot (e.g. a Canadian destination).
     private var costOfLivingLabel: (text: String, color: Color)? {
         guard let comparison = move.costOfLivingComparison else { return nil }
         let pct = Int(abs(comparison.homeValueDeltaPercent).rounded())
         switch comparison.direction {
-        case .costIncrease: return ("↑ \(pct)% higher cost of living", Theme.accentWarning)
-        case .costDecrease: return ("↓ \(pct)% lower cost of living", Theme.accentSuccess)
-        case .comparable:   return ("Similar cost of living", Theme.textTertiary)
+        case .costIncrease: return ("State home values ~\(pct)% higher", Theme.textSecondary)
+        case .costDecrease: return ("State home values ~\(pct)% lower", Theme.textSecondary)
+        case .comparable:   return ("Similar state home values", Theme.textTertiary)
         }
     }
 
@@ -205,6 +200,163 @@ struct ZenDashboardView: View {
     private var regionalSimilarityLabel: String? {
         guard let score = move.regionalSimilarityScore else { return nil }
         return "\(Int((score * 100).rounded()))% similar region"
+    }
+
+    private var moveFitHousingMeasure: MoveFitHousingMeasure? {
+        guard let comparison = areaMarketComparison,
+              let flags = move.lifestyleProfile?.activeFlags else { return nil }
+        return MoveFitEngine.housingMeasure(comparison: comparison, flags: flags)
+    }
+
+    private var moveFitHomeValueMeasure: MoveFitHousingMeasure? {
+        guard let comparison = areaMarketComparison else { return nil }
+        return MoveFitEngine.homeValueMeasure(comparison: comparison)
+    }
+
+    private var moveFitTaskTitle: String? {
+        guard let measure = moveFitHousingMeasure else { return nil }
+        return measure.title == "Median gross rent"
+            ? "Compare destination-area rent with my budget"
+            : "Compare destination-area owner costs with my budget"
+    }
+
+    @MainActor
+    private func addMoveFitBudgetTask() {
+        guard let title = moveFitTaskTitle,
+              !move.tasks.contains(where: { $0.title == title }) else {
+            moveFitTaskAdded = true
+            return
+        }
+        let task = ChecklistTask(title: title, category: .other, priority: .medium,
+                                 tMinusDays: -14, isUserAdded: true)
+        task.move = move
+        modelContext.insert(task)
+        move.tasks.append(task)
+        modelContext.saveOrLog()
+        reminderService.reschedule(for: move)
+        moveFitTaskAdded = true
+    }
+
+    @MainActor
+    private func loadAreaMarketComparison(refresh: Bool = false) async {
+        areaMarketComparison = nil
+        areaMarketUnavailableMessage = nil
+        guard move.areaInsightsEnabled == true else {
+            isLoadingAreaMarketComparison = false
+            return
+        }
+        guard PostalCodeService.regionalFlags(for: move.destinationZip).contains(.isAmerican) else {
+            areaMarketUnavailableMessage = "US Census area estimates aren’t available for Canadian postal codes yet."
+            isLoadingAreaMarketComparison = false
+            return
+        }
+        isLoadingAreaMarketComparison = true
+        let originZIP = move.originZip ?? ""
+        let destinationZIP = move.destinationZip
+        async let originRequest = AreaMarketDataService.profile(for: originZIP, refresh: refresh)
+        async let destinationRequest = AreaMarketDataService.profile(for: destinationZIP, refresh: refresh)
+        let (origin, destination) = await (originRequest, destinationRequest)
+        guard !Task.isCancelled, move.areaInsightsEnabled == true,
+              originZIP == (move.originZip ?? ""), destinationZIP == move.destinationZip else { return }
+        areaMarketComparison = destination.map {
+            AreaMarketComparison(origin: origin, destination: $0)
+        }
+        if destination == nil {
+            areaMarketUnavailableMessage = "We couldn’t load estimates for this destination ZIP. Connect to the internet and try again."
+        }
+        isLoadingAreaMarketComparison = false
+    }
+
+    @ViewBuilder private var nextActionSection: some View {
+        if let hero = heroTask {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Your next step")
+                    .themeText(12, weight: .semibold)
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 24)
+                ZenHeroCard(task: hero,
+                    onComplete: { completeTask(hero) },
+                    onAgenticAction: { triggerAgenticAction(for: hero) },
+                    onSkip: { skipTask(hero) },
+                    onNotApplicable: { removeTaskNotApplicable(hero) })
+                    .padding(.horizontal, 20)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(move.allTasksCompleted ? "Your checklist is complete." : "Nothing to do right now.")
+                    .themeSerif(26, weight: .bold)
+                    .foregroundStyle(Theme.textPrimary)
+                Text(move.allTasksCompleted
+                     ? "Take a breath. You can still review categories for anything you may have missed."
+                     : "\(move.unfinishedCount) items remain, including \(move.snoozedCount) snoozed. Your progress is saved.")
+                    .font(.subheadline).foregroundStyle(Theme.textSecondary)
+                if let next = move.tasks.filter({ $0.status != .completed })
+                    .compactMap(\.snoozedUntil).filter({ $0 > Date() }).min() {
+                    Text("Next snoozed item returns \(next.formatted(date: .abbreviated, time: .shortened)).")
+                        .font(.caption).foregroundStyle(Theme.textSecondary)
+                }
+                Button("View all tasks") { allTasksSheetContext = AllTasksSheetContext() }
+                    .foregroundStyle(Theme.accentPrimary)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private var areaInsightsSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Optional US Census estimates compare your ZIP areas. Enabling this sends the entered ZIP codes to the Census API. Your household answers stay on this device.")
+                    .font(.caption).foregroundStyle(Theme.textSecondary)
+                Toggle("Use ZIP area estimates", isOn: Binding(
+                    get: { move.areaInsightsEnabled == true },
+                    set: { enabled in
+                        move.areaInsightsEnabled = enabled
+                        if !enabled { areaMarketComparison = nil }
+                        modelContext.saveOrLog()
+                    }))
+                if move.areaInsightsEnabled == true {
+                    if isLoadingAreaMarketComparison {
+                        ProgressView("Loading area estimates…")
+                    } else if let comparison = areaMarketComparison {
+                        AreaMarketSnapshotCard(comparison: comparison,
+                            originLabel: move.originZip.map { "ZIP \($0) area" } ?? "Previous area",
+                            destinationLabel: "ZIP \(move.destinationZip) area",
+                            originWasProvided: move.originZip != nil)
+                        AreaIncomeDistributionView(comparison: comparison)
+                        if Date().timeIntervalSince(comparison.destination.retrievedAt) >= 30 * 86400 {
+                            Text("This saved snapshot is over 30 days old. Refresh when connected to check for updated estimates.")
+                                .font(.caption).foregroundStyle(Theme.accentWarning)
+                        }
+                        Text("Destination snapshot saved \(comparison.destination.retrievedAt.formatted(date: .abbreviated, time: .omitted)). Cached estimates remain available offline.")
+                            .font(.caption).foregroundStyle(Theme.textSecondary)
+                        if let measure = moveFitHousingMeasure {
+                            MoveFitHousingCard(measure: measure,
+                                homeValueMeasure: moveFitHomeValueMeasure,
+                                originLabel: move.originZip.map { "ZIP \($0) area" } ?? "Previous area",
+                                destinationLabel: "ZIP \(move.destinationZip) area",
+                                taskAdded: moveFitTaskTitle.map { title in move.tasks.contains { $0.title == title } } ?? false,
+                                onAddBudgetCheck: addMoveFitBudgetTask)
+                        }
+                    } else if let message = areaMarketUnavailableMessage {
+                        Text(message).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                    }
+                    Button("Refresh estimates") { areaRefreshID += 1 }
+                        .disabled(isLoadingAreaMarketComparison)
+                    Text("Area averages do not establish your income, home value or service memberships.")
+                        .font(.caption).foregroundStyle(Theme.textTertiary)
+                }
+            }
+            .padding(.top, 12)
+        } label: {
+            Label("Explore your new area", systemImage: "map")
+                .font(.headline).foregroundStyle(Theme.textPrimary)
+        }
+        .tint(Theme.accentPrimary)
+        .padding(18)
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
     }
 
     var body: some View {
@@ -252,7 +404,7 @@ struct ZenDashboardView: View {
                                 .clipShape(Capsule())
                             }
 
-                            // Cost-of-living delta (RegionalEconomicsService home-value comparison)
+                            // State median home-value delta (not a full cost-of-living measure).
                             if let costLabel = costOfLivingLabel {
                                 Text(costLabel.text)
                                     .themeText(11, weight: .medium)
@@ -345,6 +497,34 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
+                    nextActionSection
+
+                    if move.tasks.contains(where: { $0.needsLocationReview == true && $0.status != .completed }) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Your locations changed")
+                                .font(.headline).foregroundStyle(Theme.textPrimary)
+                            Text("Some earlier tasks belong to a different area. Open them to confirm they still apply or remove them. Your completed work is kept.")
+                                .font(.subheadline).foregroundStyle(Theme.textSecondary)
+                            Button("Review earlier tasks") { allTasksSheetContext = AllTasksSheetContext() }
+                        }
+                        .padding(18)
+                        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
+                        .padding(.horizontal, 20)
+                    }
+
+                    ForgottenItemsCard(move: move, area: areaMarketComparison,
+                        onReview: { showingAddMoreServices = true },
+                        onChanged: resyncNotificationsAndGeofences)
+                        .padding(.horizontal, 20)
+
+                    UpNextSection(
+                        move: move,
+                        excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }),
+                        onTaskComplete: { task in completeTask(task) },
+                        onTaskRemoved: { _ in resyncNotificationsAndGeofences() },
+                        onViewAll: { allTasksSheetContext = AllTasksSheetContext() }
+                    )
+
                     // MARK: Categories — Home Screen-style icon tiles, grouped by
                     // urgency tier rather than a flat/expandable grid. Grouping is
                     // what keeps the grid digestible without a cap: a move with 12
@@ -379,77 +559,14 @@ struct ZenDashboardView: View {
                         }
                     }
 
-                    // MARK: For Your Move (spotlight — same MoveImpactEngine
-                    // suggestions AddMoreServicesView shows, surfaced here instead
-                    // of requiring Settings > Edit Move > Add More Services to find)
-                    if !move.moveImpactCandidates.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("For Your Move")
-                                .themeText(11, weight: .semibold)
-                                .foregroundColor(Theme.textSecondary)
-                                .textCase(.uppercase)
-                                .tracking(1.5)
-
-                            VStack(spacing: 0) {
-                                ForEach(Array(move.moveImpactCandidates.prefix(2).enumerated()), id: \.element.id) { index, item in
-                                    if let catalogItem = ItemCatalog.item(for: item.flag) {
-                                        Button {
-                                            move.lifestyleProfile?.set(item.flag, to: true)
-                                            SignalEmitter.emit(item: item, accepted: true, move: move, into: modelContext)
-                                            modelContext.saveOrLog()
-                                        } label: {
-                                            HStack(alignment: .top, spacing: 10) {
-                                                Text(catalogItem.emoji)
-                                                    .font(.system(size: 18))
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    Text(catalogItem.title)
-                                                        .themeText(13, weight: .semibold)
-                                                        .foregroundColor(Theme.textPrimary)
-                                                    Text(item.rationale)
-                                                        .themeText(10.5, weight: .regular)
-                                                        .foregroundColor(Theme.textSecondary)
-                                                        .lineLimit(2)
-                                                }
-                                                Spacer()
-                                                Image(systemName: "plus.circle")
-                                                    .foregroundColor(Theme.accentPrimary)
-                                            }
-                                            .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-
-                                        if index < min(move.moveImpactCandidates.count, 2) - 1 {
-                                            Divider().background(Theme.backgroundElevated)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(12)
-                            .background(
-                                LinearGradient(colors: [Theme.accentPrimary.opacity(0.16), Theme.backgroundCard],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: RoundedRectangle(cornerRadius: 14)
-                            )
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.accentPrimary.opacity(0.35), lineWidth: 1))
-
-                            if move.moveImpactCandidates.count > 2 {
-                                Button { showingEditMove = true } label: {
-                                    Text("See \(move.moveImpactCandidates.count - 2) more suggestion\(move.moveImpactCandidates.count - 2 == 1 ? "" : "s")")
-                                        .themeText(11, weight: .medium)
-                                        .foregroundColor(Theme.textSecondary)
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 24)
-                    }
+                    areaInsightsSection
+                        .padding(.horizontal, 20)
 
                     // MARK: Location Consent Card
                     if shouldShowConsentCard {
                         LocationConsentCard(
                             onAllow: {
-                                locationManager.move = move
+                                locationManager.attach(move, context: modelContext)
                                 locationManager.requestPermissions()
                             },
                             onDismiss: {
@@ -475,16 +592,25 @@ struct ZenDashboardView: View {
                                 .foregroundColor(Theme.accentPrimary)
                                 .padding(.top, 1)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Watching Nearby")
+                                Text(locationReminderStatus)
                                     .themeText(11, weight: .semibold)
                                     .foregroundColor(Theme.textSecondary)
                                     .textCase(.uppercase)
                                     .tracking(1)
-                                Text("We'll nudge you when you're near a " +
-                                     move.trackedPOICategories.map(\.displayName).joined(separator: ", "))
+                                Text("Nearby reminders use matching providers from your checklist. General accounts without a known provider keep their scheduled reminders.")
                                     .themeText(12, weight: .regular)
                                     .foregroundColor(Theme.textTertiary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                if !reminderService.isAuthorized {
+                                    Button("Notification settings") {
+                                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                                    }.font(.caption)
+                                }
+                                if locationManager.consentActive && !locationManager.backgroundRemindersEnabled {
+                                    Button("Location settings") {
+                                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                                    }.font(.caption)
+                                }
                             }
                         }
                         .padding(14)
@@ -527,51 +653,6 @@ struct ZenDashboardView: View {
                             removal: .scale(scale: 0.9).combined(with: .opacity)
                         ))
                     }
-
-                    // MARK: Hero Task
-                    if pendingTasks.isEmpty {
-                        VStack(spacing: 20) {
-                            Text("All Caught Up.")
-                                .themeSerif(32, weight: .bold)
-                                .foregroundColor(Theme.textPrimary)
-                            Text("Your move is fully orchestrated.")
-                                .foregroundColor(Theme.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
-                    } else if let hero = heroTask {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Do This Now")
-                                .themeText(12, weight: .semibold)
-                                .foregroundColor(Theme.textSecondary)
-                                .textCase(.uppercase)
-                                .tracking(2)
-                                .padding(.horizontal, 24)
-
-                            ZenHeroCard(
-                                task: hero,
-                                onComplete: { completeTask(hero) },
-                                onAgenticAction: { triggerAgenticAction(for: hero) },
-                                onSkip: { skipTask(hero) },
-                                onNotApplicable: { removeTaskNotApplicable(hero) }
-                            )
-                            .padding(.horizontal, 20)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .scale(scale: 0.9).combined(with: .opacity)
-                            ))
-                        }
-                    }
-
-                    // MARK: Up Next — single ranked list, replacing the old Next Up /
-                    // Coming Up split (see UpNextSection's header comment for why).
-                    UpNextSection(
-                        move: move,
-                        excludedTaskIDs: Set([heroTask?.id].compactMap { $0 }),
-                        onTaskComplete: { task in completeTask(task) },
-                        onTaskRemoved: { _ in resyncNotificationsAndGeofences() },
-                        onViewAll: { allTasksSheetContext = AllTasksSheetContext() }
-                    )
 
                     // MARK: Move Timeline — when do things need to happen
                     MoveTimelineSection(move: move)
@@ -639,7 +720,7 @@ struct ZenDashboardView: View {
                 )
             }
         }
-        .sheet(item: $allTasksSheetContext) { context in
+        .sheet(item: $allTasksSheetContext, onDismiss: resyncNotificationsAndGeofences) { context in
             NavigationStack {
                 DashboardView(
                     move: move,
@@ -657,8 +738,12 @@ struct ZenDashboardView: View {
             }
             .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showingEditMove) {
+        .sheet(isPresented: $showingEditMove, onDismiss: resyncNotificationsAndGeofences) {
             EditMoveView(move: move)
+                .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showingAddMoreServices, onDismiss: resyncNotificationsAndGeofences) {
+            AddMoreServicesView(move: move, area: areaMarketComparison)
                 .preferredColorScheme(.dark)
         }
         .sheet(item: $notificationActionTask) { task in
@@ -680,7 +765,7 @@ struct ZenDashboardView: View {
                     notificationActionTask = nil
                 }
             )
-            .presentationDetents([.height(280)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
@@ -757,7 +842,7 @@ struct ZenDashboardView: View {
                         Text("Every task is done.")
                             .themeSerif(26, weight: .bold)
                             .foregroundColor(Theme.textPrimary)
-                        Text("You handled the whole move — nothing left on the list.")
+                        Text("Everything on your checklist is done. You can still review categories for anything you may have missed.")
                             .themeText(14, weight: .regular)
                             .foregroundColor(Theme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -783,8 +868,8 @@ struct ZenDashboardView: View {
                 .transition(.opacity)
             }
         }
-        .onChange(of: pendingTasks.isEmpty) { _, isEmpty in
-            guard isEmpty, move.totalCount > 0, move.completionCelebratedAt == nil else { return }
+        .onChange(of: move.allTasksCompleted) { _, allDone in
+            guard allDone, move.completionCelebratedAt == nil else { return }
             move.completionCelebratedAt = Date()
             modelContext.saveOrLog()
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
@@ -795,31 +880,9 @@ struct ZenDashboardView: View {
             requestAppStoreReviewIfAppropriate()
         }
         .task {
-            // Fetch live background from Unsplash on load
-            if ambientImageURL == nil {
-                ambientImageURL = await unsplashService.fetchAmbientBackgroundURL(for: move.destinationZip, cityBucket: move.destinationCityBucket)
-            }
-            // Wire the move into LocationManager and check consent expiry
-            locationManager.move = move
-            // Covers a real race: locationManagerDidChangeAuthorization can fire (and
-            // often does, immediately on delegate assignment) before this line runs,
-            // so its own `if let move` guard silently no-ops when authorization is
-            // ALREADY .authorizedAlways at cold launch — e.g. any relaunch after the
-            // user accepted the Always-upgrade dialog while the app was backgrounded.
-            // Without this fallback, locationConsentGrantedAt would never get set and
-            // background geofencing/visit reminders would silently never activate,
-            // despite the user having correctly granted the exact permission asked for.
-            // Confirmed live via simulator testing — the delegate callback logged
-            // move=false at the moment authorization was reported as .authorizedAlways.
-            if locationManager.authorizationStatus == .authorizedAlways, move.locationConsentGrantedAt == nil {
-                move.locationConsentGrantedAt = Date()
-                modelContext.saveOrLog()
-            }
-            locationManager.checkConsentExpiry()
-            // If consent is already active, sync geofences
-            locationManager.syncGeofencesIfActive()
-            // Live location is only needed for the foreground "near a task right now"
-            // banner — geofence entries fire independently via region monitoring.
+            MoveChecklistService.backfillCatalogIDs(for: move)
+            modelContext.saveOrLog()
+            locationManager.attach(move, context: modelContext)
             locationManager.startForegroundUpdates()
             // Ask for notification permission here, contextually — once the user has reached
             // their dashboard and reminders are actually about to be scheduled — rather than
@@ -829,23 +892,19 @@ struct ZenDashboardView: View {
             if ProcessInfo.processInfo.environment["SEED_SCREENSHOT_DATA"] != "1" {
                 reminderService.requestPermissions()
             }
-            // Schedule hero task reminder (escalates to twice-daily in the final 3 days)
-            reminderService.scheduleHeroTaskReminder(heroTask: heroTask, daysUntilMove: move.daysUntilMove)
-            // Schedule T-minus reminders for tasks due soon, plus a same-day tier
-            reminderService.scheduleTMinusReminders(tasks: move.tasks, moveDate: move.anchorDate)
-            // Win-back nudge if the user goes quiet — rescheduled forward on every load
-            reminderService.scheduleReengagementReminder(
-                openTaskCount: pendingTasks.count,
-                daysUntilMove: move.daysUntilMove
-            )
-            // One-time check-in two weeks after move day, independent of reopening the app
-            reminderService.schedulePostMoveCheckIn(moveDate: move.anchorDate)
+            reminderService.reschedule(for: move)
             // Covers a cold launch triggered by tapping a notification — the router's
             // value was set before this view existed, so onChange below wouldn't fire.
             presentPendingNotificationTaskIfNeeded()
+            if ambientImageURL == nil {
+                ambientImageURL = await unsplashService.fetchAmbientBackgroundURL(for: move.destinationZip, cityBucket: move.destinationCityBucket)
+            }
         }
-        .onChange(of: heroTask?.id) { _, _ in
-            reminderService.scheduleHeroTaskReminder(heroTask: heroTask, daysUntilMove: move.daysUntilMove)
+        .task(id: "\(move.originZip ?? "")|\(move.destinationZip)|\(move.areaInsightsEnabled == true)|\(areaRefreshID)") {
+            await loadAreaMarketComparison(refresh: areaRefreshID > 0)
+        }
+        .onChange(of: ReminderPolicy.revision(for: move)) { _, _ in
+            resyncNotificationsAndGeofences()
         }
         .onChange(of: notificationRouter.pendingTaskID) { _, _ in
             presentPendingNotificationTaskIfNeeded()
@@ -854,6 +913,8 @@ struct ZenDashboardView: View {
             // Stop continuous GPS the moment the app leaves the foreground — geofence
             // entries still fire via region monitoring while backgrounded/suspended.
             if newPhase == .active {
+                resyncNotificationsAndGeofences()
+                reminderService.refreshPermissions()
                 locationManager.startForegroundUpdates()
             } else {
                 locationManager.stopForegroundUpdates()
@@ -880,6 +941,7 @@ struct ZenDashboardView: View {
             modelContext.saveOrLog()
             locationManager.taskStatusDidChange(task)
         }
+        resyncNotificationsAndGeofences()
 
         // Show undo toast for 4 seconds
         lastCompletedTask = task
@@ -896,9 +958,11 @@ struct ZenDashboardView: View {
         withAnimation(.spring(response: 0.4)) { undoVisible = false }
         withAnimation {
             task.resetStatus()
+            move.completionCelebratedAt = nil
             modelContext.saveOrLog()
         }
         lastCompletedTask = nil
+        resyncNotificationsAndGeofences()
     }
 
     // #1 — real 3-day snooze, not a session-only hide
@@ -906,9 +970,10 @@ struct ZenDashboardView: View {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         withAnimation {
-            task.snoozedUntil = Date().addingTimeInterval(3 * 86400) // 3 days
+            task.snoozedUntil = Calendar.current.date(byAdding: .day, value: 3, to: Date())
             modelContext.saveOrLog()
         }
+        resyncNotificationsAndGeofences()
     }
 
     /// A real deletion, not a status change — the task is gone from move.tasks
@@ -924,8 +989,12 @@ struct ZenDashboardView: View {
     /// expires — same shape as completeTask/undoLastCompletion — since a mis-tap
     /// here was previously unrecoverable while a mis-tapped completion wasn't.
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
+        removeUndoTimer?.invalidate()
+        if let previous = lastRemovedTask { modelContext.delete(previous) }
+        lastRemovedResponse = MoveChecklistService.catalogID(for: task).flatMap { move.serviceResponses[$0] }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
+        MoveChecklistService.recordDismissal(task, for: move)
         withAnimation {
             move.tasks.removeAll { $0.id == task.id }
             modelContext.saveOrLog()
@@ -951,22 +1020,21 @@ struct ZenDashboardView: View {
         withAnimation(.spring(response: 0.4)) { removeUndoVisible = false }
         withAnimation {
             move.tasks.append(task)
+            if let id = MoveChecklistService.catalogID(for: task) {
+                var responses = move.serviceResponses
+                responses[id] = lastRemovedResponse
+                move.serviceResponses = responses
+            }
             modelContext.saveOrLog()
         }
         resyncNotificationsAndGeofences()
         lastRemovedTask = nil
+        lastRemovedResponse = nil
     }
 
-    /// Re-derives the T-minus digest queue and geofence regions from the current
-    /// move.tasks. Needed after any deletion: scheduleTMinusReminders() bakes
-    /// task names into notification content at schedule time and only otherwise
-    /// runs once at dashboard load, so a removed task's name can linger in an
-    /// already-queued notification, and a removed task's geofence region keeps
-    /// being monitored, until this runs. (The hero reminder doesn't need this —
-    /// it already re-schedules reactively via .onChange(of: heroTask?.id).)
     private func resyncNotificationsAndGeofences() {
-        reminderService.scheduleTMinusReminders(tasks: move.tasks, moveDate: move.anchorDate)
-        locationManager.syncGeofencesIfActive()
+        reminderService.reschedule(for: move)
+        locationManager.attach(move, context: modelContext)
     }
 
     private func requestAppStoreReviewIfAppropriate() {
@@ -1004,6 +1072,7 @@ struct ZenDashboardView: View {
             modelContext.saveOrLog()
             locationManager.activeContextualTask = nil
         }
+        resyncNotificationsAndGeofences()
     }
 
     private func muteContextualTask(_ task: ChecklistTask) {
@@ -1014,6 +1083,224 @@ struct ZenDashboardView: View {
             modelContext.saveOrLog()
             locationManager.activeContextualTask = nil
             locationManager.taskStatusDidChange(task)
+        }
+        resyncNotificationsAndGeofences()
+    }
+}
+
+private struct MoveFitHousingCard: View {
+    let measure: MoveFitHousingMeasure
+    let homeValueMeasure: MoveFitHousingMeasure?
+    let originLabel: String
+    let destinationLabel: String
+    let taskAdded: Bool
+    let onAddBudgetCheck: () -> Void
+
+    private func amount(_ value: Double) -> String {
+        value.formatted(.currency(code: "USD").precision(.fractionLength(0)))
+    }
+
+    private var interpretation: String {
+        switch measure.direction {
+        case .destinationHigher:
+            return "The destination area's median is about \(measure.differencePercent)% higher."
+        case .destinationLower:
+            return "The destination area's median is about \(measure.differencePercent)% lower."
+        case .noClearDifference:
+            return "Current estimates don’t show a clear difference between these areas."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "house.fill")
+                    .foregroundColor(Theme.accentPrimary)
+                Text("HOUSING COST CONTEXT")
+                    .themeText(11, weight: .bold)
+                    .foregroundColor(Theme.textPrimary)
+                Spacer()
+                Text("MOVE FIT")
+                    .themeText(9, weight: .bold)
+                    .foregroundColor(Theme.textTertiary)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                valueColumn(originLabel, amount(measure.originValue))
+                valueColumn(destinationLabel, amount(measure.destinationValue))
+            }
+            Text(interpretation)
+                .themeText(12, weight: .semibold)
+                .foregroundColor(Theme.textPrimary)
+            if let homeValueMeasure {
+                HStack(alignment: .top, spacing: 4) {
+                    Text("Home value context:")
+                        .themeText(10, weight: .semibold)
+                        .foregroundColor(Theme.textSecondary)
+                    Text("\(amount(homeValueMeasure.originValue)) → \(amount(homeValueMeasure.destinationValue)) · \(homeValueInterpretation(homeValueMeasure))")
+                        .themeText(10, weight: .regular)
+                        .foregroundColor(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text("\(measure.title) is a ZIP-area estimate, not your rent, mortgage, or a quote. Directional comparisons account for Census margins of error; area data can’t determine whether a move is an upgrade.")
+                .themeText(10, weight: .regular)
+                .foregroundColor(Theme.textTertiary)
+
+            Button(action: onAddBudgetCheck) {
+                HStack(spacing: 6) {
+                    Image(systemName: taskAdded ? "checkmark.circle.fill" : "plus.circle.fill")
+                    Text(taskAdded ? "Added to your checklist" : "Add a personal budget check")
+                }
+                .themeText(11, weight: .semibold)
+                .foregroundColor(taskAdded ? Theme.textSecondary : Theme.accentPrimary)
+            }
+            .buttonStyle(.plain)
+            .disabled(taskAdded)
+            .accessibilityHint("Adds a checklist task only when you choose this button")
+            Text("2020–2024 US Census ACS · ZIP-area estimates")
+                .themeText(9, weight: .medium)
+                .foregroundColor(Theme.textTertiary)
+        }
+        .padding(16)
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.backgroundElevated, lineWidth: 1))
+    }
+
+    private func valueColumn(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label).themeText(10, weight: .medium).foregroundColor(Theme.textTertiary)
+            Text(value).themeText(16, weight: .semibold).foregroundColor(Theme.textPrimary)
+            Text("per month").themeText(9, weight: .regular).foregroundColor(Theme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func homeValueInterpretation(_ value: MoveFitHousingMeasure) -> String {
+        switch value.direction {
+        case .destinationHigher: return "destination median about \(value.differencePercent)% higher"
+        case .destinationLower: return "destination median about \(value.differencePercent)% lower"
+        case .noClearDifference: return "no clear difference in estimates"
+        }
+    }
+}
+
+private struct AreaMarketUnavailableCard: View {
+    let message: String
+    let canRetry: Bool
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "chart.bar.xaxis")
+                .foregroundColor(Theme.textTertiary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Area comparison unavailable")
+                    .themeText(12, weight: .semibold)
+                    .foregroundColor(Theme.textPrimary)
+                Text(message)
+                    .themeText(10, weight: .regular)
+                    .foregroundColor(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if canRetry {
+                    Button("Try again", action: onRetry)
+                        .themeText(10, weight: .semibold)
+                        .foregroundColor(Theme.accentPrimary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct AreaMarketSnapshotCard: View {
+    let comparison: AreaMarketComparison
+    let originLabel: String
+    let destinationLabel: String
+    let originWasProvided: Bool
+
+    private var origin: AreaMarketProfile? { comparison.origin }
+    private var destination: AreaMarketProfile { comparison.destination }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.bar.xaxis")
+                    .foregroundColor(Theme.accentPrimary)
+                Text("AREA SNAPSHOT")
+                    .themeText(11, weight: .bold)
+                    .foregroundColor(Theme.textPrimary)
+                Spacer()
+                Text("CENSUS ESTIMATES")
+                    .themeText(9, weight: .bold)
+                    .foregroundColor(Theme.textTertiary)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                if let origin {
+                    areaColumn(label: originLabel, profile: origin)
+                    areaColumn(label: destinationLabel, profile: destination)
+                } else {
+                    areaColumn(label: destinationLabel, profile: destination)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(originWasProvided
+                             ? "Origin area estimate unavailable"
+                             : "Add an origin ZIP in Move settings")
+                            .themeText(11, weight: .medium)
+                            .foregroundColor(Theme.textSecondary)
+                        Text(originWasProvided
+                             ? "for this postal code"
+                             : "to compare areas")
+                            .themeText(10, weight: .regular)
+                            .foregroundColor(Theme.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                }
+            }
+
+            Text("Area averages describe the ZIP area, not your household income or which services you use. Estimates can be uncertain.")
+                .themeText(10, weight: .regular)
+                .foregroundColor(Theme.textTertiary)
+            Text("\(destination.vintage) · Retrieved \(destination.retrievedAt.formatted(date: .abbreviated, time: .omitted))")
+                .themeText(9, weight: .medium)
+                .foregroundColor(Theme.textTertiary)
+        }
+        .padding(16)
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.backgroundElevated, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func areaColumn(label: String, profile: AreaMarketProfile) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(label)
+                .themeText(10, weight: .semibold)
+                .foregroundColor(Theme.textSecondary)
+                .lineLimit(1)
+            metric("Median income", value: profile.medianHouseholdIncome.formatted(.currency(code: "USD").precision(.fractionLength(0))))
+            metric("Avg. household", value: profile.averageHouseholdSize.formatted(.number.precision(.fractionLength(1))))
+            if let largerFamilies = profile.familyHouseholdsWithThreeOrMorePercent {
+                metric("Family HH 3+", value: "\(largerFamilies.formatted(.number.precision(.fractionLength(0))))%")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func metric(_ title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(title)
+                .themeText(9, weight: .regular)
+                .foregroundColor(Theme.textTertiary)
+                .lineLimit(1)
+            Spacer(minLength: 2)
+            Text(value)
+                .themeText(11, weight: .semibold)
+                .foregroundColor(Theme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
     }
 }
@@ -1128,11 +1415,10 @@ struct ZenHeroCard: View {
 
     @State private var showingRemoveConfirm = false
 
-    /// Human-readable due date label derived from tMinusDays relative to move anchor.
+    /// Human-readable label for the effective address-review deadline.
     private var dueDateLabel: String? {
         guard let move = task.move else { return nil }
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
-        let daysLeft = Calendar.current.dateComponents([.day], from: Date(), to: dueDate).day ?? 0
+        let daysLeft = task.daysUntilDue(moveDate: move.anchorDate)
         if daysLeft > 1  { return "Due in \(daysLeft) days" }
         if daysLeft == 1 { return "Due tomorrow" }
         if daysLeft == 0 { return "Due today" }
@@ -1141,12 +1427,14 @@ struct ZenHeroCard: View {
 
     private var isOverdue: Bool {
         guard let move = task.move else { return false }
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
-        return dueDate < Date()
+        return task.daysUntilDue(moveDate: move.anchorDate) < 0
     }
 
     /// Per-category question label (#9)
     private var heroQuestionLabel: String {
+        if task.needsLocationReview == true { return "Check whether this still applies after your location change" }
+        if task.moveAction != .updateAddress { return task.moveAction.title }
+        if task.isUserAdded { return "Your reminder" }
         if task.isHeroItem { return "First thing — set up your mail forwarding with" }
         if task.institutionName != nil {
             return "Have you updated your address with"
@@ -1215,11 +1503,18 @@ struct ZenHeroCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                if task.nextShipmentDate != nil || task.nextRenewalDate != nil {
+                    AccountDatesSummaryView(task: task)
+                }
+                if let note = task.customerNote, !note.isEmpty {
+                    Text(note).font(.subheadline).foregroundStyle(Theme.textSecondary).lineLimit(4)
+                }
+
                 // MARK: Actions
                 VStack(spacing: 10) {
                     if task.actionType == .agenticUpdate {
                         Button(action: onAgenticAction) {
-                            Label("Auto-Update Address", systemImage: "paperplane.fill")
+                            Label("Draft address-change email", systemImage: "paperplane.fill")
                                 .themeText(16, weight: .bold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
@@ -1237,7 +1532,7 @@ struct ZenHeroCard: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "arrow.up.right")
                                     .themeText(14, weight: .bold)
-                                Text("Update Now")
+                                Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
                                     .themeText(16, weight: .bold)
                             }
                             .frame(maxWidth: .infinity)
@@ -1305,7 +1600,7 @@ struct ZenHeroCard: View {
                     Button {
                         showingRemoveConfirm = true
                     } label: {
-                        Text("Not Applicable")
+                        Text(task.hasAccountDetails ? "Remove this account" : "Not Applicable")
                             .themeText(13, weight: .medium)
                             .foregroundColor(Theme.priorityCritical.opacity(0.75))
                             .frame(maxWidth: .infinity)
@@ -1324,7 +1619,8 @@ struct ZenHeroCard: View {
             Button("Remove", role: .destructive, action: onNotApplicable)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("It won't be shown again. This can't be undone.")
+            Text(task.isUserAdded ? "This removes your custom item."
+                : "This removes this item and its reminders. Other accounts stay on your checklist. You can add it again from Review services.")
         }
     }
 }
@@ -1392,7 +1688,7 @@ struct ContextualPromptCard: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "arrow.up.right")
                                         .themeText(12, weight: .bold)
-                                    Text("Update Now")
+                                    Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
                                         .themeText(14, weight: .semibold)
                                 }
                                 .foregroundColor(Theme.accentPrimary)
@@ -1448,7 +1744,7 @@ struct UpNextSection: View {
     private var urgentTasks: [ChecklistTask] {
         move.tasks
             .filter { $0.status == .toDo && !$0.isHeroItem && !excludedTaskIDs.contains($0.id) }
-            .sorted { $0.tMinusDays < $1.tMinusDays }
+            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
             .prefix(6)
             .map { $0 }
     }
@@ -1457,7 +1753,7 @@ struct UpNextSection: View {
         let today = Date()
         return move.tasks.filter { task in
             task.status == .toDo && !task.isHeroItem && !excludedTaskIDs.contains(task.id) &&
-            (Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? Date()) < today
+            task.dueDate(moveDate: move.anchorDate) < Calendar.current.startOfDay(for: today)
         }
     }
 
@@ -1545,7 +1841,7 @@ struct UpNextSection: View {
                     selectedTask = nil
                 }
             )
-            .presentationDetents([.height(280)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
@@ -1557,6 +1853,7 @@ struct UpNextSection: View {
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
+        MoveChecklistService.recordDismissal(task, for: move)
         withAnimation {
             move.tasks.removeAll { $0.id == task.id }
             modelContext.delete(task)
@@ -1573,7 +1870,7 @@ struct UpcomingTaskRow: View {
     let onTap: () -> Void
 
     private var dueLabel: String {
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
         let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
                                                     to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
         if days < 0  { return "Overdue" }
@@ -1583,7 +1880,7 @@ struct UpcomingTaskRow: View {
     }
 
     private var isOverdue: Bool {
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
         return dueDate < Calendar.current.startOfDay(for: Date())
     }
 
@@ -1592,7 +1889,7 @@ struct UpcomingTaskRow: View {
     /// so a task due tomorrow looked exactly as calm as one due in six weeks.
     private var isDueSoon: Bool {
         guard !isOverdue else { return false }
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
         let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
                                                     to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
         return days <= 3
@@ -1711,7 +2008,7 @@ struct MoveTimelineSection: View {
             }
 
             let weekTasks = move.tasks.filter { task in
-                guard let dueDate = cal.date(byAdding: .day, value: task.tMinusDays, to: moveDay) else { return false }
+                let dueDate = task.dueDate(moveDate: move.anchorDate, calendar: cal)
                 return dueDate >= start && dueDate <= end
             }
 
@@ -2091,7 +2388,7 @@ struct AchievementMilestoneSection: View {
                     selectedTask = nil
                 }
             )
-            .presentationDetents([.height(280)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
@@ -2212,6 +2509,7 @@ struct CombinedAccessibilityIfPending: ViewModifier {
 // MARK: - Task Action Sheet
 struct TaskActionSheet: View {
     let task: ChecklistTask
+    @Environment(\.modelContext) private var modelContext
     let onAlreadyDone: () -> Void
     let onUpdateNow: () -> Void
     let onLater: () -> Void
@@ -2224,8 +2522,10 @@ struct TaskActionSheet: View {
     let onNotApplicable: () -> Void
 
     @State private var showingRemoveConfirm = false
+    @State private var showingAccountEditor = false
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 20) {
             // Handle + title
             VStack(alignment: .leading, spacing: 6) {
@@ -2240,6 +2540,38 @@ struct TaskActionSheet: View {
             }
             .padding(.top, 8)
 
+            if task.needsLocationReview == true {
+                Text("This task came from your previous location choices. Confirm it still applies or remove it below.")
+                    .font(.subheadline).foregroundStyle(Theme.accentWarning)
+                Button("This still applies") {
+                    if let move = task.move, let id = MoveChecklistService.catalogID(for: task) {
+                        move.respond(to: id, with: .confirmed)
+                    }
+                    task.needsLocationReview = false
+                    modelContext.saveOrLog()
+                }
+            }
+
+            if task.move != nil {
+                AccountDatesSummaryView(task: task)
+                Button("Edit account & reminder dates") { showingAccountEditor = true }
+                    .font(.subheadline.weight(.semibold))
+            }
+            if task.moveAction != .updateAddress {
+                Text(task.moveAction.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
+            }
+            if let id = MoveChecklistService.catalogID(for: task), let guidance = ItemCatalog.byID[id]?.moveGuidance {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("For this move").font(.subheadline.weight(.semibold))
+                    Text(guidance).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let note = task.customerNote, !note.isEmpty {
+                ScrollView { Text(note).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 100)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
             VStack(spacing: 10) {
                 // Primary: take the action, if there's a link to take it with —
                 // matches Hero Card's hierarchy (Update Now leads when possible).
@@ -2249,7 +2581,7 @@ struct TaskActionSheet: View {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.up.right")
                                 .themeText(14, weight: .bold)
-                            Text("Update Now")
+                            Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
                                 .themeText(16, weight: .bold)
                         }
                         .frame(maxWidth: .infinity)
@@ -2294,7 +2626,7 @@ struct TaskActionSheet: View {
                 Button {
                     showingRemoveConfirm = true
                 } label: {
-                    Text("Not Applicable")
+                    Text(task.hasAccountDetails ? "Remove this account" : "Not Applicable")
                         .themeText(13, weight: .medium)
                         .foregroundColor(Theme.priorityCritical.opacity(0.75))
                         .frame(maxWidth: .infinity)
@@ -2306,6 +2638,7 @@ struct TaskActionSheet: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .background(Theme.backgroundCard)
         .confirmationDialog(
             "Remove \"\(task.title)\"?",
@@ -2315,7 +2648,12 @@ struct TaskActionSheet: View {
             Button("Remove", role: .destructive, action: onNotApplicable)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("It won't be shown again. This can't be undone.")
+            Text(task.hasAccountDetails ? "This removes only this account and its reminders. Other accounts stay on your checklist."
+                : task.isUserAdded ? "This removes your custom item."
+                : "This removes this item and its reminders. Other accounts stay on your checklist. You can add it again from Review services.")
+        }
+        .sheet(isPresented: $showingAccountEditor) {
+            if let move = task.move { ServiceAccountEditorView(move: move, task: task) }
         }
     }
 }

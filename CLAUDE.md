@@ -30,7 +30,7 @@ Or open `movingsoon.app.xcodeproj` in Xcode and press ⌘U.
 **One test suite, one target:**
 - `movingsoon.appTests/movingsoon_appTests.swift` is the only test suite, wired into the `movingsoon.appTests` target and written with the Swift **Testing** framework (`@Suite` / `@Test` / `#expect`, `@testable import movingsoon_app`). This is what `xcodebuild test` runs. Add new coverage here.
 - There used to be a second, unwired legacy `movingsoonTests/` folder (XCTest-based, silently ignored by `xcodebuild test`). Its coverage was ported into `movingsoon.appTests/movingsoon_appTests.swift` and the folder was deleted — don't recreate a second test folder.
-- `GeofenceCoordinator`, `SmartReminderService`, `LocationManager`, and dashboard UI are not unit-testable (need CoreLocation / UNUserNotificationCenter / XCUIApplication) — those stay device/simulator-verified only.
+- `GeofenceCoordinator` and `SmartReminderService` now have injected place-search, region-monitor and notification-center adapters. Their reconciliation and race behavior is covered in the same test file. Actual CoreLocation background callbacks, permissions, UI and OS delivery still require device/simulator checks.
 
 ## Architecture
 
@@ -57,6 +57,8 @@ The entire app pivots on one idea: a `Set<LifestyleFlag>` (100+ cases in `Models
 
 This subsystem was built from a formal spec — see `.kiro/specs/smart-location-reminders/{requirements,design,tasks}.md` for the authoritative behavior contract before changing any of these files:
 
+**October 5, 2026 amendment:** [LOCATION_REMINDERS_IMPLEMENTATION.md](LOCATION_REMINDERS_IMPLEMENTATION.md) describes the current behavior and supersedes the earlier API names/timing below where they differ. `ReminderPolicy`, `LocationPlaceTarget` and `ReminderScheduleBuilder` centralize eligibility, provider identity and finite schedules. `matchVisit` returns an exact task ID. `reschedule(for:)` is the single schedule-update entry point, including notification Snooze/Mute. Consent setup is available before the final 14 days, and an optional request timestamp bridges first-time authorization callbacks.
+
 - `Services/SuppressionEngine.swift` is a **stateless**, fully unit-tested gate evaluator (`shouldFire`) — six gates must *all* pass, fail-fast in order: consent-not-expired (30 days from `Move.locationConsentGrantedAt`) → move <80% complete → 9am–7pm local time → within 8000m of destination → a matching non-muted/non-snoozed `.toDo` task exists for the POI category → per-category cooldown (max 1/day, `CooldownStore`, UserDefaults-backed). Each gate is exposed as its own static function specifically so it can be tested in isolation — keep that shape when modifying.
 - `Services/GeofenceCoordinator.swift` resolves real POI coordinates near the **destination** (not the user's current location) via `MKLocalSearch`, capped at iOS's 20-geofence system limit, sorted by task urgency (`tMinusDays`).
 - `Services/LocationManager.swift` owns `CLLocationManager` authorization/delegate callbacks and is the glue that calls `SuppressionEngine` then `SmartReminderService.fireLocationNotification`.
@@ -72,6 +74,8 @@ This subsystem was built from a formal spec — see `.kiro/specs/smart-location-
 `Models/PendingSignal.swift` is an on-device queue model (Laplace noise on embeddings, timestamps floored to the hour, persona/region buckets only — no PII). `Services/SignalEmitter.swift` is its writer — called from `AddMoreServicesView.swift` and `ZenDashboardView.swift` on every MoveImpactEngine suggestion accept/reject — so it's live, not dormant. There is still no transmission path out of the on-device queue (`isPending` stays `true` forever); that's a deliberate, not-yet-built next step, not a bug. `Move.personaKey` derives persona lazily from `LifestyleProfile` flags — there is no separate persona-from-onboarding-answers engine (an earlier one, `PersonaEngine.swift`, was unused and removed).
 
 ### Catalog/institution data files
+
+October 7 expansion: `ItemCatalog+Recurring.swift` adds 52 definitions; `CatalogTopic.swift` provides 19 focused browsing topics, prompts and move guidance. Catalog search uses `CatalogItem.matchesSearch`. The recurring-account UI is catalog-driven, while `ServiceEvidenceCatalog` retains its separate 25-entry research contract. Brand flags must be explicit; generic additions require confirmation. Read `CATALOG_REVIEW.md` for sources, legacy-title/link handling and coverage limits.
 
 `Services/ItemCatalog*.swift` and `Services/KnownInstitutions.swift` are large, flat, declarative data files (arrays of `CatalogItem`/`KnownInstitution` struct literals with brand colors, deep-link URLs, flag requirements). When adding a new addressable service or institution, follow the existing literal style in the relevant file rather than introducing new abstractions — these files are intentionally just data.
 

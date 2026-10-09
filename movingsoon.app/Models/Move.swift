@@ -33,11 +33,16 @@ final class Move {
 
     // Location consent — set when user grants 30-day location access
     var locationConsentGrantedAt: Date?
+    var locationConsentRequestedAt: Date?
 
     // Set the first time every task is completed, so the celebration finale
     // (confetti + review prompt) fires once per move, not on every dashboard
     // load while the completion state happens to still be 100%.
     var completionCelebratedAt: Date?
+    var serviceResponsesJSON: String?
+    var reviewedFamiliesJSON: String?
+    var areaInsightsEnabled: Bool?
+    var serviceUseResponsesJSON: String?
 
     init(
         anchorDate: Date,
@@ -144,11 +149,69 @@ final class Move {
     }
 
     var daysUntilMove: Int {
-        Calendar.current.dateComponents([.day], from: Date(), to: anchorDate).day ?? 0
+        Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
+                                        to: Calendar.current.startOfDay(for: anchorDate)).day ?? 0
     }
 
     var completedCount: Int { tasks.filter { $0.status == .completed }.count }
     var totalCount: Int { tasks.count }
+
+    var unfinishedCount: Int { tasks.filter { $0.status != .completed }.count }
+    var allTasksCompleted: Bool { !tasks.isEmpty && unfinishedCount == 0 }
+    var snoozedCount: Int {
+        tasks.filter { $0.status != .completed && ($0.snoozedUntil.map { $0 > Date() } ?? false) }.count
+    }
+
+    var serviceResponses: [String: ServiceResponse] {
+        get {
+            guard let data = serviceResponsesJSON?.data(using: .utf8) else { return [:] }
+            return (try? JSONDecoder().decode([String: ServiceResponse].self, from: data)) ?? [:]
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                serviceResponsesJSON = String(data: data, encoding: .utf8)
+            }
+        }
+    }
+
+    func respond(to catalogID: String, with decision: ServiceDecision?, now: Date = Date()) {
+        var responses = serviceResponses
+        responses[catalogID] = decision.map { ServiceResponse(decision: $0, updatedAt: now) }
+        serviceResponses = responses
+    }
+
+    var reviewedFamilies: Set<ReviewFamily> {
+        get {
+            guard let data = reviewedFamiliesJSON?.data(using: .utf8),
+                  let raw = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+            return Set(raw.compactMap(ReviewFamily.init(rawValue:)))
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue.map(\.rawValue).sorted()) {
+                reviewedFamiliesJSON = String(data: data, encoding: .utf8)
+            }
+        }
+    }
+
+    var serviceUseResponses: [String: ServiceUseResponse] {
+        get {
+            guard let data = serviceUseResponsesJSON?.data(using: .utf8) else { return [:] }
+            return (try? JSONDecoder().decode([String: ServiceUseResponse].self, from: data)) ?? [:]
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                serviceUseResponsesJSON = String(data: data, encoding: .utf8)
+            }
+        }
+    }
+
+    func recordServiceUse(_ answer: ServiceUseAnswer?, for catalogID: String, now: Date = Date()) {
+        var responses = serviceUseResponses
+        responses[catalogID] = answer.map {
+            ServiceUseResponse(answer: $0, answeredAt: now, questionVersion: "service-use-v1")
+        }
+        serviceUseResponses = responses
+    }
 
     var completionFraction: Double {
         guard totalCount > 0 else { return 0 }
@@ -162,7 +225,8 @@ final class Move {
         let grouped = Dictionary(grouping: tasks, by: { $0.category })
         let items = grouped.map { category, categoryTasks -> CategoryProgress in
             let completed = categoryTasks.filter { $0.status == .completed }.count
-            let nextDueInDays = categoryTasks.filter { $0.status != .completed }.map(\.tMinusDays).min()
+            let nextDueInDays = categoryTasks.filter { $0.status != .completed }
+                .map { $0.daysUntilDue(moveDate: anchorDate) }.min()
             return CategoryProgress(category: category, completed: completed, total: categoryTasks.count, nextDueInDays: nextDueInDays)
         }
         return items.sorted { lhs, rhs in

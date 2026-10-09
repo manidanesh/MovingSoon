@@ -214,12 +214,53 @@ enum LifestyleFlag: String, CaseIterable, Codable {
     case hasDisabilityInsurance
 
     // MARK: - 📦 Subscription Boxes
+    case usesStitchFix, usesFirstleaf, usesShipt, usesThriveMarket
+    case usesMisfitsMarket, usesButcherBox, usesNuuly, usesRentTheRunway
     case usesBeautyBox           // Birchbox, IPSY, Allure
     case usesFabFitFun
     case usesBespokePost
     case usesWineClub            // Winc, Firstleaf
     case usesCoffeeSubscription  // Trade, Atlas, Peet's
     case usesKidsCrateBox        // KiwiCo, Little Passports
+    // Individually confirmed family activity/learning services. `hasChildren` alone
+    // must not create address-update tasks for providers the family may not use.
+    case usesKumon
+    case usesMathnasium
+    case usesSylvanLearning
+    case usesEyeLevelLearning
+    case usesHuntingtonLearning
+    case usesTutoringCenter
+    case usesGymnasticsClub
+    case usesUSAGymnasticsClub
+    case usesLittleGym
+    case usesSwimSchool
+    case usesSafeSplash
+    case usesMartialArtsStudio
+    case usesDanceStudio
+    case usesCheerAcademy
+    case usesKidsSoccer
+    case usesLittleLeague
+    case usesYouthBasketball
+    case usesKidsTennis
+    case usesYouthHockey
+    case usesI9Sports
+    case usesKidsClimbing
+    case usesKidsYoga
+    case usesKidsMusicLessons
+    case usesSchoolOfRock
+    case usesKidsPianoLessons
+    case usesKidsTheater
+    case usesKidsChoir
+    case usesKidsArtClass
+    case usesKidsCoding
+    case usesKidsRobotics
+    case usesKidsScienceClass
+    case usesKidsChessClub
+    case usesDaycare
+    case usesSummerCamp
+    case usesScouting
+    case usesChewy
+    case usesRover
     case usesBookOfTheMonth
     case usesSnackBox            // Graze, NatureBox
     case usesClothingBox         // Stitch Fix, Trunk Club
@@ -344,6 +385,11 @@ enum PetSpecies: String, Codable, CaseIterable {
 
 import SwiftData
 
+enum MoveImpactFeedback: String, Codable {
+    case notRelevant
+    case unsure
+}
+
 @Model
 final class LifestyleProfile {
     var move: Move?
@@ -359,15 +405,36 @@ final class LifestyleProfile {
     var childCount: Int?
     /// JSON-encoded [String] of PetSpecies rawValues. Additive, empty until explicitly set.
     var petSpeciesJSON: String?
+    /// JSON-encoded flag rawValue → customer response for move-specific suggestions.
+    /// Additive so existing profiles migrate without losing their checklist or answers.
+    var moveImpactFeedbackJSON: String?
+    var childrenAnswer: Bool?
+    var petsAnswer: Bool?
+    var householdSize: Int?
+    var originHousingRaw: String?
+    var destinationHousingRaw: String?
+    var homeKindRaw: String?
+    var managesUtilities: Bool?
 
     init() {
         self.activeFlagsJSON = "[]"
         self.signalRecordsJSON = nil
         self.childCount = nil
         self.petSpeciesJSON = nil
+        self.moveImpactFeedbackJSON = nil
     }
 
     // MARK: - Flag access
+
+    var originHousing: HousingArrangement {
+        originHousingRaw.flatMap(HousingArrangement.init(rawValue:)) ?? .unknown
+    }
+    var destinationHousing: HousingArrangement {
+        if let saved = destinationHousingRaw.flatMap(HousingArrangement.init(rawValue:)) { return saved }
+        if has(.isOwning) { return .own }
+        if has(.isRenting) { return .rent }
+        return .unknown
+    }
 
     var activeFlags: Set<LifestyleFlag> {
         get {
@@ -404,6 +471,30 @@ final class LifestyleProfile {
     }
 
     func toggle(_ flag: LifestyleFlag) { set(flag, to: !has(flag)) }
+
+    func moveImpactFeedback(for flag: LifestyleFlag) -> MoveImpactFeedback? {
+        guard let json = moveImpactFeedbackJSON,
+              let data = json.data(using: .utf8),
+              let responses = try? JSONDecoder().decode([String: String].self, from: data),
+              let rawValue = responses[flag.rawValue] else { return nil }
+        return MoveImpactFeedback(rawValue: rawValue)
+    }
+
+    func setMoveImpactFeedback(_ feedback: MoveImpactFeedback?, for flag: LifestyleFlag) {
+        var responses: [String: String] = [:]
+        if let json = moveImpactFeedbackJSON,
+           let data = json.data(using: .utf8),
+           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
+            responses = saved
+        }
+        if let feedback {
+            responses[flag.rawValue] = feedback.rawValue
+        } else {
+            responses.removeValue(forKey: flag.rawValue)
+        }
+        guard let data = try? JSONEncoder().encode(responses) else { return }
+        moveImpactFeedbackJSON = String(data: data, encoding: .utf8)
+    }
 
     // MARK: - Signal access (WS2)
 

@@ -1,113 +1,87 @@
 # MovingSoon
 
-A hyper-personalized iOS moving checklist app built with SwiftUI and SwiftData.
+An iOS address-change checklist built with SwiftUI and SwiftData.
 
-When you move, you have to update your address with dozens of services — banks, utilities, subscriptions, government agencies, gyms, streaming services, and more. MovingSoon generates a personalized, prioritized checklist of everything you need to update, based on your actual lifestyle.
+When you move, you have to update your address with dozens of services — banks, utilities, subscriptions, government agencies, gyms, streaming services, and more. MovingSoon generates a personalized, prioritized checklist of address updates to review, based on your actual lifestyle.
 
 ---
 
 ## Features
 
-### Onboarding
-- Enter your move date and destination ZIP code — that's it
-- ZIP is used for regional intelligence (filters brands by state) and ambient background photos
+### Move and household setup
 
-### Lifestyle Interview (7 screens)
-- **Transport** — vehicles, ride share, toll roads, TSA PreCheck, airline loyalty
-- **Household** — family, pets, roommates, WFH, 529 plans, FSA
-- **Shopping** — Amazon, Target, Costco, regional grocers (Publix, H-E-B, Wegmans, etc.)
-- **Streaming** — Netflix, Hulu, Disney+, Spotify, cable/internet providers
-- **Fitness** — Planet Fitness, Equinox, Peloton, CrossFit, regional gyms
-- **More** — insurance, crypto, veteran status, retirement, business, legal
-- **Financial Accounts** — pick your banks, credit cards, investments, student loans, and mortgages
+- Move date, destination postal code, and optional origin; supports US ZIP and Canadian postal-code formats.
+- Three interview screens: household, financial accounts, and optional services.
+- Explicit yes / no / skip answers; previous and new housing arrangements are separate.
+- Optional household size, child count, pet types, home type, and utility responsibility.
+- Household details remain editable without resetting completed tasks.
 
-### Checklist Engine
-- 150+ catalog items across 11 categories
-- Flag-based filtering: `requires` (ALL), `requiresAny` (OR), `excludes`, `alwaysInclude`
-- Per-institution tasks generated for every selected bank/card/investment account
-- USPS Mail Forwarding is always the hero task — pinned first, always critical
-- Tasks sorted by urgency (`tMinusDays` relative to move date)
+### Address-change checklist
 
-### Zen Dashboard
-- One "Current Objective" hero card at a time
-- "Next Up" drawer showing the next 2 tasks
-- Completion ring with percentage
-- T-minus countdown to move day
-- Ambient background photo from Unsplash (moody, dark, location-aware)
-- Local fallback backgrounds for Denver, Laguna Beach, and generic cityscape
-- Skip task (pushes it 7 days out), Mark Complete, or Auto-Update (agentic email)
+- 402 catalog definitions spanning identity, money, home, insurance, children, health/pets, shopping, memberships, travel, and work. This includes aliases and grouped services, not 402 distinct providers.
+- Tasks retain stable catalog IDs. Equivalent catalog entries share a canonical identity to avoid accidental duplicate additions; customers can explicitly add separate accounts within a service.
+- Named accounts such as payment apps, AAA, Tesla and Canadian providers require confirmation where a broad household or regional flag previously assumed enrollment.
+- Search the catalog, add banks/cards, or create a custom task with a due date and optional note.
+- Actual calendar due dates determine urgency. Snoozed and awaiting-confirmation tasks remain unfinished.
+- Persistent service answers: confirmed, not applicable, or not sure. Not sure pauses suggestions for seven days; it does not add the service.
+- Separate category-review progress and task-completion progress. Reopen a reviewed category to see its suggestions again.
+- Optional **Review recurring accounts** browses recurring catalog topics and retains the original 25 pilot questions. It is grouped and searchable; service-use answers stay separate from task decisions, and adding a reminder is a separate action.
+- Nineteen focused topics make groceries, wine, clothing rentals, refills, personal care, storage and other recurring services easier to find. Search understands topic vocabulary and compact brand names such as “stitchfix.”
+- Move guidance covers upcoming shipments, returns, local transfers, delivery instructions and membership credits. See the [catalog review and expansion](CATALOG_REVIEW.md).
+- **Accounts & dates** tracks separate providers or household accounts, each with a name, optional nickname/website, progress, snooze and mute. Removing one leaves the others intact.
+- Optional next shipment and renewal dates bring address review forward, with a selectable 0–30-day lead time and local reminders. Dates stay fixed when moving day changes. Dates are entered manually; there is no live account access or automatic renewal tracking.
 
-### Smart Reminders
-- Anti-nag protocol: only fires daily at 10am for the current hero task if it's Critical priority
-- Geofencing: triggers a local notification when you're near a relevant POI (bank, DMV, gym, etc.)
+### Dashboard and discovery
 
-### Regional Intelligence
-- On-device ZIP → state/city bucket mapping (no network call)
-- Filters regional brands by destination state:
-  - Grocers: Publix (Southeast), H-E-B (TX), Wegmans (Northeast), Kroger, Safeway/Albertsons
-  - Fitness: Equinox (major metros), VASA (Mountain West), EoS (Southwest), 24 Hour Fitness
-  - ISPs: Verizon Fios (Northeast), Cox (Southwest/Southeast), Optimum (NY/NJ/CT)
+- Next action first, followed by up to three varied forgotten-item questions and the upcoming task list.
+- `ServiceDiscoveryEngine` ranks review questions locally using confirmed household answers, previous/destination regional context, housing transitions, and prior answers.
+- Previous-home closure, service transfer, new-home setup and requirement checks have distinct action labels.
+- Canadian and US geographic rules are evaluated independently for each end of a move; existing completed tasks and explicit choices are retained when locations change.
+- Reminder scheduling is refreshed after checklist and move edits. Reminders still require the appropriate iOS permissions.
 
-### Privacy
-- `PendingSignal` model: on-device queue for anonymous telemetry
-- Laplace noise applied to embeddings before emission
-- Timestamps floored to the hour — no minute/second precision
-- Persona and region buckets only — no PII
+### Optional connected features
 
----
+- **Census area estimates:** explicit opt-in under **Explore your new area**. ZIP/ZCTA income, household composition, rent, owner costs and home values describe the area, not the user's personal finances.
+- Cached Census results work offline; snapshots older than 30 days are refreshed when connected. A failed refresh retains the previous snapshot and its retrieval date.
+- Housing comparisons use margins of error before indicating a clear difference. This context can modestly prioritize housing review questions.
+- The area snapshot includes seven Census household-income bands when complete data is available. Income-based service ranking remains disabled until independently validated, appropriately licensed service-use evidence passes the release gates.
+- **Provider lookup:** the customer taps Check to search Apple Maps near the destination. Results do not establish service coverage or membership-transfer eligibility.
+- **Background images and neighborhood lookup:** use Unsplash and Apple's services, with bundled background and postal-bucket fallbacks.
+- Core checklist, review responses and suggestion rules work without an app backend or LLM. Uncached Census and live provider data require internet access.
+
+### Nearby reminders
+
+- Optional 30-day access with a recovery prompt when location permission is only While Using. The dashboard shows permission and matching status.
+- Named providers and selected banks are matched to their own places. Unknown personal providers retain regular checklist reminders.
+- Destination or task changes replace stale monitored locations. Notification Snooze and Mute save to the task and refresh all its reminders.
+- Rules run on-device; Apple Maps discovery needs internet. Background reminders need Always location permission and notifications enabled. iOS controls delivery timing.
+- See [location reminder behavior and phone checks](LOCATION_REMINDERS_IMPLEMENTATION.md).
 
 ## Architecture
 
-```
-movingsoon.app/
-├── Models/
-│   ├── Move.swift                  # Central SwiftData model
-│   ├── ChecklistTask.swift         # Task with 3-state machine (toDo → pending → completed)
-│   ├── LifestyleProfile.swift      # JSON-encoded Set<LifestyleFlag>
-│   ├── FinancialInstitution.swift  # User's selected banks/cards
-│   ├── VerificationEvent.swift     # Audit log for task completions
-│   ├── PendingSignal.swift         # Privacy-preserving telemetry queue
-│   ├── UnsplashPhoto.swift         # Unsplash API response model
-│   └── Enums.swift                 # All domain enumerations
-│
-├── Services/
-│   ├── ChecklistGenerator.swift    # Filters catalog by lifestyle flags → tasks
-│   ├── ItemCatalog.swift           # 150+ catalog items (government, transport, housing, financial)
-│   ├── ItemCatalog+Lifestyle.swift # Catalog extension (shopping, streaming, fitness, healthcare, etc.)
-│   ├── CatalogItem.swift           # CatalogItem struct with flag logic
-│   ├── KnownInstitutions.swift     # Curated US financial institutions; regional banks filtered by FDIC-sourced footprint
-│   ├── PersonaEngine.swift         # Maps onboarding answers → PersonaKey
-│   ├── ZipBucketService.swift      # On-device ZIP → state/city bucket mapping (3-digit prefix)
-│   ├── CityBackgroundMapper.swift  # Maps ZIP/city to bundled background assets
-│   ├── UnsplashService.swift       # Fetches ambient background photos
-│   ├── SmartReminderService.swift  # Anti-nag push notification protocol
-│   └── LocationManager.swift      # Geofencing for POI-based task reminders
-│
-├── Views/
-│   ├── Onboarding/
-│   │   └── CoreIntakeView.swift    # Move date + destination ZIP
-│   ├── LifestyleInterview/
-│   │   ├── LifestyleInterviewView.swift  # 7-screen interview container + ViewModel
-│   │   ├── BubblePickerView.swift        # Emoji chip grid + InterviewScreenView template
-│   │   └── FinancialScreenView.swift     # Bank/card/investment picker (screen 7)
-│   ├── Dashboard/
-│   │   ├── ZenDashboardView.swift        # Primary dashboard (hero card + next up drawer)
-│   │   ├── DashboardView.swift           # Secondary dashboard (priority bucket list)
-│   │   ├── HeroUSPSView.swift            # Pinned USPS hero card
-│   │   └── TaskRowView.swift             # Individual task row with momentum ring
-│   ├── AccountSetup/
-│   │   └── AccountSetupView.swift        # Standalone financial account picker
-│   ├── Components/
-│   │   ├── MomentumRingView.swift        # 3-state animated progress ring
-│   │   ├── InstitutionBadgeView.swift    # Colored circle with institution initials
-│   │   ├── SelectionCard.swift           # Reusable pill/card selection component
-│   │   └── OnboardingStepTemplate.swift  # Shared onboarding step layout
-│   └── MailComposeView.swift             # MFMailComposeViewController wrapper
-│
-├── Theme.swift                     # Design system (colors, typography)
-├── ContentView.swift               # Root router: onboarding → interview → dashboard
-└── movingsoon_appApp.swift         # App entry point + SwiftData ModelContainer
-```
+| Component | Responsibility |
+|---|---|
+| `Models/Move.swift` | Move, checklist relationships, service decisions, reviewed categories and Census opt-in |
+| `Models/ChecklistTask.swift` | Status, due date, stable catalog identity, action type and note |
+| `Models/LifestyleProfile.swift` | Household answers and explicitly selected service flags |
+| `Services/ItemCatalog*.swift` | Catalog definitions, canonical identities, review family and contextual metadata |
+| `Services/ChecklistGenerator.swift` | Generate relevant tasks and evaluate each end of the move |
+| `Services/MoveChecklistService.swift` | Confirm/add services, preserve dismissals, link legacy tasks and add custom items |
+| `Services/ServiceDiscoveryEngine.swift` | Explainable local ordering of forgotten-item questions |
+| `Services/PostalCodeService.swift` | Shared normalization, validation and country/province context |
+| `Services/AreaMarketDataService.swift` | Optional Census fetch, parsing, local cache and offline fallback |
+| `Services/MoveFitEngine.swift` | Uncertainty-aware area housing comparisons |
+| `Services/ServiceEvidenceCatalog.swift` / `Resources/IncomePilot.json` | 25-service pilot, source mappings and validation requirements |
+| `Services/IncomeSuggestionEngine.swift` | Bounded local income adjustment; no income rules enabled in the current bundle |
+| `scripts/evaluate_income_pilot.py` | Offline paired holdout evaluation, with explicit research consent and subgroup checks |
+| `Views/Settings/AddMoreServicesView.swift` | Catalog search, category reviews, custom items and provider checks |
+| `Views/Settings/HouseholdDetailsView.swift` | Shared household questions and edits that retain progress |
+| `Views/Dashboard/ZenDashboardView.swift` | Next action, discovery, progress and optional area details |
+| `Services/SmartReminderService.swift` / `LocationManager.swift` | Scheduled and permission-based proximity reminders |
+
+SwiftData stores household facts and tasks locally. New persistent fields are optional for additive schema compatibility. If the database cannot open, the app keeps its files and presents a recovery message; it does not silently replace the customer's checklist.
+
+See [implementation status](IMPLEMENTATION_STATUS.md) for the current delivery and remaining validation, and [functional review](PRODUCT_FUNCTIONAL_REVIEW.md) for the original findings.
 
 ---
 
@@ -117,8 +91,8 @@ movingsoon.app/
 - **SwiftData** — Persistence (iOS 17+)
 - **Combine / @Observable** — Reactive state
 - **CoreLocation** — Geofencing for POI-based reminders
-- **UserNotifications** — Push and local notifications
-- **MessageUI** — In-app mail compose for agentic address updates
+- **UserNotifications** — Local notifications
+- **MessageUI** — User-reviewed address-change email drafts
 - **Unsplash API** — Ambient background photography
 
 ---
@@ -126,15 +100,18 @@ movingsoon.app/
 ## Requirements
 
 - iOS 17.0+
-- Xcode 15+
-- Unsplash API key (set in `UnsplashService.swift`)
+- Xcode 16+ for the filesystem-synchronized project groups
+- Optional Unsplash configuration for live background photos
+- Optional Census key in the ignored `movingsoon.app/CensusAPIKey.plist` resource (`CensusAPIKey` string) or `CENSUS_API_KEY` environment variable. Do not commit keys. A key bundled in an app is extractable; it is not a server-side secret.
 
 ---
 
 ## Known Issues / In Progress
 
-- `PendingSignal` model is fully defined but no service emits signals yet — telemetry queue is built but dormant
-- `PersonaEngine` exists but is not called at onboarding — personas are derived lazily from lifestyle flags via `Move.personaKey`
+- The current review engine saves explicit service responses locally; it does not transmit telemetry. Older `PendingSignal` records remain local.
+- Personal income, exact property prices, crime grades and service-enrollment probabilities are not inferred. They require additional appropriate data and validation.
+- Simulator interaction and existing-install migration still need validation. The earlier automated suite and Census request passed; the October 7 catalog expansion has a successful simulator build and has not had a new test run. See `IMPLEMENTATION_STATUS.md`.
+- See the [income pilot and study contract](research/income-pilot/README.md) for data-source limits, evaluation commands and what is needed before enabling income-based ranking.
 
 ---
 
@@ -153,7 +130,7 @@ movingsoon.app/
 
 ## Task Categories
 
-`Postal` · `Government` · `Financial` · `Utilities` · `Subscriptions` · `Healthcare` · `Education` · `Insurance` · `Legal` · `Employer` · `Other`
+`Postal` · `Government` · `Financial` · `Utilities` · `Subscriptions` · `Healthcare` · `Education` · `Insurance` · `Legal` · `Employer` · `Travel` · `Estate` · `Digital` · `Other`
 
 ## Task Priorities
 

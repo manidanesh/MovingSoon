@@ -3,7 +3,578 @@ import Testing
 import Foundation
 import CoreLocation
 import SwiftData
+import UserNotifications
 @testable import movingsoon_app
+
+// MARK: - Location/reminder regression fixtures
+
+@MainActor private enum ReminderFixtures {
+    static let now = Date(timeIntervalSince1970: 1_791_201_600)
+    static let destination = CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903)
+    static var calendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(secondsFromGMT: 0)!
+        return value
+    }
+    static func move(tasks: [ChecklistTask] = []) -> Move {
+        let move = Move(anchorDate: now.addingTimeInterval(10 * 86400), originZip: "90210",
+                        destinationZip: "80202", destinationStateBucket: "CO", destinationCityBucket: "DENVER",
+                        destinationLatitude: destination.latitude, destinationLongitude: destination.longitude)
+        move.lifestyleProfile = LifestyleProfile()
+        move.tasks = tasks
+        tasks.forEach { $0.move = move }
+        return move
+    }
+    static func task(_ id: String = "lifetime", priority: TaskPriority = .critical) -> ChecklistTask {
+        let item = ItemCatalog.byID[id]
+        let task = ChecklistTask(title: item?.title ?? id, category: .other, priority: priority, tMinusDays: -3)
+        task.catalogItemID = item?.canonicalID
+        task.poiCategory = item?.poiCategory ?? .gym
+        return task
+    }
+    static func request(_ id: String, task: ChecklistTask? = nil) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        if let task { content.userInfo = ["taskID": task.id.uuidString, "taskIDs": [task.id.uuidString]] }
+        return UNNotificationRequest(identifier: id, content: content, trigger: nil)
+    }
+    static func ids(_ request: UNNotificationRequest) -> [String] {
+        request.content.userInfo["taskIDs"] as? [String] ?? []
+    }
+    static func fireDate(_ request: UNNotificationRequest) -> Date? {
+        guard let trigger = request.trigger as? UNCalendarNotificationTrigger else { return nil }
+        return calendar.date(from: trigger.dateComponents)
+    }
+}
+
+/// Deterministic async barriers: race tests never depend on wall-clock sleeps.
+@MainActor private final class ReminderTestLatch {
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        opened = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+@MainActor private final class FakeLocationSearch: LocationPlaceSearching {
+    var calls: [String] = []
+    var availableQueries: Set<String>?
+    var firstEntered: ReminderTestLatch?
+    var firstRelease: ReminderTestLatch?
+    func search(target: LocationPlaceTarget, near coordinate: CLLocationCoordinate2D,
+                radius: CLLocationDistance) async -> [LocationPlaceMatch] {
+        calls.append(target.query)
+        if let release = firstRelease {
+            firstRelease = nil
+            firstEntered?.open()
+            await release.wait()
+        }
+        if let availableQueries, !availableQueries.contains(target.query) { return [] }
+        return [LocationPlaceMatch(name: target.query, coordinate: coordinate)]
+    }
+}
+
+@MainActor private final class FakeRegionMonitor: LocationRegionMonitoring {
+    var monitoredRegions: Set<CLRegion> = []
+    var started: [String] = []
+    var stopped: [String] = []
+    var peakCount = 0
+    func startMonitoring(for region: CLRegion) {
+        monitoredRegions.insert(region)
+        started.append(region.identifier)
+        peakCount = max(peakCount, monitoredRegions.count)
+    }
+    func stopMonitoring(for region: CLRegion) {
+        monitoredRegions.remove(region)
+        stopped.append(region.identifier)
+    }
+}
+
+@MainActor private final class FakeReminderCenter: ReminderNotificationCenter {
+    var pendingRequests: [String: UNNotificationRequest] = [:]
+    var deliveredRequests: [UNNotificationRequest] = []
+    var permission = true
+    var failAdds = false
+    var firstEntered: ReminderTestLatch?
+    var firstRelease: ReminderTestLatch?
+    func pending() async -> [UNNotificationRequest] { Array(pendingRequests.values) }
+    func delivered() async -> [UNNotificationRequest] { deliveredRequests }
+    func authorized() async -> Bool { permission }
+    func requestPermission() async -> Bool { permission }
+    func add(_ request: UNNotificationRequest) async throws {
+        if let release = firstRelease {
+            firstRelease = nil
+            firstEntered?.open()
+            await release.wait()
+        }
+        if failAdds { throw NSError(domain: "ReminderTest", code: 1) }
+        pendingRequests[request.identifier] = request
+    }
+    func removePending(_ identifiers: [String]) { identifiers.forEach { pendingRequests.removeValue(forKey: $0) } }
+    func removeDelivered(_ identifiers: [String]) { deliveredRequests.removeAll { identifiers.contains($0.identifier) } }
+}
+
+@MainActor @Suite("Location reminders — explicit consent and task eligibility")
+struct ReminderPolicyRegressionTests {
+    @Test(arguments: [CLAuthorizationStatus.notDetermined, .authorizedWhenInUse, .authorizedAlways, .denied])
+    func unconsentedMoveKeepsSetupAvailable(_ status: CLAuthorizationStatus) {
+        #expect(ReminderPolicy.showsConsent(grantedAt: nil, status: status, dismissed: false))
+        #expect(!ReminderPolicy.showsConsent(grantedAt: nil, status: status, dismissed: true))
+    }
+
+    @Test func restrictedAndExpiredConsentDoNotReprompt() {
+        #expect(!ReminderPolicy.showsConsent(grantedAt: nil, status: .restricted, dismissed: false))
+        let old = ReminderFixtures.now.addingTimeInterval(-31 * 86400)
+        #expect(!ReminderPolicy.showsConsent(grantedAt: old, status: .authorizedAlways, dismissed: false))
+        #expect(!ReminderPolicy.needsAlwaysUpgrade(grantedAt: old, status: .authorizedWhenInUse,
+                                                  dismissed: false, now: ReminderFixtures.now))
+    }
+
+    @Test func systemPermissionAloneNeverCreatesMoveConsent() {
+        let move = ReminderFixtures.move()
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        #expect(move.locationConsentGrantedAt == nil)
+    }
+
+    @Test func firstWhileUsingGrantRecordsExplicitRequestAndEnablesUpgrade() {
+        let move = ReminderFixtures.move()
+        move.locationConsentRequestedAt = ReminderFixtures.now.addingTimeInterval(-10)
+        #expect(ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedWhenInUse, now: ReminderFixtures.now))
+        #expect(move.locationConsentGrantedAt == move.locationConsentRequestedAt)
+        #expect(ReminderPolicy.needsAlwaysUpgrade(grantedAt: move.locationConsentGrantedAt, status: .authorizedWhenInUse,
+                                                  dismissed: false, now: ReminderFixtures.now))
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways,
+                                                        now: ReminderFixtures.now.addingTimeInterval(86400)))
+        #expect(move.locationConsentGrantedAt == move.locationConsentRequestedAt)
+    }
+
+    @Test func denialFutureAndExpiredRequestsDoNotStartConsent() {
+        let move = ReminderFixtures.move()
+        move.locationConsentRequestedAt = ReminderFixtures.now
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .denied, now: ReminderFixtures.now))
+        move.locationConsentRequestedAt = ReminderFixtures.now.addingTimeInterval(1)
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        move.locationConsentRequestedAt = ReminderFixtures.now.addingTimeInterval(-31 * 86400)
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+    }
+
+    @Test func everySuppressionAppliesToTheExactTask() {
+        let task = ReminderFixtures.task()
+        let now = ReminderFixtures.now
+        #expect(ReminderPolicy.isEligible(task, at: now))
+        task.isMuted = true
+        #expect(!ReminderPolicy.isEligible(task, at: now))
+        task.isMuted = false
+        task.snoozedUntil = now.addingTimeInterval(1)
+        #expect(!ReminderPolicy.isEligible(task, at: now))
+        task.snoozedUntil = now
+        #expect(ReminderPolicy.isEligible(task, at: now))
+        task.needsLocationReview = true
+        #expect(!ReminderPolicy.isEligible(task, at: now))
+        task.needsLocationReview = false
+        for status in [TaskStatus.pendingVerification, .completed] {
+            task.status = status
+            #expect(!ReminderPolicy.isEligible(task, at: now))
+        }
+    }
+
+    @Test func revisionTracksProviderDestinationPriorityLinkAndTaskState() {
+        let task = ReminderFixtures.task()
+        let move = ReminderFixtures.move(tasks: [task])
+        var previous = ReminderPolicy.revision(for: move)
+        let edits: [() -> Void] = [
+            { task.institutionName = "Chase" }, { move.destinationZip = "10001" },
+            { task.priorityRaw = TaskPriority.low.rawValue }, { task.deepLinkURLString = "https://example.com/account" },
+            { task.isMuted = true }, { task.snoozedUntil = ReminderFixtures.now },
+            { task.needsLocationReview = true }, { task.status = .completed },
+            { move.destinationLatitude = 40 }, { move.phaseRaw = MovePhase.archived.rawValue }
+        ]
+        for edit in edits {
+            edit()
+            let changed = ReminderPolicy.revision(for: move)
+            #expect(previous != changed)
+            previous = changed
+        }
+    }
+
+    @Test func consentAndNotificationActionsPersistAcrossContexts() throws {
+        let container = try ModelContainer(for: Move.self, ChecklistTask.self, LifestyleProfile.self,
+            FinancialInstitution.self, VerificationEvent.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let task = ReminderFixtures.task()
+        let move = ReminderFixtures.move(tasks: [task])
+        context.insert(move)
+        move.locationConsentRequestedAt = ReminderFixtures.now
+        ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedWhenInUse, now: ReminderFixtures.now)
+        #expect(NotificationTaskAction.apply("SNOOZE", to: task, now: ReminderFixtures.now))
+        #expect(NotificationTaskAction.apply("MUTE", to: task, now: ReminderFixtures.now))
+        try context.save()
+        let restored = try #require(ModelContext(container).fetch(FetchDescriptor<Move>()).first)
+        #expect(restored.locationConsentRequestedAt == ReminderFixtures.now)
+        #expect(restored.locationConsentGrantedAt == ReminderFixtures.now)
+        #expect(restored.tasks.first?.isMuted == true)
+        #expect(restored.tasks.first?.snoozedUntil == ReminderFixtures.now.addingTimeInterval(86400))
+    }
+
+    @Test func notificationActionsDoNotResurrectFinishedTasks() {
+        let task = ReminderFixtures.task()
+        for status in [TaskStatus.completed, .pendingVerification] {
+            task.status = status
+            #expect(!NotificationTaskAction.apply("SNOOZE", to: task))
+            #expect(!NotificationTaskAction.apply("MUTE", to: task))
+            #expect(task.status == status)
+        }
+        task.status = .toDo
+        task.isMuted = true
+        #expect(!NotificationTaskAction.apply("SNOOZE", to: task))
+        #expect(!NotificationTaskAction.apply("UNKNOWN", to: task))
+    }
+}
+
+@MainActor @Suite("Location reminders — provider matching and region reconciliation")
+struct LocationRegionRegressionTests {
+    @Test func namedProvidersNeverMatchAnotherProviderInTheCategory() throws {
+        let lifeTime = try #require(LocationPlaceTarget.forTask(ReminderFixtures.task("lifetime")))
+        #expect(lifeTime.matches(name: "Life Time Cherry Creek"))
+        #expect(lifeTime.matches(name: "LIFETIME FITNESS"))
+        #expect(!lifeTime.matches(name: "Planet Fitness"))
+        let bank = ReminderFixtures.task("My bank")
+        bank.poiCategory = .bank
+        bank.institutionName = "Chase"
+        let chase = try #require(LocationPlaceTarget.forTask(bank))
+        #expect(chase.matches(name: "Chase Bank"))
+        #expect(!chase.matches(name: "Bank of America"))
+        #expect(!chase.matches(name: "Chasewood Shopping Center"))
+    }
+
+    @Test func aliasesRespectWordBoundariesAndPunctuation() {
+        let rei = LocationPlaceTarget(query: "REI", acceptedNames: ["REI"], category: .outdoorGear)
+        #expect(rei.matches(name: "REI Co-op"))
+        #expect(!rei.matches(name: "Freight outlet"))
+        #expect(!rei.matches(name: nil))
+        let books = LocationPlaceTarget(query: "Barnes & Noble", acceptedNames: ["Barnes & Noble"], category: .bookstore)
+        #expect(books.matches(name: "Barnes and Noble — Café"))
+        #expect(!LocationPlaceTarget(query: "", acceptedNames: [""], category: .other).matches(name: "Any Place"))
+    }
+
+    @Test func unknownPersonalProvidersStayOutOfLocationPlan() {
+        let doctor = ChecklistTask(title: "My doctor", category: .other, priority: .high, tMinusDays: 0)
+        doctor.poiCategory = .doctor
+        #expect(LocationPlaceTarget.forTask(doctor) == nil)
+        #expect(LocationPlaceTarget.forTask(ReminderFixtures.task("classpass")) == nil)
+        #expect(LocationPlaceTarget.forTask(ReminderFixtures.task("Unknown local gym")) == nil)
+    }
+
+    @Test func catalogProviderMetadataIsCompleteWhereDeclared() {
+        let providers = ItemCatalog.all.filter { $0.placeSearchName != nil }
+        #expect(providers.count >= 39)
+        for item in providers {
+            #expect(item.poiCategory != nil)
+            #expect(!item.placeNameAliases.isEmpty)
+            #expect(item.placeNameAliases.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+        }
+    }
+
+    @Test func regionIdentityChangesWhenDestinationOrProviderChanges() throws {
+        let task = ReminderFixtures.task()
+        let move = ReminderFixtures.move(tasks: [task])
+        func plan(_ coordinate: CLLocationCoordinate2D? = nil) -> [LocationRegionRequest] {
+            LocationRegionPlan.requests(for: move, destination: coordinate ?? ReminderFixtures.destination, now: ReminderFixtures.now)
+        }
+        let first = try #require(plan().first)
+        #expect(plan().first?.identifier == first.identifier)
+        move.destinationZip = "10001"
+        #expect(plan().first?.identifier != first.identifier)
+        move.destinationZip = "80202"
+        #expect(plan(CLLocationCoordinate2D(latitude: 40.75, longitude: -73.99)).first?.identifier != first.identifier)
+        task.institutionName = "Another provider"
+        #expect(plan().first?.identifier != first.identifier)
+    }
+
+    @Test func planSkipsMutedSnoozedReviewedAndWrongCountryTasks() {
+        let muted = ReminderFixtures.task(), snoozed = ReminderFixtures.task(), review = ReminderFixtures.task()
+        muted.isMuted = true
+        snoozed.snoozedUntil = ReminderFixtures.now.addingTimeInterval(1)
+        review.needsLocationReview = true
+        let usps = ReminderFixtures.task("usps")
+        let move = ReminderFixtures.move(tasks: [muted, snoozed, review, usps])
+        move.destinationZip = "M5V 3L9"
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        #expect(plan.isEmpty)
+    }
+
+    @Test func coldLaunchPrunesLegacyZonesAndRetainsUnchangedZones() async throws {
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let move = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        let requests = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        monitor.startMonitoring(for: CLCircularRegion(center: ReminderFixtures.destination, radius: 200, identifier: "legacy-task-uuid"))
+        await coordinator.syncGeofences(requests: requests, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(monitor.stopped == ["legacy-task-uuid"])
+        #expect(monitor.monitoredRegions.count == 1)
+        let calls = search.calls.count, starts = monitor.started.count
+        await coordinator.syncGeofences(requests: requests, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(search.calls.count == calls)
+        #expect(monitor.started.count == starts)
+        let region = try #require(monitor.monitoredRegions.first as? CLCircularRegion)
+        #expect(region.radius == 200 && region.notifyOnEntry && !region.notifyOnExit)
+        move.tasks[0].isMuted = true
+        let empty = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: empty, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(monitor.monitoredRegions.isEmpty)
+        #expect(coordinator.registeredRegionIDs.isEmpty)
+    }
+
+    @Test func destinationEditReplacesCoordinatesAndOldIdentifiers() async throws {
+        let monitor = FakeRegionMonitor(), coordinator = GeofenceCoordinator(searcher: FakeLocationSearch())
+        let move = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        let old = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: old, destination: ReminderFixtures.destination, manager: monitor)
+        let destination = CLLocationCoordinate2D(latitude: 40.75, longitude: -73.99)
+        move.destinationZip = "10001"
+        let new = LocationRegionPlan.requests(for: move, destination: destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: new, destination: destination, manager: monitor)
+        let region = try #require(monitor.monitoredRegions.first as? CLCircularRegion)
+        #expect(region.center.latitude == destination.latitude)
+        #expect(region.identifier == new.first?.identifier)
+        #expect(monitor.stopped.contains(old[0].identifier))
+    }
+
+    @Test func zoneLimitAndSharedProviderSearchCache() async {
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let move = ReminderFixtures.move(tasks: (0..<25).map { _ in ReminderFixtures.task() })
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: plan, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(monitor.monitoredRegions.count == 20)
+        #expect(monitor.peakCount == 20)
+        #expect(search.calls.count == 1)
+    }
+
+    @Test func noSearchMatchDoesNotRegisterZone() async {
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        search.availableQueries = []
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let move = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: plan, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(monitor.monitoredRegions.isEmpty)
+        #expect(coordinator.registeredRegionIDs.isEmpty)
+    }
+
+    @Test func obsoleteAsyncSearchCannotRecreateClearedZones() async {
+        let entered = ReminderTestLatch(), release = ReminderTestLatch()
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        search.firstEntered = entered; search.firstRelease = release
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let move = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        let old = Task { await coordinator.syncGeofences(requests: plan, destination: ReminderFixtures.destination, manager: monitor) }
+        await entered.wait()
+        coordinator.removeAllGeofences(manager: monitor)
+        release.open()
+        await old.value
+        #expect(monitor.started.isEmpty)
+        #expect(coordinator.registeredRegionIDs.isEmpty)
+    }
+
+    @Test func visitReturnsMatchingTaskNotAnotherGym() async throws {
+        let first = ReminderFixtures.task("planetfitness"), second = ReminderFixtures.task("lifetime")
+        first.tMinusDays = -30
+        let move = ReminderFixtures.move(tasks: [first, second])
+        let search = FakeLocationSearch()
+        search.availableQueries = [try #require(LocationPlaceTarget.forTask(second)).query]
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        #expect(await coordinator.matchVisit(at: ReminderFixtures.destination, requests: plan) == second.id)
+    }
+}
+
+@MainActor @Suite("Reminders — one-shot schedules and serialized delivery")
+struct ReminderScheduleRegressionTests {
+    @Test func scheduledRequestsExcludeMutedFinishedAndReviewTasks() {
+        let active = ReminderFixtures.task(), muted = ReminderFixtures.task(), completed = ReminderFixtures.task()
+        let review = ReminderFixtures.task(), verifying = ReminderFixtures.task()
+        muted.isMuted = true; completed.status = .completed; review.needsLocationReview = true; verifying.status = .pendingVerification
+        let move = ReminderFixtures.move(tasks: [active, muted, completed, review, verifying])
+        let requests = ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now, calendar: ReminderFixtures.calendar)
+        #expect(!requests.isEmpty)
+        #expect(requests.allSatisfy { ReminderFixtures.ids($0) == [active.id.uuidString] })
+        #expect(requests.allSatisfy { $0.content.userInfo["moveID"] as? String == move.id.uuidString })
+        #expect(requests.allSatisfy { ($0.trigger as? UNCalendarNotificationTrigger)?.repeats == false })
+        #expect(requests.allSatisfy { (ReminderFixtures.fireDate($0) ?? .distantPast) > ReminderFixtures.now })
+    }
+
+    @Test func snoozedTaskCannotAppearBeforeExpiryAndReturnDoesNotClaimProximity() throws {
+        let task = ReminderFixtures.task()
+        let move = ReminderFixtures.move(tasks: [task])
+        task.snoozedUntil = ReminderFixtures.now.addingTimeInterval(2 * 86400 + 60.5)
+        let requests = ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now, calendar: ReminderFixtures.calendar)
+        #expect(requests.allSatisfy { (ReminderFixtures.fireDate($0) ?? .distantPast) >= task.snoozedUntil! })
+        let snooze = try #require(requests.first { $0.identifier == "Snooze-\(task.id.uuidString)" })
+        #expect(!snooze.content.body.lowercased().contains("near"))
+        #expect(snooze.content.categoryIdentifier == "TaskReminder")
+    }
+
+    @Test func nightSnoozeReturnsAtNineAndUsesSuppliedCalendar() throws {
+        let task = ReminderFixtures.task()
+        let calendar = ReminderFixtures.calendar
+        let start = calendar.startOfDay(for: ReminderFixtures.now.addingTimeInterval(86400))
+        task.snoozedUntil = calendar.date(bySettingHour: 22, minute: 10, second: 0, of: start)
+        let requests = ReminderScheduleBuilder.requests(for: ReminderFixtures.move(tasks: [task]), now: ReminderFixtures.now, calendar: calendar)
+        let snooze = try #require(requests.first { $0.identifier.hasPrefix("Snooze-") })
+        let fire = try #require(ReminderFixtures.fireDate(snooze))
+        #expect(calendar.component(.hour, from: fire) == 9)
+        #expect(fire > task.snoozedUntil!)
+        #expect(calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: fire)).day == 1)
+    }
+
+    @Test func scheduleStaysWithinSystemCapacityAndArchivesClearIt() {
+        let tasks = (0..<100).map { index in
+            let task = ReminderFixtures.task()
+            task.tMinusDays = index
+            return task
+        }
+        let move = ReminderFixtures.move(tasks: tasks)
+        let requests = ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now, calendar: ReminderFixtures.calendar)
+        #expect(requests.count == 60)
+        #expect(Set(requests.map(\.identifier)).count == requests.count)
+        move.phaseRaw = MovePhase.archived.rawValue
+        #expect(ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now).isEmpty)
+    }
+
+    @Test func legacyAndCurrentNotificationIdentifiersAreOwned() {
+        for id in ["HeroTaskReminder", "HeroTaskReminderEvening", "Hero-123", "Digest-123", "TMinus-abc",
+                   "Snooze-abc", "LocationReminder-abc", "ReengagementReminder", "PostMoveCheckIn"] {
+            #expect(ReminderScheduleBuilder.owns(id))
+        }
+        #expect(!ReminderScheduleBuilder.owns("UnrelatedNotification"))
+    }
+
+    @Test func muteDuringAsyncSchedulingLeavesOnlyLatestPlan() async {
+        let center = FakeReminderCenter(), entered = ReminderTestLatch(), release = ReminderTestLatch()
+        center.firstEntered = entered; center.firstRelease = release
+        let service = SmartReminderService(center: center, registerCategories: false)
+        let muted = ReminderFixtures.task(), active = ReminderFixtures.task("costco")
+        let move = ReminderFixtures.move(tasks: [muted, active])
+        service.reschedule(for: move, now: ReminderFixtures.now)
+        await entered.wait()
+        muted.isMuted = true
+        service.reschedule(for: move, now: ReminderFixtures.now)
+        release.open()
+        await service.waitForSchedule()
+        #expect(!center.pendingRequests.isEmpty)
+        #expect(center.pendingRequests.values.allSatisfy { !ReminderFixtures.ids($0).contains(muted.id.uuidString) })
+        let expected = ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now)
+        #expect(Set(center.pendingRequests.keys) == Set(expected.map(\.identifier)))
+    }
+
+    @Test func resetClearsOwnedPendingAndDeliveredButPreservesUnrelatedRequests() async {
+        let center = FakeReminderCenter()
+        let task = ReminderFixtures.task()
+        let old = ReminderFixtures.request("LocationReminder-old", task: task)
+        let unrelated = ReminderFixtures.request("UnrelatedNotification")
+        center.pendingRequests = [old.identifier: old, unrelated.identifier: unrelated]
+        center.deliveredRequests = [old, unrelated]
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: nil)
+        await service.waitForSchedule()
+        #expect(Set(center.pendingRequests.keys) == [unrelated.identifier])
+        #expect(center.deliveredRequests.map(\.identifier) == [unrelated.identifier])
+    }
+
+    @Test func staleDeliveredTasksAreRemovedAndEligibleTasksAreRetained() async {
+        let center = FakeReminderCenter()
+        let muted = ReminderFixtures.task(), active = ReminderFixtures.task("costco")
+        muted.isMuted = true
+        let move = ReminderFixtures.move(tasks: [muted, active])
+        center.deliveredRequests = [ReminderFixtures.request("LocationReminder-muted", task: muted),
+                                   ReminderFixtures.request("LocationReminder-active", task: active),
+                                   ReminderFixtures.request("HeroTaskReminder")]
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: move, now: ReminderFixtures.now)
+        await service.waitForSchedule()
+        #expect(center.deliveredRequests.map(\.identifier) == ["LocationReminder-active"])
+    }
+
+    @Test func schedulingErrorDoesNotPreventNextUpdate() async {
+        let center = FakeReminderCenter()
+        let service = SmartReminderService(center: center, registerCategories: false)
+        let move = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        center.failAdds = true
+        service.reschedule(for: move, now: ReminderFixtures.now)
+        await service.waitForSchedule()
+        #expect(center.pendingRequests.isEmpty)
+        center.failAdds = false
+        service.reschedule(for: move, now: ReminderFixtures.now)
+        await service.waitForSchedule()
+        #expect(!center.pendingRequests.isEmpty)
+    }
+
+    @Test func locationDeliveryUsesExactTaskAndRecordsBudgetAfterSuccess() async throws {
+        let center = FakeReminderCenter()
+        var recorded = 0
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { true }, recordLocationDelivery: { recorded += 1 })
+        let task = ReminderFixtures.task()
+        #expect(await service.fireLocationNotification(task: task, poiCategory: .gym, stillRelevant: { true }))
+        let request = try #require(center.pendingRequests.values.first)
+        #expect(request.content.body.contains(task.title))
+        #expect(ReminderFixtures.ids(request) == [task.id.uuidString])
+        #expect(recorded == 1)
+    }
+
+    @Test func deniedPermissionAndStaleTaskNeverConsumeBudget() async {
+        let center = FakeReminderCenter()
+        var recorded = 0
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { true }, recordLocationDelivery: { recorded += 1 })
+        let task = ReminderFixtures.task()
+        center.permission = false
+        #expect(await !service.fireLocationNotification(task: task, poiCategory: .gym, stillRelevant: { true }))
+        center.permission = true
+        #expect(await !service.fireLocationNotification(task: task, poiCategory: .gym, stillRelevant: { false }))
+        task.isMuted = true
+        #expect(await !service.fireLocationNotification(task: task, poiCategory: .gym, stillRelevant: { true }))
+        #expect(recorded == 0 && center.pendingRequests.isEmpty)
+    }
+
+    @Test func concurrentLocationRequestsCannotRaceTheBudget() async {
+        let center = FakeReminderCenter(), entered = ReminderTestLatch(), release = ReminderTestLatch()
+        center.firstEntered = entered; center.firstRelease = release
+        var recorded = 0
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { true }, recordLocationDelivery: { recorded += 1 })
+        let first = ReminderFixtures.task(), second = ReminderFixtures.task("costco")
+        let delivery = Task { await service.fireLocationNotification(task: first, poiCategory: .gym, stillRelevant: { true }) }
+        await entered.wait()
+        #expect(await !service.fireLocationNotification(task: second, poiCategory: .grocery, stillRelevant: { true }))
+        release.open()
+        #expect(await delivery.value)
+        #expect(recorded == 1 && center.pendingRequests.count == 1)
+    }
+
+    @Test func taskMutedWhileNotificationAddIsPendingGetsRemoved() async {
+        let center = FakeReminderCenter(), entered = ReminderTestLatch(), release = ReminderTestLatch()
+        center.firstEntered = entered; center.firstRelease = release
+        var recorded = 0
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { true }, recordLocationDelivery: { recorded += 1 })
+        let task = ReminderFixtures.task()
+        let delivery = Task { await service.fireLocationNotification(task: task, poiCategory: .gym, stillRelevant: { true }) }
+        await entered.wait()
+        task.isMuted = true
+        release.open()
+        #expect(await !delivery.value)
+        #expect(recorded == 0 && center.pendingRequests.isEmpty)
+    }
+}
 
 // MARK: - SuppressionEngine Tests
 
@@ -645,9 +1216,10 @@ struct KnownInstitutionsRegionalFilteringTests {
 struct ChecklistGeneratorCoreTests {
 
     private func makeMove(zip: String = "80202") -> Move {
-        Move(anchorDate: Date().addingTimeInterval(30 * 86400),
+        let bucket = ZipBucketService.bucket(zip: zip)
+        return Move(anchorDate: Date().addingTimeInterval(30 * 86400),
              originZip: zip, destinationZip: zip,
-             destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+             destinationStateBucket: bucket.state, destinationCityBucket: bucket.city)
     }
 
     private func makeProfile(flags: Set<LifestyleFlag> = []) -> LifestyleProfile {
@@ -664,12 +1236,12 @@ struct ChecklistGeneratorCoreTests {
     }
 
     @Test func alwaysInclude_USPSExcluded_forCanadianUser() {
-        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        let tasks = ChecklistGenerator.generate(for: makeMove(zip: "K1A0B1"), profile: makeProfile(flags: [.isCanadian]), institutions: [])
         #expect(!tasks.map(\.title).contains("USPS Mail Forwarding"))
     }
 
     @Test func alwaysInclude_CanadaPost_forCanadianUser() {
-        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        let tasks = ChecklistGenerator.generate(for: makeMove(zip: "K1A0B1"), profile: makeProfile(flags: [.isCanadian]), institutions: [])
         #expect(tasks.map(\.title).contains("Canada Post Mail Forwarding"))
     }
 
@@ -706,8 +1278,15 @@ struct ChecklistGeneratorCoreTests {
         #expect(tasks.contains { $0.title == "Mortgage Servicer" })
     }
 
-    @Test func evTask_appearsWithEVFlag() {
+    @Test func evOwnership_doesNotAssumeTeslaEnrollment() {
         let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.hasElectricVehicle]), institutions: [])
+        #expect(!tasks.contains { $0.catalogItemID == "tesla" })
+    }
+
+    @Test func teslaTask_appearsWithExplicitConfirmation() {
+        let move = makeMove()
+        move.respond(to: "tesla", with: .confirmed)
+        let tasks = ChecklistGenerator.generate(for: move, profile: makeProfile(flags: [.hasElectricVehicle]), institutions: [])
         #expect(tasks.contains { $0.title == "Tesla Account / MyEV Address" })
     }
 
@@ -750,7 +1329,7 @@ struct ChecklistGeneratorCoreTests {
     }
 
     @Test func canadaPost_isHeroForCanadianUser() {
-        let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isCanadian]), institutions: [])
+        let tasks = ChecklistGenerator.generate(for: makeMove(zip: "K1A0B1"), profile: makeProfile(flags: [.isCanadian]), institutions: [])
         #expect(tasks.first?.isHeroItem ?? false, "Canada Post should be hero for Canadian users")
         #expect(tasks.first?.title == "Canada Post Mail Forwarding")
     }
@@ -857,17 +1436,10 @@ struct LifestyleFlagReachabilityTests {
         #expect(expected.isSubset(of: chipFlags))
     }
 
-    @Test func addMoreServicesCategoriesCoverEveryExtraChipsKey() {
-        // AddMoreServicesView's own category list is a separate hardcoded array (by
-        // design — onboarding's screen-3 list stays short). This guards that whichever
-        // new top-level key gets added to extraChips doesn't silently go unlisted there.
-        let vm = LifestyleViewModel()
-        let addMoreServicesCategoryIDs: Set<String> = [
-            "shopping", "streaming", "fitness", "transport", "life",
-            "household", "home", "insurance", "travel", "subscriptions", "community", "digital", "recreation",
-        ]
-        let extraChipsKeys = Set(vm.extraChips.keys)
-        #expect(extraChipsKeys.isSubset(of: addMoreServicesCategoryIDs), "extraChips has a category not listed in AddMoreServicesView: \(extraChipsKeys.subtracting(addMoreServicesCategoryIDs))")
+    @Test func reviewFamiliesCoverCatalog() {
+        // AddMoreServices now reads the catalog's review families directly.
+        #expect(Set(ItemCatalog.all.map(\.reviewFamily)) == Set(ReviewFamily.allCases))
+        #expect(ItemCatalog.all.allSatisfy { !$0.canonicalID.isEmpty })
     }
 }
 
@@ -1383,5 +1955,331 @@ struct RegionalEconomicsComparisonTests {
             #expect((snapshot?.medianHouseholdIncome ?? 0) > 0, "\(bucket) income should be positive")
             #expect((snapshot?.medianHomeValue ?? 0) > 0, "\(bucket) home value should be positive")
         }
+    }
+}
+
+// MARK: - Income pilot (synthetic software fixtures; never deployable evidence)
+
+private enum IncomePilotFixtures {
+    static let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    static var values: [String: String] {
+        var result = Dictionary(uniqueKeysWithValues: AreaMarketDataService.variables.map { ($0, "10") })
+        result["B19013_001E"] = "90000"
+        result["B25010_001E"] = "2.5"
+        result["B11016_002E"] = "100"
+        result["B19001_001E"] = "160"
+        for cell in 1...17 { result[String(format: "B19001_%03dM", cell)] = "1" }
+        result["zip code tabulation area"] = "80202"
+        return result
+    }
+
+    static func response(_ changes: [String: Any] = [:], reversed: Bool = false) throws -> Data {
+        var values: [String: Any] = Self.values
+        changes.forEach { values[$0.key] = $0.value }
+        var header = AreaMarketDataService.variables + ["zip code tabulation area"]
+        if reversed { header.reverse() }
+        return try JSONSerialization.data(withJSONObject: [header, header.map { values[$0] ?? NSNull() }])
+    }
+
+    static func profile(_ changes: [String: Any] = [:], retrievedAt: Date = now) throws -> AreaMarketProfile {
+        try #require(AreaMarketDataService.parseResponse(response(changes), zip: "80202", retrievedAt: retrievedAt))
+    }
+
+    static func manifest(edit: (inout [String: Any]) -> Void = { _ in }) throws -> IncomePilotManifest {
+        let strata = AreaIncomeBand.allCases.map {
+            IncomeValidationStratum(id: $0.rawValue, households: 30, usefulLiftLower95: 0.01, irrelevantIncreaseUpper95: 0)
+        }
+        let regions = ["northeast", "south", "west"].map {
+            IncomeValidationStratum(id: $0, households: 70, usefulLiftLower95: 0.01, irrelevantIncreaseUpper95: 0)
+        }
+        let report = IncomeValidationReport(modelVersion: "TEST-ONLY", independentHoldout: true, synthetic: false,
+            households: 210, regionCount: 3, excludedHouseholds: 0, usefulLiftLower95: 0.01,
+            irrelevantIncreaseUpper95: 0, incomeStrata: strata, regionStrata: regions,
+            reportSHA256: String(repeating: "a", count: 64))
+        let source = IncomeEvidenceSource(id: "test-survey", title: "TEST fixture — not research evidence",
+            url: "https://example.invalid/test-only", kind: .serviceUseSurvey, population: "test fixtures",
+            period: "test only", offlineUseApproved: true, limitations: "Synthetic code-path fixture")
+        let rule = IncomeRankingRule(serviceID: "lifetime", sourceID: source.id, modelVersion: "TEST-ONLY",
+            featureDefinition: IncomeSuggestionEngine.featureDefinition, reviewedForRelease: true,
+            validFrom: now.addingTimeInterval(-86400), validUntil: now.addingTimeInterval(86400),
+            coefficients: Dictionary(uniqueKeysWithValues: AreaIncomeBand.allCases.map { ($0.rawValue, 1.0) }), validation: report)
+        let manifest = IncomePilotManifest(schemaVersion: 1, version: "TEST-ONLY", sources: [source],
+            services: [ServicePilotEntry(id: "lifetime", question: "Test question", sourceIDs: [source.id],
+                researchCategory: "test", mappingLimit: "not research evidence")], rules: [rule])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(manifest)) as? [String: Any])
+        edit(&object)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(IncomePilotManifest.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    static func changedRule(_ key: String, _ value: Any, validation: Bool = false) throws -> IncomePilotManifest {
+        try manifest { object in
+            var rules = object["rules"] as! [[String: Any]]
+            if validation {
+                var report = rules[0]["validation"] as! [String: Any]
+                report[key] = value
+                rules[0]["validation"] = report
+            } else { rules[0][key] = value }
+            object["rules"] = rules
+        }
+    }
+
+    static func move() -> Move {
+        let move = Move(anchorDate: now, originZip: "80202", destinationZip: "80202",
+                        destinationStateBucket: "CO", destinationCityBucket: "DENVER")
+        move.lifestyleProfile = LifestyleProfile()
+        return move
+    }
+}
+
+@Suite("Income pilot — Census parsing and bundled catalog")
+struct IncomePilotDataTests {
+    @Test func binsPartitionACSCellsAndStayWithinRequestLimit() {
+        let cells = AreaIncomeBand.allCases.flatMap { Array($0.censusCells) }
+        #expect(cells == Array(2...17))
+        #expect(AreaMarketDataService.variables.count == 50)
+        #expect(Set(AreaMarketDataService.variables).count == 50)
+    }
+
+    @Test func completeDistributionPreservesSharesAndUncertainty() throws {
+        let result = try #require(AreaIncomeDistribution.parse(IncomePilotFixtures.values))
+        #expect(result.isComplete)
+        #expect(result.share(in: .under35k) == 60.0 / 160)
+        #expect(result.share(in: .over200k) == 10.0 / 160)
+        #expect(abs(result.counts[0].marginOfError! - sqrt(6)) < 0.0001)
+        #expect(abs(AreaIncomeBand.allCases.reduce(0) { $0 + (result.share(in: $1) ?? 0) } - 1) < 0.0001)
+    }
+
+    @Test(arguments: ["-666666666", "NaN", "inf", "bad", "-1"])
+    func invalidEstimateRejectsWholeDistribution(raw: String) {
+        var values = IncomePilotFixtures.values
+        values["B19001_017E"] = raw
+        #expect(AreaIncomeDistribution.parse(values) == nil)
+    }
+
+    @Test func missingBinBadTotalAndDuplicateBandsFailClosed() throws {
+        var values = IncomePilotFixtures.values
+        values.removeValue(forKey: "B19001_017E")
+        #expect(AreaIncomeDistribution.parse(values) == nil)
+        values = IncomePilotFixtures.values
+        values["B19001_001E"] = "0"
+        #expect(AreaIncomeDistribution.parse(values) == nil)
+        values["B19001_001E"] = "161"
+        #expect(AreaIncomeDistribution.parse(values) == nil)
+        let parsed = try #require(AreaIncomeDistribution.parse(IncomePilotFixtures.values))
+        let duplicate = AreaIncomeDistribution(totalHouseholds: 160, totalMarginOfError: 1,
+            counts: Array(repeating: parsed.counts[0], count: 7))
+        #expect(!duplicate.isComplete)
+    }
+
+    @Test func reorderedColumnsAndPartialIncomeDataPreserveCoreSnapshot() throws {
+        let reordered = AreaMarketDataService.parseResponse(try IncomePilotFixtures.response(reversed: true), zip: "80202")
+        #expect(reordered?.incomeDistribution?.isComplete == true)
+        let partial = try IncomePilotFixtures.profile(["B19001_017E": NSNull()])
+        #expect(partial.medianHouseholdIncome == 90000)
+        #expect(partial.incomeDistribution == nil)
+        #expect(AreaMarketDataService.parseResponse(try IncomePilotFixtures.response(), zip: "10001") == nil)
+        #expect(AreaMarketDataService.parseResponse(try IncomePilotFixtures.response(["B19013_001E": NSNull()]), zip: "80202") == nil)
+    }
+
+    @Test func legacyCachedProfilesDecodeWithoutNewDistribution() throws {
+        let data = try JSONEncoder().encode(IncomePilotFixtures.profile())
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "incomeDistribution")
+        let decoded = try JSONDecoder().decode(AreaMarketProfile.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(decoded.incomeDistribution == nil)
+        #expect(decoded.medianHouseholdIncome == 90000)
+    }
+
+    @Test func bundleContains25CanonicalQuestionsAndNoIncomeRules() {
+        let manifest = ServiceEvidenceCatalog.bundled
+        #expect(manifest.version != "unavailable")
+        #expect(manifest.isStructurallyValid)
+        #expect(manifest.services.count == 25)
+        #expect(manifest.rules.isEmpty)
+        for entry in manifest.services {
+            #expect(ItemCatalog.byID[entry.id]?.canonicalID == entry.id)
+            #expect(!entry.mappingLimit.isEmpty)
+        }
+    }
+
+    @Test func duplicateAndUnknownReferencesRejectManifest() throws {
+        let duplicate = try IncomePilotFixtures.manifest { object in
+            let sources = object["sources"] as! [[String: Any]]
+            object["sources"] = sources + sources
+        }
+        #expect(!duplicate.isStructurallyValid)
+        let unknown = try IncomePilotFixtures.changedRule("sourceID", "unknown")
+        #expect(!unknown.isStructurallyValid)
+        #expect(ServiceEvidenceCatalog.decode(Data("{}".utf8)) == nil)
+    }
+}
+
+@Suite("Income pilot — evidence gates")
+struct IncomePilotGateTests {
+    @Test func validTestFixtureIsBoundedAndUnknownServiceDoesNotScore() throws {
+        let area = try IncomePilotFixtures.profile()
+        let manifest = try IncomePilotFixtures.manifest()
+        #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: area, manifest: manifest,
+                                                   now: IncomePilotFixtures.now)?.points == 4)
+        let negative = try IncomePilotFixtures.changedRule("coefficients",
+            Dictionary(uniqueKeysWithValues: AreaIncomeBand.allCases.map { ($0.rawValue, -1.0) }))
+        #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: area, manifest: negative,
+                                                   now: IncomePilotFixtures.now)?.points == -4)
+        #expect(IncomeSuggestionEngine.adjustment(for: "unknown", origin: area, manifest: manifest,
+                                                   now: IncomePilotFixtures.now) == nil)
+    }
+
+    @Test(arguments: ["areaDemographics", "categorySpending", "modeledMarketEstimate", "unlicensed"])
+    func aggregateAndUnlicensedEvidenceCannotScore(kind: String) throws {
+        let manifest = try IncomePilotFixtures.manifest { object in
+            var sources = object["sources"] as! [[String: Any]]
+            if kind == "unlicensed" { sources[0]["offlineUseApproved"] = false }
+            else { sources[0]["kind"] = kind }
+            object["sources"] = sources
+        }
+        #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: try IncomePilotFixtures.profile(),
+            manifest: manifest, now: IncomePilotFixtures.now) == nil)
+    }
+
+    @Test func invalidApprovalFeatureDatesAndCoefficientsCannotScore() throws {
+        let invalid: [(String, Any)] = [("reviewedForRelease", false), ("featureDefinition", "destination-income"),
+            ("modelVersion", "different"), ("validUntil", "2020-01-01T00:00:00Z"),
+            ("validFrom", "2099-01-01T00:00:00Z"), ("coefficients", ["over200k": 1.0]),
+            ("coefficients", Dictionary(uniqueKeysWithValues: AreaIncomeBand.allCases.map { ($0.rawValue, 1.1) }))]
+        for (key, value) in invalid {
+            #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: try IncomePilotFixtures.profile(),
+                manifest: try IncomePilotFixtures.changedRule(key, value), now: IncomePilotFixtures.now) == nil,
+                "Gate failed: \(key)")
+        }
+    }
+
+    @Test func insufficientSyntheticAndHarmfulValidationCannotScore() throws {
+        let invalid: [(String, Any)] = [("independentHoldout", false), ("synthetic", true), ("households", 199),
+            ("regionCount", 2), ("excludedHouseholds", 1), ("usefulLiftLower95", 0),
+            ("irrelevantIncreaseUpper95", 0.01), ("reportSHA256", "unverified"),
+            ("incomeStrata", []), ("regionStrata", [])]
+        for (key, value) in invalid {
+            #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: try IncomePilotFixtures.profile(),
+                manifest: try IncomePilotFixtures.changedRule(key, value, validation: true),
+                now: IncomePilotFixtures.now) == nil, "Gate failed: \(key)")
+        }
+        let harmful = try IncomePilotFixtures.manifest { object in
+            var rules = object["rules"] as! [[String: Any]]
+            var report = rules[0]["validation"] as! [String: Any]
+            var strata = report["incomeStrata"] as! [[String: Any]]
+            strata[0]["usefulLiftLower95"] = -0.01
+            report["incomeStrata"] = strata
+            rules[0]["validation"] = report
+            object["rules"] = rules
+        }
+        #expect(!harmful.rules[0].validation.passesLaunchCriteria)
+    }
+
+    @Test func missingUncertainStaleAndFutureAreaDataCannotScore() throws {
+        let manifest = try IncomePilotFixtures.manifest()
+        let now = IncomePilotFixtures.now
+        let candidates: [AreaMarketProfile?] = [nil,
+            try IncomePilotFixtures.profile(["B19001_017E": NSNull()]),
+            try IncomePilotFixtures.profile(["B19001_017M": NSNull()]),
+            try IncomePilotFixtures.profile(["B19001_001M": "1000"]),
+            try IncomePilotFixtures.profile(["B19001_017M": "1000"]),
+            try IncomePilotFixtures.profile(retrievedAt: now.addingTimeInterval(-91 * 86400)),
+            try IncomePilotFixtures.profile(retrievedAt: now.addingTimeInterval(86400))]
+        for area in candidates {
+            #expect(IncomeSuggestionEngine.adjustment(for: "lifetime", origin: area,
+                manifest: manifest, now: now) == nil)
+        }
+        let noMOE = try IncomePilotFixtures.profile(["B19001_017M": NSNull()])
+        #expect(noMOE.incomeDistribution?.isComplete == true, "Missing uncertainty still permits contextual display")
+    }
+}
+
+@MainActor
+@Suite("Income pilot — explicit answers and persistence")
+struct ServiceUseResponseTests {
+    @Test func answersAreSeparateFromTaskDecisionsAndDoNotCreateTasks() {
+        let move = IncomePilotFixtures.move()
+        move.respond(to: "lifetime", with: .notApplicable)
+        #expect(move.serviceUseResponses.isEmpty)
+        move.recordServiceUse(.usesService, for: "lifetime", now: IncomePilotFixtures.now)
+        #expect(move.serviceResponses["lifetime"]?.decision == .notApplicable)
+        #expect(move.serviceUseResponses["lifetime"]?.questionVersion == "service-use-v1")
+        #expect(move.tasks.isEmpty)
+        move.recordServiceUse(nil, for: "lifetime")
+        #expect(move.serviceUseResponses.isEmpty)
+        #expect(move.serviceResponses["lifetime"]?.decision == .notApplicable)
+    }
+
+    @Test func yesPrioritizesNoHidesAndUnsureDefersSevenDays() throws {
+        let move = IncomePilotFixtures.move()
+        let now = IncomePilotFixtures.now
+        let baseline = try #require(ServiceDiscoveryEngine.candidates(for: move, now: now).first { $0.id == "lifetime" })
+        move.recordServiceUse(.usesService, for: "lifetime", now: now)
+        let accepted = try #require(ServiceDiscoveryEngine.candidates(for: move, now: now).first { $0.id == "lifetime" })
+        #expect(accepted.rank == baseline.rank + 80)
+        move.recordServiceUse(.doesNotUse, for: "lifetime", now: now)
+        #expect(!ServiceDiscoveryEngine.candidates(for: move, now: now, includeDeferred: true).contains { $0.id == "lifetime" })
+        move.recordServiceUse(.unsure, for: "lifetime", now: now)
+        #expect(!ServiceDiscoveryEngine.candidates(for: move, now: now).contains { $0.id == "lifetime" })
+        #expect(ServiceDiscoveryEngine.candidates(for: move, now: now.addingTimeInterval(7 * 86400)).contains { $0.id == "lifetime" })
+        #expect(ServiceDiscoveryEngine.candidates(for: move, now: now, includeDeferred: true).contains { $0.id == "lifetime" })
+    }
+
+    @Test func explicitServiceUseCanCoverAccountsForOtherPeople() {
+        let move = IncomePilotFixtures.move()
+        move.lifestyleProfile?.childrenAnswer = false
+        #expect(!ServiceDiscoveryEngine.candidates(for: move).contains { $0.id == "kids_childcare" })
+        move.recordServiceUse(.usesService, for: "kids_childcare")
+        #expect(ServiceDiscoveryEngine.candidates(for: move).contains { $0.id == "kids_childcare" })
+    }
+
+    @Test func bundledIncomeDataDoesNotChangeRankings() throws {
+        let move = IncomePilotFixtures.move()
+        move.areaInsightsEnabled = true
+        let destination = try IncomePilotFixtures.profile()
+        let low = AreaMarketComparison(origin: destination, destination: destination)
+        let highIncomeOrigin = try IncomePilotFixtures.profile(["B19001_002E": "0", "B19001_017E": "20"])
+        let high = AreaMarketComparison(origin: highIncomeOrigin, destination: destination)
+        let baseline = ServiceDiscoveryEngine.candidates(for: move, area: low)
+        let changed = ServiceDiscoveryEngine.candidates(for: move, area: high)
+        #expect(baseline.map(\.id) == changed.map(\.id))
+        #expect(baseline.map(\.rank) == changed.map(\.rank))
+    }
+
+    @Test func noAndUnsureBlockImplicitTasksButPreserveConfirmedTasks() throws {
+        let move = IncomePilotFixtures.move()
+        let item = try #require(ItemCatalog.byID["lifetime"])
+        let flags = item.requires.union(item.requiresAny)
+        for answer in [ServiceUseAnswer.doesNotUse, .unsure] {
+            move.recordServiceUse(answer, for: "lifetime")
+            #expect(!ChecklistGenerator.matchingItems(for: move, flags: flags).contains { $0.canonicalID == "lifetime" })
+        }
+        move.respond(to: "lifetime", with: .confirmed)
+        #expect(ChecklistGenerator.matchingItems(for: move, flags: []).contains { $0.canonicalID == "lifetime" })
+    }
+
+    @Test func answersAndCompletedTasksPersistAcrossContexts() throws {
+        let container = try ModelContainer(for: Move.self, ChecklistTask.self, LifestyleProfile.self,
+            FinancialInstitution.self, VerificationEvent.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let move = IncomePilotFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["lifetime"])
+        let task = MoveChecklistService.confirm(item, for: move, in: context)
+        task.advanceStatus(); task.advanceStatus()
+        move.recordServiceUse(.doesNotUse, for: item.canonicalID, now: IncomePilotFixtures.now)
+        try context.save()
+        let freshContext = ModelContext(container)
+        let restored = try #require(freshContext.fetch(FetchDescriptor<Move>()).first)
+        #expect(restored.serviceUseResponses["lifetime"]?.answer == .doesNotUse)
+        #expect(restored.serviceUseResponses["lifetime"]?.answeredAt == IncomePilotFixtures.now)
+        #expect(restored.tasks.count == 1)
+        #expect(restored.tasks.first?.status == .completed)
+        #expect(restored.serviceResponses["lifetime"]?.decision == .confirmed)
     }
 }

@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 1,
+  "version": "income-pilot-2026-10-v1",
+  "sources": [
+    {
+      "id": "acs2024_income",
+      "title": "US Census ACS B19001",
+      "url": "https://api.census.gov/data/2024/acs/acs5/groups/B19001.html",
+      "kind": "areaDemographics",
+      "population": "Households in US ZIP Code Tabulation Areas",
+      "period": "2020–2024 ACS 5-year estimates",
+      "offlineUseApproved": true,
+      "limitations": "Area income distribution only. No service-use or individual-income labels."
+    },
+    {
+      "id": "bls2024_expenditure",
+      "title": "BLS Consumer Expenditure Survey, income quintiles",
+      "url": "https://www.bls.gov/cex/tables/calendar-year/mean-item-share-average-standard-error/cu-income-quintiles-before-taxes-2024.xlsx",
+      "kind": "categorySpending",
+      "population": "US consumer units grouped by income before taxes",
+      "period": "2024",
+      "offlineUseApproved": true,
+      "limitations": "Population spending means do not measure brand enrollment. Direct workbook retrieval returned HTTP 403 on 2026-10-04; no numeric expenditure weights were imported."
+    },
+    {
+      "id": "esri2026_market",
+      "title": "Esri Market Potential / MRI-Simmons",
+      "url": "https://doc.arcgis.com/en/esri-demographics/latest/esri-demographics/market-potential-methodology.htm",
+      "kind": "modeledMarketEstimate",
+      "population": "US modeled adult or household consumers; denominator varies by variable",
+      "period": "2026 estimates; survey waves March 2023–April 2025",
+      "offlineUseApproved": false,
+      "limitations": "Vendor evaluation only. No licensed data acquired. Specific service coverage, survey definitions, sample quality and app redistribution rights need review. Market indices are not confirmed memberships."
+    }
+  ],
+  "services": [
+    {
+      "id": "kids_childcare",
+      "question": "Do you currently use daycare or after-school care?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Children and activities",
+      "mappingLimit": "Investigate childcare, education and recreation expenditure detail; eligibility and service-use prevalence are unvalidated."
+    },
+    {
+      "id": "kids_tutoring",
+      "question": "Do you currently use a tutoring or learning center?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Children and activities",
+      "mappingLimit": "Investigate childcare, education and recreation expenditure detail; eligibility and service-use prevalence are unvalidated."
+    },
+    {
+      "id": "kids_music",
+      "question": "Do you currently use music lessons or a music school?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Children and activities",
+      "mappingLimit": "Investigate childcare, education and recreation expenditure detail; eligibility and service-use prevalence are unvalidated."
+    },
+    {
+      "id": "kids_camp",
+      "question": "Do you currently use a summer camp?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Children and activities",
+      "mappingLimit": "Investigate childcare, education and recreation expenditure detail; eligibility and service-use prevalence are unvalidated."
+    },
+    {
+      "id": "kids_swimming",
+      "question": "Do you currently use swim lessons or a swim school?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Children and activities",
+      "mappingLimit": "Investigate childcare, education and recreation expenditure detail; eligibility and service-use prevalence are unvalidated."
+    },
+    {
+      "id": "cleaning_service",
+      "question": "Do you currently use a house-cleaning service?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Home services",
+      "mappingLimit": "Investigate household operations and maintenance expenditure detail; ownership alone does not establish any service contract."
+    },
+    {
+      "id": "lawn_care_service",
+      "question": "Do you currently use a lawn-care or landscaping service?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Home services",
+      "mappingLimit": "Investigate household operations and maintenance expenditure detail; ownership alone does not establish any service contract."
+    },
+    {
+      "id": "pest_control",
+      "question": "Do you currently use a pest-control service?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Home services",
+      "mappingLimit": "Investigate household operations and maintenance expenditure detail; ownership alone does not establish any service contract."
+    },
+    {
+      "id": "home_security",
+      "question": "Do you currently use a home-security service?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Home services",
+      "mappingLimit": "Investigate household operations and maintenance expenditure detail; ownership alone does not establish any service contract."
+    },
+    {
+      "id": "pool_spa_service",
+      "question": "Do you currently use a pool or spa maintenance service?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Home services",
+      "mappingLimit": "Investigate household operations and maintenance expenditure detail; ownership alone does not establish any service contract."
+    },
+    {
+      "id": "pet_insurance_update",
+      "question": "Do you currently use pet insurance?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Pet services",
+      "mappingLimit": "Investigate pet expenditure detail. Food purchases, insurance and service enrollment need separate labels."
+    },
+    {
+      "id": "pet_autoship",
+      "question": "Do you currently use an automatic pet-food delivery subscription?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Pet services",
+      "mappingLimit": "Investigate pet expenditure detail. Food purchases, insurance and service enrollment need separate labels."
+    },
+    {
+      "id": "chewy",
+      "question": "Do you currently use Chewy?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Pet services",
+      "mappingLimit": "Investigate pet expenditure detail. Food purchases, insurance and service enrollment need separate labels."
+    },
+    {
+      "id": "rover",
+      "question": "Do you currently use Rover or Wag?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Pet services",
+      "mappingLimit": "Investigate pet expenditure detail. Food purchases, insurance and service enrollment need separate labels."
+    },
+    {
+      "id": "mealkit_other",
+      "question": "Do you currently use a meal-kit subscription?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Shopping and deliveries",
+      "mappingLimit": "Food or shopping spend does not identify a delivery subscription or brand membership. Brand-level survey coverage needs verification."
+    },
+    {
+      "id": "instacart",
+      "question": "Do you currently use Instacart?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Shopping and deliveries",
+      "mappingLimit": "Food or shopping spend does not identify a delivery subscription or brand membership. Brand-level survey coverage needs verification."
+    },
+    {
+      "id": "amazon_prime",
+      "question": "Do you currently use Amazon Prime?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Shopping and deliveries",
+      "mappingLimit": "Food or shopping spend does not identify a delivery subscription or brand membership. Brand-level survey coverage needs verification."
+    },
+    {
+      "id": "costco",
+      "question": "Do you currently use a Costco membership?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Shopping and deliveries",
+      "mappingLimit": "Food or shopping spend does not identify a delivery subscription or brand membership. Brand-level survey coverage needs verification."
+    },
+    {
+      "id": "lifetime",
+      "question": "Do you currently use Life Time?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "orangetheory",
+      "question": "Do you currently use Orangetheory?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "24hourfitness",
+      "question": "Do you currently use 24 Hour Fitness?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "planetfitness",
+      "question": "Do you currently use Planet Fitness?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "social_club",
+      "question": "Do you currently use a social or country club?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "aaa",
+      "question": "Do you currently use an AAA membership?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    },
+    {
+      "id": "tsa_precheck",
+      "question": "Do you currently use TSA PreCheck, Global Entry or CLEAR?",
+      "sourceIDs": [
+        "acs2024_income",
+        "bls2024_expenditure",
+        "esri2026_market"
+      ],
+      "researchCategory": "Memberships and travel",
+      "mappingLimit": "Investigate recreation, club and travel variables. Specific brand and program enrollment cannot be inferred from category spending or an income cutoff."
+    }
+  ],
+  "rules": []
+}

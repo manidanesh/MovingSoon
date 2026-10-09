@@ -10,6 +10,7 @@ struct EditMoveView: View {
     @State private var anchorDate: Date
     @State private var showingResetConfirm = false
     @State private var showingAddServices = false
+    @State private var showingHousehold = false
 
     // ZIP & Neighborhood edit state
     @State private var originZip: String
@@ -95,12 +96,14 @@ struct EditMoveView: View {
 
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack {
-                                    Text("Origin ZIP")
+                                    Text("Origin postal code")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(Theme.textSecondary)
                                     Spacer()
                                     TextField("Optional", text: $originZip)
-                                        .keyboardType(.numberPad)
+                                        .keyboardType(.asciiCapable)
+                                        .textInputAutocapitalization(.characters)
+                                        .autocorrectionDisabled()
                                         .font(.system(size: 16, weight: .semibold))
                                         .foregroundColor(Theme.textPrimary)
                                         .multilineTextAlignment(.trailing)
@@ -190,12 +193,14 @@ struct EditMoveView: View {
 
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack {
-                                    Text("Destination ZIP")
+                                    Text("Destination postal code")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(Theme.textSecondary)
                                     Spacer()
                                     TextField("Required", text: $destinationZip)
-                                        .keyboardType(.numberPad)
+                                        .keyboardType(.asciiCapable)
+                                        .textInputAutocapitalization(.characters)
+                                        .autocorrectionDisabled()
                                         .font(.system(size: 16, weight: .semibold))
                                         .foregroundColor(Theme.textPrimary)
                                         .multilineTextAlignment(.trailing)
@@ -275,6 +280,12 @@ struct EditMoveView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
 
+                        if !PostalCodeService.isValid(destinationZip) ||
+                            (!PostalCodeService.normalize(originZip).isEmpty && !PostalCodeService.isValid(originZip)) {
+                            Text("Enter a five-digit US ZIP or Canadian postal code, such as 80202 or K1A 0B1. The origin is optional.")
+                                .font(.caption).foregroundStyle(Theme.textSecondary)
+                        }
+
                         // MARK: Info Rows
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Status")
@@ -320,7 +331,11 @@ struct EditMoveView: View {
                             }
                             .buttonStyle(.plain)
 
-                            Text("Adds tasks for services you missed — won't remove anything you've already completed.")
+                            Button("Edit household details") { showingHousehold = true }
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.accentPrimary)
+
+                            Text("Review services or household answers while keeping your completed tasks. After changing locations, review any requirements from your previous area.")
                                 .font(.system(size: 12))
                                 .foregroundColor(Theme.textTertiary)
                                 .lineSpacing(2)
@@ -402,27 +417,41 @@ struct EditMoveView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
+                        // Explicit dates on customer-created items stay fixed if move day changes.
+                        for task in move.tasks where task.isUserAdded {
+                            let due = task.baseDueDate(moveDate: move.anchorDate)
+                            task.absoluteDueDate = due
+                            task.tMinusDays = Calendar.current.dateComponents([.day],
+                                from: Calendar.current.startOfDay(for: anchorDate), to: due).day ?? 0
+                        }
                         move.anchorDate = anchorDate
-                        move.originZip = originZip.count == 5 ? originZip : nil
+                        move.originZip = PostalCodeService.isValid(originZip) ? PostalCodeService.normalize(originZip) : nil
                         move.originNeighborhood = selectedOrigin?.fullLabel
                         move.originLatitude = selectedOrigin?.coordinate?.latitude
                         move.originLongitude = selectedOrigin?.coordinate?.longitude
 
-                        move.destinationZip = destinationZip
+                        move.destinationZip = PostalCodeService.normalize(destinationZip)
                         move.destinationNeighborhood = selectedDestination?.fullLabel
                         move.destinationLatitude = selectedDestination?.coordinate?.latitude
                         move.destinationLongitude = selectedDestination?.coordinate?.longitude
 
-                        let (state, city) = ZipBucketService.bucket(zip: destinationZip)
+                        let (state, city) = ZipBucketService.bucket(zip: move.destinationZip)
                         move.destinationStateBucket = state
                         move.destinationCityBucket = city
+                        if let profile = move.lifestyleProfile {
+                            profile.activeFlags = profile.activeFlags.subtracting(PostalCodeService.geographicFlags)
+                                .union(PostalCodeService.regionalFlags(for: move.destinationZip))
+                            MoveChecklistService.flagLocationChanges(for: move)
+                            MoveChecklistService.addRelevantTasks(for: move, in: modelContext)
+                        }
 
                         modelContext.saveOrLog()
                         dismiss()
                     }
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(Theme.accentPrimary)
-                    .disabled(destinationZip.count != 5)
+                    .disabled(!PostalCodeService.isValid(destinationZip) ||
+                        (!PostalCodeService.normalize(originZip).isEmpty && !PostalCodeService.isValid(originZip)))
                 }
             }
             .confirmationDialog(
@@ -438,40 +467,25 @@ struct EditMoveView: View {
                 Text("This will delete all \(move.totalCount) tasks and your lifestyle profile. You'll redo the interview.")
             }
             .onChange(of: destinationZip) { _, newZip in
+                selectedDestination = nil
                 fetchDestinationNeighborhoods(for: newZip)
             }
             .onChange(of: originZip) { _, newZip in
+                selectedOrigin = nil
                 fetchOriginNeighborhoods(for: newZip)
             }
+            .sheet(isPresented: $showingHousehold) { HouseholdDetailsView(move: move) }
             .sheet(isPresented: $showingAddServices) {
                 AddMoreServicesView(move: move)
                     .preferredColorScheme(.dark)
             }
             .onAppear {
-                if destinationZip.count == 5 {
-                    isLoadingDestination = true
-                    Task {
-                        let results = await GeocoderService.neighborhoods(for: destinationZip)
-                        await MainActor.run {
-                            withAnimation {
-                                destinationNeighborhoods = results
-                                isLoadingDestination = false
-                            }
-                        }
-                    }
-                }
-                if originZip.count == 5 {
-                    isLoadingOrigin = true
-                    Task {
-                        let results = await GeocoderService.neighborhoods(for: originZip)
-                        await MainActor.run {
-                            withAnimation {
-                                originNeighborhoods = results
-                                isLoadingOrigin = false
-                            }
-                        }
-                    }
-                }
+                fetchDestinationNeighborhoods(for: destinationZip)
+                fetchOriginNeighborhoods(for: originZip)
+            }
+            .onDisappear {
+                destGeocodeTask?.cancel()
+                origGeocodeTask?.cancel()
             }
         }
     }
@@ -494,7 +508,7 @@ struct EditMoveView: View {
 
     private func fetchDestinationNeighborhoods(for zip: String) {
         destGeocodeTask?.cancel()
-        guard zip.count == 5 else {
+        guard PostalCodeService.isValid(zip) else {
             destinationNeighborhoods = []
             selectedDestination = nil
             isLoadingDestination = false
@@ -520,7 +534,7 @@ struct EditMoveView: View {
 
     private func fetchOriginNeighborhoods(for zip: String) {
         origGeocodeTask?.cancel()
-        guard zip.count == 5 else {
+        guard PostalCodeService.isValid(zip) else {
             originNeighborhoods = []
             selectedOrigin = nil
             isLoadingOrigin = false
@@ -551,7 +565,7 @@ struct EditMoveView: View {
         }
         move.tasks = []
 
-        // Delete lifestyle profile — triggers re-interview on next launch
+        // Deleting the profile routes back to the interview immediately.
         if let profile = move.lifestyleProfile {
             modelContext.delete(profile)
         }
@@ -562,6 +576,12 @@ struct EditMoveView: View {
             modelContext.delete(institution)
         }
         move.institutions = []
+        move.serviceResponsesJSON = nil
+        move.serviceUseResponsesJSON = nil
+        move.locationConsentGrantedAt = nil
+        move.locationConsentRequestedAt = nil
+        move.reviewedFamiliesJSON = nil
+        move.completionCelebratedAt = nil
 
         modelContext.saveOrLog()
         dismiss()

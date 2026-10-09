@@ -47,7 +47,7 @@ struct LocationConsentCard: View {
             }
 
             // MARK: Body copy
-            Text("Walking past your bank or old gym? We'll remind you to update your address right then — for 30 days, then we stop automatically.")
+            Text("Get a gentle reminder near a matching provider on your checklist. Nearby alerts are enabled for 30 days and depend on location and notification permissions.")
                 .themeText(15, weight: .regular)
                 .foregroundColor(Theme.textSecondary)
                 .lineSpacing(3)

@@ -3,104 +3,62 @@ import UserNotifications
 import SwiftData
 import UIKit
 
-final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-    
-    let modelContainer: ModelContainer
-    
-    init(container: ModelContainer) {
-        self.modelContainer = container
-        super.init()
-    }
-    
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
-        let userInfo = response.notification.request.content.userInfo
-        guard let taskIDString = userInfo["taskID"] as? String,
-              let taskID = UUID(uuidString: taskIDString) else {
-            completionHandler()
-            return
-        }
-        
-        let urlString = userInfo["url"] as? String
-
-        switch response.actionIdentifier {
-        case UNNotificationDefaultActionIdentifier:
-            // Tapping the notification body itself is not the same as choosing "Update
-            // Now" — the user hasn't said yet whether they want to act now, mark it
-            // already done, or dismiss it. Route to the dashboard's TaskActionSheet
-            // (same "pick an action" sheet used everywhere else) instead of jumping
-            // straight to an external site like a bank's login page.
-            let action = userInfo["action"] as? String
-            if action == "openDashboard" {
-                // Digest notification — app opens to dashboard automatically
-                break
-            }
-            DispatchQueue.main.async {
-                NotificationRouter.shared.pendingTaskID = taskID
-            }
-
-        case "UPDATE_NOW":
-            // Explicit action button from the notification's long-press menu — the user
-            // already made the choice here, so act on it immediately.
-            if let urlString = urlString, let url = URL(string: urlString) {
-                DispatchQueue.main.async {
-                    UIApplication.shared.open(url, options: [:], completionHandler: nil)
-                }
-            }
-
-        case "REVIEW_NOW":
-            // Digest notification tapped — app opens to dashboard automatically
-            break
-
+@MainActor enum NotificationTaskAction {
+    /// Shared with tests; only an existing open task may be snoozed or muted.
+    static func apply(_ action: String, to task: ChecklistTask, now: Date = Date()) -> Bool {
+        guard task.status == .toDo else { return false }
+        switch action {
         case "SNOOZE":
-            snoozeNotification(response.notification.request)
-
-        case "MUTE":
-            muteTask(taskID: taskID)
-
-        default:
-            break
+            guard !task.isMuted else { return false }
+            task.snoozedUntil = now.addingTimeInterval(86400)
+        case "MUTE": task.isMuted = true
+        default: return false
         }
-        
-        completionHandler()
+        return true
     }
-    
-    private func snoozeNotification(_ originalRequest: UNNotificationRequest) {
-        let center = UNUserNotificationCenter.current()
-        let newContent = originalRequest.content
-        // Snooze for 24 hours (86400 seconds)
-        let newTrigger = UNTimeIntervalNotificationTrigger(timeInterval: 86400, repeats: false)
-        let newRequest = UNNotificationRequest(
-            identifier: "Snooze-\(UUID().uuidString)",
-            content: newContent,
-            trigger: newTrigger
-        )
-        center.add(newRequest)
-    }
-    
-    private func muteTask(taskID: UUID) {
-        // SwiftData mutations must happen on the main thread
-        DispatchQueue.main.async {
-            let context = ModelContext(self.modelContainer)
-            let descriptor = FetchDescriptor<ChecklistTask>(predicate: #Predicate { $0.id == taskID })
-            if let tasks = try? context.fetch(descriptor), let task = tasks.first {
-                task.isMuted = true
-                context.saveOrLog()
-                let center = UNUserNotificationCenter.current()
-                center.removePendingNotificationRequests(withIdentifiers: ["TMinus-\(taskID.uuidString)", "HeroTaskReminder"])
+}
+
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    let modelContainer: ModelContainer
+    init(container: ModelContainer) { modelContainer = container; super.init() }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        Task { @MainActor in
+            defer { completionHandler() }
+            let info = response.notification.request.content.userInfo
+            if info["action"] as? String == "openDashboard" || response.actionIdentifier == "REVIEW_NOW" { return }
+            guard let raw = info["taskID"] as? String, let id = UUID(uuidString: raw),
+                  let task = try? modelContainer.mainContext.fetch(FetchDescriptor<ChecklistTask>(predicate: #Predicate { $0.id == id })).first,
+                  let move = task.move, move.phase == .active,
+                  (info["moveID"] as? String).map({ $0 == move.id.uuidString }) ?? true else { return }
+            switch response.actionIdentifier {
+            case UNNotificationDefaultActionIdentifier:
+                NotificationRouter.shared.pendingTaskID = task.id
+            case "UPDATE_NOW":
+                if ReminderPolicy.isEligible(task), let url = task.deepLinkURL {
+                    await UIApplication.shared.open(url)
+                }
+            case "SNOOZE", "MUTE":
+                guard NotificationTaskAction.apply(response.actionIdentifier, to: task) else { return }
+                do { try modelContainer.mainContext.save() } catch { return }
+                LocationManager.shared.attach(move, context: modelContainer.mainContext)
+                SmartReminderService.shared.reschedule(for: move)
+                await SmartReminderService.shared.waitForSchedule()
+            default: break
             }
         }
     }
-    
-    // Ensures notifications show up even when the app is in the foreground
-    func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .sound, .badge])
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Task { @MainActor in
+            let info = notification.request.content.userInfo
+            let ids = (info["taskIDs"] as? [String]) ?? (info["taskID"] as? String).map { [$0] } ?? []
+            let tasks = (try? modelContainer.mainContext.fetch(FetchDescriptor<ChecklistTask>())) ?? []
+            let eligible = Set(tasks.filter { $0.move?.phase == .active && ReminderPolicy.isEligible($0) }.map { $0.id.uuidString })
+            let relevant = !ids.isEmpty && Set(ids).isSubset(of: eligible)
+            completionHandler(relevant ? [.banner, .sound, .badge] : [])
+        }
     }
 }

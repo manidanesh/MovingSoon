@@ -27,6 +27,7 @@ enum NotificationBudget {
             Calendar.current.isDate(notification.date, inSameDayAs: today) &&
             (notification.request.identifier == "HeroTaskReminder" ||
              notification.request.identifier == "HeroTaskReminderEvening" ||
+             notification.request.identifier.hasPrefix("Hero-") ||
              notification.request.identifier.hasPrefix("Digest-"))
         }
         return !heroOrDigestAlreadyDeliveredToday

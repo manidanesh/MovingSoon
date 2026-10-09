@@ -31,7 +31,6 @@ struct DashboardView: View {
     private var allTasks: [ChecklistTask] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let moveDay = calendar.startOfDay(for: move.anchorDate)
 
         var tasks: [ChecklistTask]
         switch filter {
@@ -40,9 +39,7 @@ struct DashboardView: View {
         case .overdue:
             tasks = move.tasks.filter { task in
                 guard task.status != .completed else { return false }
-                // Post-move tasks (positive tMinusDays) are only overdue once move date has passed
-                if task.tMinusDays > 0 && today <= moveDay { return false }
-                let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+                let due = task.dueDate(moveDate: move.anchorDate, calendar: calendar)
                 return calendar.startOfDay(for: due) < today
             }
         case .critical:
@@ -59,12 +56,13 @@ struct DashboardView: View {
         if !searchText.isEmpty {
             tasks = tasks.filter {
                 $0.title.localizedCaseInsensitiveContains(searchText) ||
+                ($0.accountBaseTitle?.localizedCaseInsensitiveContains(searchText) ?? false) ||
                 ($0.institutionName?.localizedCaseInsensitiveContains(searchText) ?? false) ||
                 $0.category.rawValue.localizedCaseInsensitiveContains(searchText)
             }
         }
 
-        return tasks.sorted { $0.tMinusDays < $1.tMinusDays }
+        return tasks.sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
     }
 
     var body: some View {
@@ -230,7 +228,7 @@ struct DashboardView: View {
                     selectedTask = nil
                 }
             )
-            .presentationDetents([.height(280)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
@@ -245,6 +243,7 @@ struct DashboardView: View {
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
+        MoveChecklistService.recordDismissal(task, for: move)
         withAnimation {
             move.tasks.removeAll { $0.id == task.id }
             modelContext.delete(task)
@@ -256,14 +255,12 @@ struct DashboardView: View {
     private func countFor(_ tab: TaskFilter) -> Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let moveDay = calendar.startOfDay(for: move.anchorDate)
         switch tab {
         case .pending:   return move.tasks.filter { $0.status != .completed }.count
         case .overdue:
             return move.tasks.filter { task in
                 guard task.status != .completed else { return false }
-                if task.tMinusDays > 0 && today <= moveDay { return false }
-                let due = calendar.date(byAdding: .day, value: task.tMinusDays, to: move.anchorDate) ?? move.anchorDate
+                let due = task.dueDate(moveDate: move.anchorDate, calendar: calendar)
                 return calendar.startOfDay(for: due) < today
             }.count
         case .critical:  return move.tasks.filter { $0.priority == .critical && $0.status != .completed }.count
@@ -295,6 +292,7 @@ struct DashboardView: View {
         withAnimation {
             if task.status == .completed {
                 task.resetStatus()
+                move.completionCelebratedAt = nil
             } else {
                 task.advanceStatus()
                 if task.status == .pendingVerification { task.advanceStatus() }
@@ -317,10 +315,15 @@ struct UnifiedTaskRow: View {
 
     private var dueLabel: String? {
         let cal = Calendar.current
-        let dueDate = cal.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
+        let dueDate = task.dueDate(moveDate: moveDate, calendar: cal)
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: Date()),
                                        to: cal.startOfDay(for: dueDate)).day ?? 0
         if task.status == .completed { return nil }
+        if task.needsLocationReview == true { return "Review after location change" }
+        if let until = task.snoozedUntil, until > Date() {
+            return "Snoozed to \(until.formatted(date: .abbreviated, time: .omitted))"
+        }
+        if task.status == .pendingVerification { return "Awaiting confirmation" }
         if days < 0  { return "Overdue" }
         if days == 0 { return "Today" }
         if days == 1 { return "Tomorrow" }
@@ -330,12 +333,9 @@ struct UnifiedTaskRow: View {
 
     private var isOverdue: Bool {
         guard task.status != .completed else { return false }
-        // Post-move tasks not overdue until move date has passed
         let today = Calendar.current.startOfDay(for: Date())
-        let moveDay = Calendar.current.startOfDay(for: moveDate)
-        if task.tMinusDays > 0 && today <= moveDay { return false }
-        let dueDate = Calendar.current.date(byAdding: .day, value: task.tMinusDays, to: moveDate) ?? moveDate
-        return dueDate < Calendar.current.startOfDay(for: Date())
+        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
+        return dueDate < today
     }
 
     var body: some View {

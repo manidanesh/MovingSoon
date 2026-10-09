@@ -10,11 +10,28 @@ final class LifestyleViewModel {
     let totalScreens = 3  // 3 simple screens instead of 7
 
     // Screen 1: Yes/No questions
-    var hasKids: Bool = false
-    var hasPets: Bool = false
-    var ownsHome: Bool = false
+    var childrenAnswer: HouseholdAnswer = .unknown
+    var petsAnswer: HouseholdAnswer = .unknown
+    var originHousing: HousingArrangement = .unknown
+    var destinationHousing: HousingArrangement = .unknown
+    var homeKind: HomeKind = .unknown
+    var utilitiesAnswer: HouseholdAnswer = .unknown
+    var householdSize: Int = 0
+    var hasKids: Bool {
+        get { childrenAnswer == .yes }
+        set { childrenAnswer = newValue ? .yes : .no }
+    }
+    var hasPets: Bool {
+        get { petsAnswer == .yes }
+        set { petsAnswer = newValue ? .yes : .no }
+    }
+    var ownsHome: Bool {
+        get { destinationHousing == .own }
+        set { destinationHousing = newValue ? .own : .rent }
+    }
     // WS5 — additive refinements, only persisted if the corresponding toggle above is on
     var childCount: Int = 1
+    var hasSavedChildCount: Bool = false
     var petSpecies: Set<PetSpecies> = []
 
     // Screen 2: Financial institutions
@@ -24,8 +41,23 @@ final class LifestyleViewModel {
     var expandedCategories: Set<String> = []
     var extraChips: [String: [ChipSection]] = [:]
 
-    init() {
+    init(initialFlags: Set<LifestyleFlag> = [], initialChildCount: Int? = nil) {
+        childrenAnswer = initialFlags.contains(.hasChildren) ? .yes : .unknown
+        petsAnswer = initialFlags.contains(.hasPets) ? .yes : .unknown
+        destinationHousing = initialFlags.contains(.isOwning) ? .own : (initialFlags.contains(.isRenting) ? .rent : .unknown)
+        childCount = min(max(initialChildCount ?? 1, 1), 8)
+        hasSavedChildCount = initialChildCount != nil
         buildExtraChips()
+        for category in Array(extraChips.keys) {
+            guard var sections = extraChips[category] else { continue }
+            for sectionIndex in sections.indices {
+                for chipIndex in sections[sectionIndex].chips.indices {
+                    guard let flag = sections[sectionIndex].chips[chipIndex].flag else { continue }
+                    sections[sectionIndex].chips[chipIndex].isSelected = initialFlags.contains(flag)
+                }
+            }
+            extraChips[category] = sections
+        }
     }
 
     func next() {
@@ -44,13 +76,35 @@ final class LifestyleViewModel {
         var flags: Set<LifestyleFlag> = []
         if hasKids { flags.insert(.hasChildren) }
         if hasPets { flags.insert(.hasPets) }
-        if ownsHome {
-            flags.insert(.isOwning)
-            flags.insert(.livesInHouseOrTownhouse)
-        } else {
-            flags.insert(.isRenting)
-        }
+        if destinationHousing == .own { flags.insert(.isOwning) }
+        if destinationHousing == .rent { flags.insert(.isRenting) }
+        if homeKind == .house { flags.insert(.livesInHouseOrTownhouse) }
         return flags
+    }
+
+    func loadHousehold(from profile: LifestyleProfile) {
+        childrenAnswer = HouseholdAnswer(profile.childrenAnswer ?? (profile.has(.hasChildren) ? true : nil))
+        petsAnswer = HouseholdAnswer(profile.petsAnswer ?? (profile.has(.hasPets) ? true : nil))
+        originHousing = profile.originHousing
+        destinationHousing = profile.destinationHousing
+        homeKind = profile.homeKindRaw.flatMap(HomeKind.init(rawValue:)) ?? .unknown
+        utilitiesAnswer = HouseholdAnswer(profile.managesUtilities)
+        householdSize = profile.householdSize ?? 0
+        petSpecies = profile.petSpecies
+    }
+
+    func saveHousehold(to profile: LifestyleProfile) {
+        let oldCore: Set<LifestyleFlag> = [.hasChildren, .hasPets, .isOwning, .isRenting, .livesInHouseOrTownhouse]
+        profile.activeFlags = profile.activeFlags.subtracting(oldCore).union(coreFlags)
+        profile.childrenAnswer = childrenAnswer.value
+        profile.petsAnswer = petsAnswer.value
+        profile.originHousingRaw = originHousing.rawValue
+        profile.destinationHousingRaw = destinationHousing.rawValue
+        profile.homeKindRaw = homeKind.rawValue
+        profile.managesUtilities = utilitiesAnswer.value
+        profile.householdSize = householdSize > 0 ? householdSize : nil
+        profile.childCount = hasKids ? childCount : nil
+        profile.petSpecies = hasPets ? petSpecies : []
     }
 
     // All flags including extra selections
@@ -104,10 +158,8 @@ final class LifestyleViewModel {
     // MARK: - Optional extra categories (shown on screen 3)
 
     private func buildExtraChips() {
-        // MARK: Original 5 onboarding categories — kept short on purpose (screen 3 of
-        // onboarding shares this dict and stays fast); everything added below this point
-        // is additional sections/categories that AddMoreServicesView alone lists, so the
-        // full long tail is reachable there without bloating first-run onboarding.
+        // Screen 3 offers a short set of optional groups. Full catalog review is
+        // catalog-driven; these chips must also be listed in the screen to be visible.
         extraChips["shopping"] = [
             ChipSection(title: "Shopping & Delivery", chips: [
                 BubbleChip(id: "usesAmazon",     label: "Amazon",       emoji: "📦", flag: .usesAmazon),
@@ -117,6 +169,9 @@ final class LifestyleViewModel {
                 BubbleChip(id: "usesDoorDash",   label: "DoorDash",     emoji: "🍕", flag: .usesDoorDash),
                 BubbleChip(id: "usesUberEats",   label: "Uber Eats",    emoji: "🍔", flag: .usesUberEats),
                 BubbleChip(id: "usesInstacart",  label: "Instacart",    emoji: "🛒", flag: .usesInstacart),
+                BubbleChip(id: "usesShipt", label: "Shipt", emoji: "🛒", flag: .usesShipt),
+                BubbleChip(id: "usesThriveMarket", label: "Thrive Market", emoji: "🥑", flag: .usesThriveMarket),
+                BubbleChip(id: "usesMisfitsMarket", label: "Misfits Market", emoji: "🥕", flag: .usesMisfitsMarket),
             ]),
             ChipSection(title: "Grocery & Warehouse Stores", chips: [
                 BubbleChip(id: "usesSamsClub",   label: "Sam's Club",   emoji: "🏬", flag: .usesSamsClub),
@@ -139,6 +194,7 @@ final class LifestyleViewModel {
                 BubbleChip(id: "usesHelloFresh",   label: "HelloFresh",      emoji: "🍲", flag: .usesHelloFresh),
                 BubbleChip(id: "usesBlueApron",    label: "Blue Apron",      emoji: "🍲", flag: .usesBlueApron),
                 BubbleChip(id: "usesOtherMealKit", label: "Other Meal Kit",  emoji: "🍲", flag: .usesOtherMealKit),
+                BubbleChip(id: "usesButcherBox", label: "ButcherBox", emoji: "📦", flag: .usesButcherBox),
             ]),
         ]
 
@@ -245,7 +301,7 @@ final class LifestyleViewModel {
             ]),
         ]
 
-        // MARK: New categories — only listed in AddMoreServicesView, so onboarding stays fast
+        // Additional choices; catalog review provides the complete service directory.
 
         extraChips["household"] = [
             ChipSection(title: "Family Accounts", chips: [
@@ -254,6 +310,58 @@ final class LifestyleViewModel {
                 BubbleChip(id: "hasHouseholdHelp",    label: "Household Help",   emoji: "🧹", flag: .hasHouseholdHelp),
                 BubbleChip(id: "has529",              label: "529 College Plan", emoji: "🎓", flag: .has529),
                 BubbleChip(id: "hasFSA",              label: "FSA",              emoji: "⚕️", flag: .hasFSA),
+            ]),
+        ]
+
+        // This long-tail family-services picker is exposed from Add Services, not
+        // first-run onboarding. Each selection means the customer confirmed that
+        // service; having children alone is never treated as enrollment.
+        extraChips["family_services"] = [
+            ChipSection(title: "Learning & Activities", chips: [
+                BubbleChip(id: "usesKumon", label: "Kumon", emoji: "📐", flag: .usesKumon),
+                BubbleChip(id: "usesMathnasium", label: "Mathnasium", emoji: "🔢", flag: .usesMathnasium),
+                BubbleChip(id: "usesSylvanLearning", label: "Sylvan Learning", emoji: "📖", flag: .usesSylvanLearning),
+                BubbleChip(id: "usesEyeLevelLearning", label: "Eye Level", emoji: "👁️", flag: .usesEyeLevelLearning),
+                BubbleChip(id: "usesHuntingtonLearning", label: "Huntington Learning", emoji: "🎯", flag: .usesHuntingtonLearning),
+                BubbleChip(id: "usesTutoringCenter", label: "Other tutoring", emoji: "📚", flag: .usesTutoringCenter),
+                BubbleChip(id: "usesKidsMusicLessons", label: "Music lessons", emoji: "🎵", flag: .usesKidsMusicLessons),
+                BubbleChip(id: "usesSchoolOfRock", label: "School of Rock", emoji: "🎸", flag: .usesSchoolOfRock),
+                BubbleChip(id: "usesKidsPianoLessons", label: "Piano lessons", emoji: "🎹", flag: .usesKidsPianoLessons),
+                BubbleChip(id: "usesKidsArtClass", label: "Art classes", emoji: "🎨", flag: .usesKidsArtClass),
+                BubbleChip(id: "usesKidsCoding", label: "Coding / STEM class", emoji: "💻", flag: .usesKidsCoding),
+                BubbleChip(id: "usesKidsRobotics", label: "Robotics / LEGO League", emoji: "🤖", flag: .usesKidsRobotics),
+                BubbleChip(id: "usesKidsScienceClass", label: "Science classes", emoji: "🔬", flag: .usesKidsScienceClass),
+                BubbleChip(id: "usesKidsChessClub", label: "Chess club", emoji: "♟️", flag: .usesKidsChessClub),
+                BubbleChip(id: "usesKidsTheater", label: "Theater / drama", emoji: "🎭", flag: .usesKidsTheater),
+                BubbleChip(id: "usesKidsChoir", label: "Choir / vocal lessons", emoji: "🎤", flag: .usesKidsChoir),
+            ]),
+            ChipSection(title: "Sports & Recreation", chips: [
+                BubbleChip(id: "usesGymnasticsClub", label: "Gymnastics club", emoji: "🤸", flag: .usesGymnasticsClub),
+                BubbleChip(id: "usesUSAGymnasticsClub", label: "USA Gymnastics club", emoji: "🏅", flag: .usesUSAGymnasticsClub),
+                BubbleChip(id: "usesLittleGym", label: "The Little Gym / My Gym", emoji: "🏋️", flag: .usesLittleGym),
+                BubbleChip(id: "usesSwimSchool", label: "Swim school / lessons", emoji: "🏊", flag: .usesSwimSchool),
+                BubbleChip(id: "usesSafeSplash", label: "SafeSplash / Goldfish", emoji: "🐟", flag: .usesSafeSplash),
+                BubbleChip(id: "usesMartialArtsStudio", label: "Martial arts", emoji: "🥋", flag: .usesMartialArtsStudio),
+                BubbleChip(id: "usesDanceStudio", label: "Dance studio", emoji: "💃", flag: .usesDanceStudio),
+                BubbleChip(id: "usesCheerAcademy", label: "Cheer / tumbling", emoji: "📣", flag: .usesCheerAcademy),
+                BubbleChip(id: "usesKidsSoccer", label: "Soccer league / club", emoji: "⚽", flag: .usesKidsSoccer),
+                BubbleChip(id: "usesLittleLeague", label: "Little League / baseball", emoji: "⚾", flag: .usesLittleLeague),
+                BubbleChip(id: "usesYouthBasketball", label: "Youth basketball", emoji: "🏀", flag: .usesYouthBasketball),
+                BubbleChip(id: "usesKidsTennis", label: "Tennis lessons / club", emoji: "🎾", flag: .usesKidsTennis),
+                BubbleChip(id: "usesYouthHockey", label: "Youth hockey / rink", emoji: "🏒", flag: .usesYouthHockey),
+                BubbleChip(id: "usesI9Sports", label: "i9 Sports / youth sports", emoji: "🏅", flag: .usesI9Sports),
+                BubbleChip(id: "usesKidsClimbing", label: "Climbing gym", emoji: "🧗", flag: .usesKidsClimbing),
+                BubbleChip(id: "usesKidsYoga", label: "Kids yoga / mindfulness", emoji: "🧘", flag: .usesKidsYoga),
+                BubbleChip(id: "usesDaycare", label: "Daycare / after-school care", emoji: "🏫", flag: .usesDaycare),
+                BubbleChip(id: "usesSummerCamp", label: "Summer camp", emoji: "🏕️", flag: .usesSummerCamp),
+                BubbleChip(id: "usesScouting", label: "Scouting", emoji: "⚜️", flag: .usesScouting),
+            ]),
+        ]
+
+        extraChips["pet_services"] = [
+            ChipSection(title: "Pet Providers & Subscriptions", chips: [
+                BubbleChip(id: "usesChewy", label: "Chewy", emoji: "🦴", flag: .usesChewy),
+                BubbleChip(id: "usesRover", label: "Rover / Wag", emoji: "🐕", flag: .usesRover),
             ]),
         ]
 
@@ -348,16 +456,22 @@ final class LifestyleViewModel {
         ]
 
         extraChips["subscriptions"] = [
+            ChipSection(title: "Wine & clothing memberships", chips: [
+                BubbleChip(id: "usesFirstleaf", label: "Firstleaf", emoji: "🍷", flag: .usesFirstleaf),
+                BubbleChip(id: "usesStitchFix", label: "Stitch Fix", emoji: "👗", flag: .usesStitchFix),
+                BubbleChip(id: "usesNuuly", label: "Nuuly", emoji: "👚", flag: .usesNuuly),
+                BubbleChip(id: "usesRentTheRunway", label: "Rent the Runway", emoji: "👗", flag: .usesRentTheRunway),
+            ]),
             ChipSection(title: "Subscription Boxes", chips: [
                 BubbleChip(id: "usesBeautyBox",         label: "Beauty Box",          emoji: "💄", flag: .usesBeautyBox),
                 BubbleChip(id: "usesFabFitFun",         label: "FabFitFun",           emoji: "💄", flag: .usesFabFitFun),
                 BubbleChip(id: "usesBespokePost",       label: "Bespoke Post",        emoji: "📦", flag: .usesBespokePost),
-                BubbleChip(id: "usesWineClub",          label: "Wine Club",           emoji: "🍷", flag: .usesWineClub),
+                BubbleChip(id: "usesWineClub",          label: "Other wine club",     emoji: "🍷", flag: .usesWineClub),
                 BubbleChip(id: "usesCoffeeSubscription",label: "Coffee Subscription", emoji: "☕", flag: .usesCoffeeSubscription),
                 BubbleChip(id: "usesKidsCrateBox",      label: "Kids Activity Box",   emoji: "🧸", flag: .usesKidsCrateBox),
                 BubbleChip(id: "usesBookOfTheMonth",    label: "Book of the Month",   emoji: "📚", flag: .usesBookOfTheMonth),
                 BubbleChip(id: "usesSnackBox",          label: "Snack Box",           emoji: "🍫", flag: .usesSnackBox),
-                BubbleChip(id: "usesClothingBox",       label: "Clothing Box",        emoji: "👕", flag: .usesClothingBox),
+                BubbleChip(id: "usesClothingBox",       label: "Other clothing box",  emoji: "👕", flag: .usesClothingBox),
             ]),
             ChipSection(title: "News & Reading", chips: [
                 BubbleChip(id: "usesNewYorkTimes",        label: "New York Times",      emoji: "📰", flag: .usesNewYorkTimes),
@@ -467,90 +581,20 @@ struct LifestyleInterviewView: View {
     // MARK: - Screen 1: Quick Yes/No questions
 
     private var quickQuestionsScreen: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("A few quick\nquestions")
-                        .font(.system(size: 38, weight: .bold, design: .serif))
-                        .foregroundColor(Theme.textPrimary)
-                        .lineSpacing(4)
-                    Text("We'll use these to build your personalized task list.")
-                        .font(.system(size: 15))
-                        .foregroundColor(Theme.textSecondary)
-                        .lineSpacing(3)
-                }
-
-                VStack(spacing: 12) {
-                    YesNoCard(
-                        question: "Kids at home?",
-                        emoji: "👧",
-                        isSelected: vm.hasKids,
-                        onToggle: { vm.hasKids.toggle() }
-                    )
-                    YesNoCard(
-                        question: "Pets?",
-                        emoji: "🐾",
-                        isSelected: vm.hasPets,
-                        onToggle: { vm.hasPets.toggle() }
-                    )
-                    YesNoCard(
-                        question: "Owning your new home?",
-                        emoji: "🏡",
-                        isSelected: vm.ownsHome,
-                        onToggle: { vm.ownsHome.toggle() }
-                    )
-
-                    // WS5 — shown only when the parent toggle is on, additive to it
-                    if vm.hasKids {
-                        HStack {
-                            Text("How many kids?")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-                            Spacer()
-                            Stepper("\(vm.childCount)", value: $vm.childCount, in: 1...8)
-                                .fixedSize()
-                                .foregroundColor(Theme.textPrimary)
-                        }
-                        .padding(14)
-                        .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
-                    }
-
-                    if vm.hasPets {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("What kind?")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-                            HStack(spacing: 8) {
-                                ForEach(PetSpecies.allCases, id: \.self) { species in
-                                    let isOn = vm.petSpecies.contains(species)
-                                    Button {
-                                        if isOn { vm.petSpecies.remove(species) } else { vm.petSpecies.insert(species) }
-                                    } label: {
-                                        Text(species.displayLabel)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundColor(isOn ? .white : Theme.textSecondary)
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                            .background(isOn ? Theme.accentPrimary : Theme.backgroundElevated, in: Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                        .padding(14)
-                        .background(Theme.backgroundElevated.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
-                    }
-                }
+        VStack(alignment: .leading, spacing: 20) {
+            Text("A few things about your household")
+                .font(.system(size: 30, weight: .bold, design: .serif))
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.top, 100)
+            Text("Help us remember the accounts that matter to you. You can skip any answer.")
+                .foregroundStyle(Theme.textSecondary)
+            ScrollView {
+                HouseholdQuestions(vm: vm).padding(.vertical, 8)
             }
-
-            Spacer()
-
-            continueButton("Looks good →") { vm.next() }
+            continueButton("Continue →") { vm.next() }
         }
         .padding(.horizontal, 28)
-        .padding(.bottom, 40)
+        .padding(.bottom, 32)
     }
 
     // MARK: - Screen 2: Financial accounts
@@ -590,7 +634,7 @@ struct LifestyleInterviewView: View {
                             .font(.system(size: 22, weight: .semibold, design: .serif))
                             .foregroundColor(Theme.textPrimary)
                     }
-                    Text("Want to add more?")
+                    Text("Think about deliveries and places you belong to. Choose the services you use; you can explore the full catalog from your checklist.")
                         .font(.system(size: 15))
                         .foregroundColor(Theme.textSecondary)
                 }
@@ -598,6 +642,7 @@ struct LifestyleInterviewView: View {
                 // Category toggles
                 let categories: [(id: String, label: String, emoji: String)] = [
                     ("shopping",  "Shopping & Delivery",      "📦"),
+                    ("subscriptions", "Wine, Clothing & Monthly Boxes", "🎁"),
                     ("streaming", "Streaming & Cable",         "📺"),
                     ("fitness",   "Fitness & Wellness",        "💪"),
                     ("transport", "Vehicles & Travel",         "🚗"),
@@ -644,7 +689,7 @@ struct LifestyleInterviewView: View {
     private var estimatedTaskCount: Int {
         // Real count from the same generator that builds the actual checklist — updates
         // live as the user taps chips, and always matches what they land on at the dashboard.
-        ChecklistGenerator.matchingItems(flags: vm.allActiveFlags).count + vm.selectedInstitutions.count
+        ChecklistGenerator.matchingItems(for: move, flags: vm.allActiveFlags).count + vm.selectedInstitutions.count
     }
 
     // MARK: - Shared components
@@ -683,38 +728,10 @@ struct LifestyleInterviewView: View {
         profile.move = move
         var finalFlags = vm.allActiveFlags
 
-        func applyRegionalFlags(for zip: String) {
-            let clean = zip.replacingOccurrences(of: " ", with: "").uppercased()
-            if clean.count == 6 && clean.first!.isLetter {
-                finalFlags.insert(.isCanadian)
-                switch clean.first! {
-                case "A": finalFlags.insert(.inNewfoundland)
-                case "B": finalFlags.insert(.inNovaScotia)
-                case "C": finalFlags.insert(.inPEI)
-                case "E": finalFlags.insert(.inNewBrunswick)
-                case "G", "H", "J": finalFlags.insert(.inQuebec)
-                case "K", "L", "M", "N", "P": finalFlags.insert(.inOntario)
-                case "R": finalFlags.insert(.inManitoba)
-                case "S": finalFlags.insert(.inSaskatchewan)
-                case "T": finalFlags.insert(.inAlberta)
-                case "V": finalFlags.insert(.inBritishColumbia)
-                case "X": finalFlags.insert(.inNorthwestTerritories)
-                case "Y": finalFlags.insert(.inYukon)
-                default: break
-                }
-            } else if clean.count >= 5, Int(clean.prefix(2)) != nil {
-                finalFlags.insert(.isAmerican)
-            }
-        }
-
-        if let origin = move.originZip { applyRegionalFlags(for: origin) }
-        applyRegionalFlags(for: move.destinationZip)
+        finalFlags.formUnion(PostalCodeService.regionalFlags(for: move.destinationZip))
 
         profile.activeFlags = finalFlags
-        // WS5 — only persisted if the user actually confirmed the parent toggle;
-        // otherwise stays nil/empty, matching every other "unset" field on this model.
-        if vm.hasKids { profile.childCount = vm.childCount }
-        if vm.hasPets { profile.petSpecies = vm.petSpecies }
+        vm.saveHousehold(to: profile)
         modelContext.insert(profile)
         move.lifestyleProfile = profile
 

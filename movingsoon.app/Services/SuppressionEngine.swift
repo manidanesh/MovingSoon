@@ -125,10 +125,7 @@ enum SuppressionEngine {
         now: Date = Date()
     ) -> Bool {
         tasks.contains { task in
-            task.status == .toDo &&
-            task.poiCategory == category &&
-            !task.isMuted &&
-            (task.snoozedUntil == nil || task.snoozedUntil! < now)
+            task.poiCategory == category && ReminderPolicy.isEligible(task, at: now)
         }
     }
 

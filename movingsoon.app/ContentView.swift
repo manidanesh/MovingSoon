@@ -4,6 +4,7 @@ import SwiftData
 
 struct ContentView: View {
     @Query private var moves: [Move]
+    @Environment(\.modelContext) private var modelContext
     @State private var phase: AppPhase = .loading
 
     enum AppPhase { case loading, onboarding, lifestyleInterview, dashboard }
@@ -54,12 +55,17 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: activeMove?.lifestyleProfile == nil) { _, _ in resolvePhase() }
+        .onChange(of: activeMove?.id) { _, _ in resolvePhase() }
         .onChange(of: moves.count) { _, _ in resolvePhase() }
         .onAppear { resolvePhase() }
         .preferredColorScheme(.dark)
     }
 
     private func resolvePhase() {
+        let reminderMove = activeMove?.lifestyleProfile == nil ? nil : activeMove
+        LocationManager.shared.attach(reminderMove, context: modelContext)
+        SmartReminderService.shared.reschedule(for: reminderMove)
         if activeMove == nil {
             phase = .onboarding
         } else if activeMove?.lifestyleProfile == nil {

@@ -1,2 +1,5 @@
 build/
 .DS_Store
+movingsoon.app/CensusAPIKey.plist
+__pycache__/
+*.py[cod]

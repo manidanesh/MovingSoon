@@ -51,7 +51,7 @@ MovingSoon generates a personalized, prioritized checklist of every address upda
 **Categories covered:**
 Postal · Government · Financial · Utilities · Healthcare · Insurance · Education · Legal · Employer · Shopping · Food Delivery · Streaming · Fitness · Pets · Travel · Digital Wallets · Business
 
-MovingSoon works entirely on-device. No account required. No data sold. Your move is your business.
+No account required. Your move profile, selected services, and checklist stay on your device. If you view the optional US area snapshot, the app sends your entered ZIP code(s) to the US Census Bureau API for aggregate area estimates; it does not send your household profile or selected services. If you request a nearby-provider search, Apple MapKit receives the provider search phrase and the selected destination area. No data is sold.
 
 ---
 
