@@ -349,7 +349,15 @@ struct EditMoveView: View {
                                 .textCase(.uppercase)
                                 .tracking(2)
 
-                            Link(destination: URL(string: "https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md")!) {
+                            Link("Email support", destination: SupportLinks.email)
+                                .foregroundColor(Theme.accentPrimary)
+                                .frame(minHeight: 44, alignment: .leading)
+
+                            Link("GitHub support", destination: SupportLinks.github)
+                                .foregroundColor(Theme.accentPrimary)
+                                .frame(minHeight: 44, alignment: .leading)
+
+                            Link(destination: SupportLinks.privacy) {
                                 HStack {
                                     Text("Privacy Policy")
                                         .font(.system(size: 16, weight: .medium))

@@ -6,6 +6,12 @@ When you move, you have to update your address with dozens of services — banks
 
 ---
 
+## Website and support
+
+Website: [movingsoon.app](https://movingsoon.app) (coming soon; Cloudflare hosting is being prepared).
+
+For support, email [support@movingsoon.app](mailto:support@movingsoon.app) or use [GitHub Issues](https://github.com/manidanesh/MovingSoon/issues). The [privacy policy](PRIVACY_POLICY.md) remains available on GitHub while the website is being prepared.
+
 ## Features
 
 ### Move and household setup

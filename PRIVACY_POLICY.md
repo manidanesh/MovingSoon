@@ -1,6 +1,6 @@
 # Privacy Policy — MovingSoon
 
-**Last updated: October 23, 2026**
+**Last updated: October 24, 2026**
 
 MovingSoon ("the app") is a moving address checklist app for iOS. This privacy policy explains what data the app collects, how it is used, and your rights.
 
@@ -90,4 +90,4 @@ If we update this policy, we will update the "Last updated" date above. Continue
 
 ## Contact
 
-For support or privacy questions, email [mani.danesh@gmail.com](mailto:mani.danesh@gmail.com) or use [GitHub Issues](https://github.com/manidanesh/MovingSoon/issues). Information you voluntarily include in a support email or issue is received through that outside service. Share only the details needed for support; a public GitHub issue is visible to others.
+For support or privacy questions, email [support@movingsoon.app](mailto:support@movingsoon.app) or use [GitHub Issues](https://github.com/manidanesh/MovingSoon/issues). Our website is [movingsoon.app](https://movingsoon.app) (coming soon). This GitHub page remains the published privacy policy while the website is being prepared. Information you voluntarily include in a support email or issue is received through that outside service. Share only the details needed for support; a public GitHub issue is visible to others.

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MovingSoon — a SwiftUI/SwiftData iOS app that generates a personalized, prioritized moving checklist (address updates across banks, government, subscriptions, etc.) based on a lifestyle interview. iOS 17+, Xcode 15+. See `README.md` for the full feature list and `APP_STORE_LISTING.md` / `PRIVACY_POLICY.md` for store-facing copy.
 
+The owner-confirmed product domain is `https://movingsoon.app` and preferred support email is `support@movingsoon.app`; GitHub Issues remains a support fallback. The website is being prepared, so retain the working GitHub privacy/support URLs until replacement pages are published and verified. Keep `Services/SupportLinks.swift`, store metadata, README and privacy contact details aligned.
+
 ## Build & Test
 
 This is a plain `.xcodeproj` (no SPM package, no CocoaPods/Carthage). Xcode uses the newer file-system-synchronized groups, so adding a `.swift` file to the right folder on disk is enough — no manual "add to target" step needed for files already under a synced group.

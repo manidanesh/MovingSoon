@@ -12,11 +12,21 @@ $4.99 (Tier 5)
 ## Bundle ID
 app.movingsoon
 
+## Website / Marketing URL
+https://movingsoon.app
+
+The website is being prepared. Verify it serves the final landing page before entering it as the Marketing URL in App Store Connect.
+
 ## Support URL
-https://github.com/manidanesh/MovingSoon
+https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md#contact
+
+## Support Email
+support@movingsoon.app
 
 ## Privacy Policy URL
 https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md
+
+Keep the working GitHub support/privacy URLs until the new website's corresponding pages are published and verified.
 
 ---
 
