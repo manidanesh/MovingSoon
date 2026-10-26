@@ -1,3 +1,62 @@
+# Paid-release content and geography audit — October 20, 2026
+
+The current action-content source is `Services/CatalogGuidance.swift`. Its 44 important service identities have eligibility, preparation, action steps, suggested timing, source and a review date. Verified official instructions and provider-neutral checklists are explicitly distinguished in `sourceNote`; a review date on a general checklist is not certification that a provider's current account screens or deadlines were checked.
+
+This audit covers USPS; US licence/ID, registration and inspection; voter registration; IRS; SSA; pending US passport applications; Medicare; VA; Canada Post; CRA; Service Canada; Elections Canada; Canadian passport address guidance; electric, gas, water, trash, internet and security accounts; old/new utility dates; landlord forwarding; previous-home policies; school portals; work benefits; recurring deliveries; household/pet records; auto/home/renters/health insurance; veterinary and microchip records; student loans; mortgage and pension administrators; Amazon; Stitch Fix; Instacart; wine clubs; and LA Fitness. Equivalent aliases use their canonical identity.
+
+## Content corrections
+
+- An issued US passport does not require a general address-change filing. The task now refers to a pending application, requires confirmation and explains when it can be removed. Canadian passport address guidance is a separate, optional check; moving does not invalidate the passport.
+- SSA explicitly limits the address-update use case to relevant benefit/SSI/Medicare customers. Veteran status, retirement or a postal code does not establish every benefit account. Eligibility-sensitive tasks require review and explicit addition.
+- Medicare is distinct from Medicaid. Medicare address changes go through SSA; plans can need separate service-area/enrollment review. A general insurance checklist does not establish coverage or a legal deadline.
+- Voter guidance tells the customer to check citizenship, age, residence and the election office's requirements. Election deadlines are not calculated from moving day.
+- Licence, registration and inspection actions use a destination lookup of official motor-vehicle agencies, with the USAGov directory as fallback. Commercial dmv.org URLs were removed. Separate Texas/Georgia/Utah registration routing is retained where agencies differ.
+- Every timing explanation identifies dates as planning suggestions and directs customers to the agency/provider's actual requirements. There is no maintained nationwide legal-deadline engine.
+- Generic provider guidance asks customers to check their own account or agreement. It does not invent authenticated screens, transfer eligibility, cancellation periods, delivery coverage or a particular change cutoff. Local map results remain unconfirmed leads.
+- App Store copy now describes optional regional context/provider lookup, removes the unsupported automatic LA Fitness/Xcel coverage example, automatic one-tap completion promise, old postal fee/scam claim and obsolete price-tier label. The $4.99 US target must be set in App Store Connect.
+
+## Primary sources reviewed October 20, 2026
+
+| Official source | Scope used |
+|---|---|
+| [USPS change-of-address basics](https://faq.usps.com/articles/Knowledge/Change-of-Address-The-Basics) | Identity checks; individual/family/business choices; separate recipients; international process; direct sender updates. No fee is hardcoded. |
+| [USAGov motor-vehicle directory](https://www.usa.gov/state-motor-vehicle-services) | Official agency domains by destination; no state-specific deadline is asserted. |
+| [Vote.gov registration](https://vote.gov/register) | State/territory update process and election-related deadlines. |
+| [IRS address changes](https://www.irs.gov/faqs/irs-procedures/address-changes/address-changes) | Supported personal/business update methods and the limits of relying on postal forwarding. |
+| [SSA address-change eligibility](https://www.ssa.gov/faqs/en/questions/KA-01711.html) | Benefits/SSI/Medicare eligibility and method differences. |
+| [US passport FAQ](https://travel.state.gov/en/passports/contact-support/faq.html) | Pending-application delivery address versus already-issued passports. |
+| [Medicare address changes](https://www.medicare.gov/basics/change-address) and [move-related plan enrollment](https://www.medicare.gov/basics/get-started-with-medicare/get-more-coverage/joining-a-plan/special-enrollment-periods) | SSA address update and separate plan-area review; no computed enrollment window. |
+| [VA profile address changes](https://www.va.gov/change-address/) | Shared profile scope and programs with separate records. |
+| [Canada Post purchasing](https://www.canadapost-postescanada.ca/cpc/en/support/kb/receiving/forwarding-mail/how-to-purchase-mail-forwarding.page) and [forwarding features](https://www.canadapost-postescanada.ca/cpc/en/support/articles/mail-forwarding/features.page) | Identity, recipients, lead-time checking and service exclusions. |
+| [Government of Canada address directory](https://www.canada.ca/en/government/change-address.html) | Separate agency/program updates rather than a universal government address change. |
+| [Elections Canada registration](https://www.elections.ca/content.aspx?section=vot&dir=reg&document=index&lang=e) | Eligible electors and registration checking at the current address. |
+| [Passport Canada general help](https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/help-centre/general.html) | Issued-passport address guidance and validity; pending deliveries checked separately. |
+| [Federal Student Aid repayment preparation](https://studentaid.gov/articles/6-ways-prepare-repayment-begin-again/) | Update both federal profile and current servicer contact information. |
+| [AAHA microchip details](https://www.aaha.org/resources/how-to-update-microchip-details-the-first-step-in-lost-pet-prevention/) | Identify the actual registry and change its record directly, separate from clinic records. |
+| [HealthCare.gov moving guidance](https://www.healthcare.gov/reporting-changes/when-you-move/) | Evidence for keeping contact edits distinct from plan coverage; general insurance guidance directs to each actual insurer. |
+
+## Postal-region repair
+
+The old table collapsed Delaware into Pennsylvania, Virginia/Maryland into DC, Georgia into Mississippi, Arkansas into Louisiana, Wyoming into Idaho and Alaska/Hawaii/Pacific postal destinations into Washington/California. The table now uses narrower ranges for all 50 states and DC, handles PR/VI, exact Pacific destinations (AS/GU/MP/PW/FM/MH), military AA/AE/AP ranges, the 005/055/06390 exceptions and Nunavut's X0A/X0B/X0C FSAs. Unassigned prefixes return unknown instead of being absorbed into a neighboring state.
+
+Sources: [IRS current ZIP-region tables](https://www.irs.gov/irm/part3/irm_03-041-267r), [USPS DMM 608 Pacific destinations](https://pe.usps.com/text/dmm300/608.htm), [USPS lowest ZIP](https://facts.usps.com/lowest-zip-code/), [IRS unique office ZIPs](https://www.irs.gov/irm/part1/irm_01-022-003), [New York government Fishers Island address](https://extapps.dec.ny.gov/fs/projects/lswmp/Fisher_Island_LSWMP_2019-2028.2019-08-13.pdf), [Canada Post postal codes](https://origin-www.canadapost.ca/cpc/en/support/articles/addressing-guidelines/postal-codes.page), and [Canada Post territory FSAs](https://origin-www.canadapost.ca/cpc/en/support/articles/delivery-standards/important-definitions.page).
+
+`ZipBucketService.repairRegionBuckets(for:)` repairs a persisted destination bucket without altering task IDs, completion or notes. This is approximate postal-region context, not a licensed address-validation database. ZIP delivery areas can cross jurisdiction boundaries; use the real street address and agency requirements for legal decisions. Unknown/unassigned codes are not certified as real addresses by a format check. Military and freely associated postal destinations have explicit buckets; that does not imply comprehensive moving coverage for them.
+
+## Link maintenance — October 22, 2026
+
+`python3 scripts/check_catalog_links.py` deterministically validates the maintained HTTPS inventory, all 50 DMV state destinations/DC and rejects commercial dmv.org links. `--live-verify` opts into HEAD/GET checks; `--kind` and `--limit` allow targeted review. Permanent missing/bad-request links are failures, while access controls, rate limits and transport errors stay unverified. A live run exits nonzero while any result remains unverified, rather than reporting unavailable checks as passes.
+
+The October 22 full review returned **59 reachable and 11 unverified out of 70 entries, with zero permanent HTTP failures**. The former Hawaii 404 was replaced with the official [Hawaii licensing/county directory](https://hidot.hawaii.gov/driverslicense/) and the replacement is reachable. The remaining blocked/timed-out entries require another access path or manual checking; their official source-review dates are not a claim that every HTTP client could reach them. See the [full result](research/catalog-link-review-2026-10-22.json).
+
+A customer-entered provider name that changes a branded task now uses provider-neutral guidance. It cannot inherit the old brand's default website or verified instructions. A deliberately different customer website remains available, and nickname-only changes keep the real provider identity.
+
+## Remaining release boundary
+
+The remaining catalog has provider-neutral guidance rather than a fully audited per-provider instruction directory. Provincial/cross-border requirements and jurisdiction deadlines are not certified comprehensive. Public support/privacy URLs, production links and on-device behavior must be validated before submission. The historical review below records earlier delivery work and its validation at that time; it is not evidence that every later change has been tested.
+
+---
+
 # Service catalog review and expansion
 
 Reviewed October 7, 2026. This describes local source changes, not an App Store release or phone update.
@@ -81,7 +140,7 @@ The next two catalog improvements are now implemented:
 - Optional next shipment and renewal dates use a selectable 0, 1, 3, 7, 14 or 30-day lead time. Earlier account deadlines affect the next action, due labels, overdue counts, calendar grouping and location-monitoring priority. Moving-day edits do not shift these dates.
 - Local reminders are scheduled for the lead date and event date at 9 a.m., subject to notification permission and task eligibility. Same-day date reminders are batched, with each account included once. Existing critical, snooze and check-in reminders remain separate; the scheduler retains its 60-request limit.
 - Completing, muting or removing an account stops its future reminders; snooze defers eligibility. Editing dates rebuilds the schedule. Dates in the past do not create retroactive alerts. Reopen a completed task to resume reminders.
-- Names and dates are customer-entered. There is no provider login, order import, automatic renewal rollover or account change. Custom provider names do not enable new map matching; nearby reminders retain the supported catalog/provider matches.
+- Names and dates are customer-entered. There is no provider login, order import, automatic renewal rollover or account change. At that delivery, custom provider names did not enable new map matching. The current October 22 implementation also matches explicitly entered provider names; nicknames remain labels and do not identify a place.
 
 Normal catalog Add remains idempotent. **Add another account** is the explicit path to another task, and duplicate names within that service require a distinct nickname. Existing saved task identities are retained before renaming.
 

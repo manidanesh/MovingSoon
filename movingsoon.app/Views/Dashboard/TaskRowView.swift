@@ -1,30 +1,23 @@
 // TaskRowView.swift — Individual task item with institution badge or category icon
 import SwiftUI
+import SwiftData
 
 struct TaskRowView: View {
     @Bindable var task: ChecklistTask
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         HStack(spacing: 12) {
 
             // MARK: Momentum ring
             Button {
-                withAnimation(.spring(duration: 0.35)) {
-                    if task.status == .completed {
-                        // Already done — tap again to uncheck
-                        task.resetStatus()
-                    } else {
-                        task.advanceStatus()
-                        // Jump straight to completed — pendingVerification is invisible to the user
-                        if task.status == .pendingVerification {
-                            task.advanceStatus()
-                        }
-                    }
-                }
+                if task.status == .completed { ChecklistActions.reopen(task, in: modelContext) }
+                else { ChecklistActions.complete(task, in: modelContext) }
             } label: {
                 MomentumRingView(status: task.status, size: 32)
             }
             .buttonStyle(.plain)
+            .frame(minWidth: 44, minHeight: 44)
 
             // MARK: Icon — emoji for catalog tasks, colored badge for institutions
             if let raw = task.institutionInitials {
@@ -39,9 +32,9 @@ struct TaskRowView: View {
                         Circle()
                             .fill(Color(hex: task.institutionColorHex ?? "#626567").opacity(0.2))
                         Text(raw)
-                            .font(.system(size: 18))
+                            .themeText(18)
                     }
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                 }
             } else {
                 CategoryIconView(category: task.category, size: 36)
@@ -50,7 +43,7 @@ struct TaskRowView: View {
             // MARK: Title + subtitle
             VStack(alignment: .leading, spacing: 3) {
                 Text(task.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .themeText(14, weight: .medium)
                     .foregroundColor(task.status == .completed ? Theme.textTertiary : Theme.textPrimary)
                     .strikethrough(task.status == .completed, color: Theme.textTertiary)
                     .lineLimit(2)
@@ -58,7 +51,7 @@ struct TaskRowView: View {
 
                 // Institution name OR category
                 Text(task.institutionName ?? task.category.rawValue)
-                    .font(.system(size: 12))
+                    .themeText(12)
                     .foregroundColor(statusSubtitleColor)
             }
 
@@ -68,7 +61,7 @@ struct TaskRowView: View {
             if let url = task.deepLinkURL, task.status != .completed {
                 Link(destination: url) {
                     Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.system(size: 20))
+                        .themeText(20)
                         .foregroundColor(Theme.accentPrimary.opacity(0.7))
                 }
             }

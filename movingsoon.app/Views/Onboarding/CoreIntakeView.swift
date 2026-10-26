@@ -25,6 +25,7 @@ struct CoreIntakeView: View {
     @State private var originNeighborhoods: [NeighborhoodResult] = []
     @State private var selectedOrigin: NeighborhoodResult? = nil
     @State private var isLoadingOrigin = false
+    @State private var origGeocodeTask: Task<Void, Never>?
 
     // Convenience accessors for saved names
     private var destinationLabel: String? { selectedDestination?.fullLabel }
@@ -67,6 +68,7 @@ struct CoreIntakeView: View {
             }
 
             // Step content
+            ScrollView {
             Group {
                 switch step {
                 case 0: dateStep
@@ -80,6 +82,8 @@ struct CoreIntakeView: View {
                 removal:   .move(edge: .leading).combined(with: .opacity)
             ))
             .animation(.easeInOut(duration: 0.35), value: step)
+            .padding(.top, 72)
+            }
         }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
@@ -95,7 +99,7 @@ struct CoreIntakeView: View {
             isLoadingDestination = true
             destGeocodeTask = Task {
                 let results = await GeocoderService.neighborhoods(for: newZip)
-                if !Task.isCancelled {
+                if !Task.isCancelled && newZip == destinationZip {
                     withAnimation(.spring(response: 0.4)) {
                         destinationNeighborhoods = results
                         // Auto-select if there's exactly one result
@@ -110,10 +114,12 @@ struct CoreIntakeView: View {
         .onChange(of: originZip) { _, newZip in
             selectedOrigin = nil
             originNeighborhoods = []
+            origGeocodeTask?.cancel()
             guard Self.isValidPostalCode(newZip) else { isLoadingOrigin = false; return }
             isLoadingOrigin = true
-            Task {
+            origGeocodeTask = Task {
                 let results = await GeocoderService.neighborhoods(for: newZip)
+                guard !Task.isCancelled, newZip == originZip else { return }
                 withAnimation(.spring(response: 0.4)) {
                     originNeighborhoods = results
                     if results.count == 1 { selectedOrigin = results.first }
@@ -121,6 +127,7 @@ struct CoreIntakeView: View {
                 }
             }
         }
+        .onDisappear { destGeocodeTask?.cancel(); origGeocodeTask?.cancel() }
     }
 
     // MARK: - Step 1: When?
@@ -131,20 +138,22 @@ struct CoreIntakeView: View {
 
             VStack(alignment: .leading, spacing: 24) {
                 Text("When's the\nday?")
-                    .font(.system(size: 40, weight: .bold, design: .serif))
+                    .themeSerif(40, weight: .bold)
                     .foregroundColor(Theme.textPrimary)
                     .lineSpacing(4)
 
                 Text("We'll use this to prioritize your tasks and send smart reminders.")
-                    .font(.system(size: 15))
+                    .themeText(15)
                     .foregroundColor(Theme.textSecondary)
                     .lineSpacing(3)
 
-                DatePicker("", selection: $anchorDate, in: Date()..., displayedComponents: .date)
+                DatePicker("Moving day", selection: $anchorDate, displayedComponents: .date)
                     .labelsHidden()
                     .colorScheme(.dark)
                     .padding(16)
                     .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
+                Text("Already moved? Choose your actual move date and we'll help you catch up.")
+                    .font(.subheadline).foregroundStyle(Theme.textSecondary)
             }
 
             Spacer()
@@ -166,17 +175,17 @@ struct CoreIntakeView: View {
                 // Headline + resolved label
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Where are you\nheaded?")
-                        .font(.system(size: 40, weight: .bold, design: .serif))
+                        .themeSerif(40, weight: .bold)
                         .foregroundColor(Theme.textPrimary)
                         .lineSpacing(4)
 
                     if let label = destinationLabel {
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 12))
+                                .themeText(12)
                                 .foregroundColor(Theme.accentPrimary)
                             Text(label)
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.accentPrimary)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -186,7 +195,7 @@ struct CoreIntakeView: View {
                 // ZIP field
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Destination ZIP code")
-                        .font(.system(size: 12, weight: .semibold))
+                        .themeText(12, weight: .semibold)
                         .foregroundColor(Theme.textSecondary)
                         .textCase(.uppercase)
                         .tracking(1.5)
@@ -195,7 +204,7 @@ struct CoreIntakeView: View {
                         .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .themeRounded(32, weight: .bold)
                         .foregroundColor(Theme.textPrimary)
                         .padding(16)
                         .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
@@ -206,7 +215,7 @@ struct CoreIntakeView: View {
 
                     if destinationLookupFailed {
                         Text("We couldn't recognize that code — double check it, or continue anyway and add your neighborhood later.")
-                            .font(.system(size: 12.5))
+                            .themeText(12.5)
                             .foregroundColor(Theme.priorityCritical)
                             .lineSpacing(2)
                             .transition(.opacity)
@@ -222,7 +231,7 @@ struct CoreIntakeView: View {
                 )
 
                 Text("Your ZIP gives us broad regional context for your move. It doesn't tell us which services your household uses — you choose what to add to your list.")
-                    .font(.system(size: 13))
+                    .themeText(13)
                     .foregroundColor(Theme.textTertiary)
                     .lineSpacing(2)
             }
@@ -248,17 +257,17 @@ struct CoreIntakeView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Where are you\ncoming from?")
-                        .font(.system(size: 40, weight: .bold, design: .serif))
+                        .themeSerif(40, weight: .bold)
                         .foregroundColor(Theme.textPrimary)
                         .lineSpacing(4)
 
                     if let label = originLabel {
                         HStack(spacing: 6) {
                             Image(systemName: "location.fill")
-                                .font(.system(size: 12))
+                                .themeText(12)
                                 .foregroundColor(Theme.textSecondary)
                             Text(label)
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -267,7 +276,7 @@ struct CoreIntakeView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Current ZIP code (optional)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .themeText(12, weight: .semibold)
                         .foregroundColor(Theme.textSecondary)
                         .textCase(.uppercase)
                         .tracking(1.5)
@@ -276,7 +285,7 @@ struct CoreIntakeView: View {
                         .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .themeRounded(32, weight: .bold)
                         .foregroundColor(Theme.textPrimary)
                         .padding(16)
                         .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 16))
@@ -294,7 +303,7 @@ struct CoreIntakeView: View {
                 )
 
                 Text("Helps us remember accounts and services from your previous area. You can skip this and add it later in Move settings.")
-                    .font(.system(size: 13))
+                    .themeText(13)
                     .foregroundColor(Theme.textTertiary)
                     .lineSpacing(2)
             }
@@ -329,14 +338,14 @@ struct CoreIntakeView: View {
                     .progressViewStyle(CircularProgressViewStyle(tint: accentColor))
                     .scaleEffect(0.8)
                 Text("Finding neighborhoods…")
-                    .font(.system(size: 13))
+                    .themeText(13)
                     .foregroundColor(Theme.textTertiary)
             }
             .transition(.opacity)
         } else if neighborhoods.count > 1 {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Which neighborhood?")
-                    .font(.system(size: 12, weight: .semibold))
+                    .themeText(12, weight: .semibold)
                     .foregroundColor(Theme.textSecondary)
                     .textCase(.uppercase)
                     .tracking(1.5)
@@ -353,7 +362,7 @@ struct CoreIntakeView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(hood.neighborhood)
-                                        .font(.system(size: 14, weight: isSelected ? .bold : .medium))
+                                        .themeText(14, weight: isSelected ? .bold : .medium)
                                         .foregroundColor(isSelected ? .black : Theme.textPrimary)
 
                                     // Show city context if neighborhood name differs from fullLabel
@@ -361,7 +370,7 @@ struct CoreIntakeView: View {
                                         .replacingOccurrences(of: hood.neighborhood + ", ", with: "")
                                     if !context.isEmpty && context != hood.neighborhood {
                                         Text(context)
-                                            .font(.system(size: 11))
+                                            .themeText(11)
                                             .foregroundColor(isSelected ? .black.opacity(0.6) : Theme.textTertiary)
                                     }
                                 }
@@ -403,7 +412,7 @@ struct CoreIntakeView: View {
     private func continueButton(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 17, weight: .bold))
+                .themeText(17, weight: .bold)
                 .foregroundColor(enabled ? .black : Theme.textSecondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
@@ -419,7 +428,7 @@ struct CoreIntakeView: View {
     private func backButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "chevron.left")
-                .font(.system(size: 16, weight: .semibold))
+                .themeText(16, weight: .semibold)
                 .foregroundColor(Theme.textSecondary)
                 .frame(width: 54, height: 54)
                 .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 16))
@@ -456,7 +465,7 @@ struct CoreIntakeView: View {
             destinationLongitude: selectedDestination?.coordinate?.longitude
         )
         modelContext.insert(move)
-        modelContext.saveOrLog()
+        guard modelContext.saveOrLog() else { return }
         withAnimation(.easeInOut(duration: 0.5)) { onComplete() }
     }
 }

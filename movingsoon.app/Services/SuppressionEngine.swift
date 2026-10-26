@@ -20,6 +20,7 @@ enum SuppressionEngine {
 
     /// Returns true only when all six gates pass (fail-fast order).
     static func shouldFire(context: Context) -> Bool {
+        guard context.move.locationConsentStoppedAt == nil else { return false }
         // 1. Consent expiry — cheapest check, no location math needed
         guard consentExpiryGatePasses(
             grantedAt: context.move.locationConsentGrantedAt,
@@ -61,6 +62,7 @@ enum SuppressionEngine {
     /// reports a visit after the user stayed somewhere), so the destination-radius check that
     /// exists to keep destination-anchored geofences from over-firing doesn't apply here.
     static func shouldFireForVisit(context: Context) -> Bool {
+        guard context.move.locationConsentStoppedAt == nil else { return false }
         guard consentExpiryGatePasses(
             grantedAt: context.move.locationConsentGrantedAt,
             now: context.now

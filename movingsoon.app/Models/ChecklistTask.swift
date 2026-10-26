@@ -27,8 +27,11 @@ final class ChecklistTask {
     var accountBaseTitle: String?
     var nextShipmentDate: Date?
     var nextRenewalDate: Date?
+    var nextShipmentDateOnly: String?
+    var nextRenewalDateOnly: String?
     var accountReminderLeadDays: Int?
     var absoluteDueDate: Date?
+    var absoluteDueDateOnly: String?
     
     // Agentic & Location fields
     var actionTypeRaw: String = "Manual Deep Link"
@@ -105,17 +108,68 @@ final class ChecklistTask {
     var hasAccountDetails: Bool {
         accountBaseTitle != nil || accountProviderName != nil || accountNickname != nil
             || nextShipmentDate != nil || nextRenewalDate != nil
+            || nextShipmentDateOnly != nil || nextRenewalDateOnly != nil
+    }
+
+    var effectiveNextShipmentDate: Date? { shipmentDate() }
+    var effectiveNextRenewalDate: Date? { renewalDate() }
+
+    func shipmentDate(calendar: Calendar = .current) -> Date? {
+        DateOnly.resolve(nextShipmentDateOnly, legacy: nextShipmentDate, calendar: calendar)
+    }
+
+    func renewalDate(calendar: Calendar = .current) -> Date? {
+        DateOnly.resolve(nextRenewalDateOnly, legacy: nextRenewalDate, calendar: calendar)
+    }
+
+    func customDueDate(calendar: Calendar = .current) -> Date? {
+        DateOnly.resolve(absoluteDueDateOnly, legacy: absoluteDueDate, calendar: calendar)
+    }
+
+    func setShipmentDate(_ date: Date?, calendar: Calendar = .current) {
+        nextShipmentDateOnly = date.map { DateOnly.string(from: $0, calendar: calendar) }
+        nextShipmentDate = date.map { calendar.startOfDay(for: $0) }
+    }
+
+    func setRenewalDate(_ date: Date?, calendar: Calendar = .current) {
+        nextRenewalDateOnly = date.map { DateOnly.string(from: $0, calendar: calendar) }
+        nextRenewalDate = date.map { calendar.startOfDay(for: $0) }
+    }
+
+    func setCustomDueDate(_ date: Date?, calendar: Calendar = .current) {
+        absoluteDueDateOnly = date.map { DateOnly.string(from: $0, calendar: calendar) }
+        absoluteDueDate = date.map { calendar.startOfDay(for: $0) }
+    }
+
+    /// Call once with the customer's known source timezone, when available.
+    /// Without it, migration preserves the day currently displayed on this device.
+    @discardableResult
+    func backfillDateOnlyValues(calendar: Calendar = .current) -> Bool {
+        var changed = false
+        if DateOnly.date(from: nextShipmentDateOnly, calendar: calendar) == nil, let nextShipmentDate {
+            nextShipmentDateOnly = DateOnly.string(from: nextShipmentDate, calendar: calendar)
+            changed = true
+        }
+        if DateOnly.date(from: nextRenewalDateOnly, calendar: calendar) == nil, let nextRenewalDate {
+            nextRenewalDateOnly = DateOnly.string(from: nextRenewalDate, calendar: calendar)
+            changed = true
+        }
+        if DateOnly.date(from: absoluteDueDateOnly, calendar: calendar) == nil, let absoluteDueDate {
+            absoluteDueDateOnly = DateOnly.string(from: absoluteDueDate, calendar: calendar)
+            changed = true
+        }
+        return changed
     }
 
     func baseDueDate(moveDate: Date, calendar: Calendar = .current) -> Date {
-        if let absoluteDueDate { return calendar.startOfDay(for: absoluteDueDate) }
+        if let date = customDueDate(calendar: calendar) { return date }
         return calendar.date(byAdding: .day, value: tMinusDays, to: calendar.startOfDay(for: moveDate)) ?? moveDate
     }
 
     /// A customer-entered shipment/renewal can bring the address review forward.
     /// Event dates stay absolute when moving day changes.
     func dueDate(moveDate: Date, calendar: Calendar = .current) -> Date {
-        let deadlines = [nextShipmentDate, nextRenewalDate].compactMap { date -> Date? in
+        let deadlines = [shipmentDate(calendar: calendar), renewalDate(calendar: calendar)].compactMap { date -> Date? in
             guard let date else { return nil }
             return calendar.date(byAdding: .day, value: -reminderLeadDays, to: calendar.startOfDay(for: date))
         }

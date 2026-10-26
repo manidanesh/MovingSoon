@@ -62,16 +62,23 @@ final class GeofenceCoordinator {
                        manager: any LocationRegionMonitoring) async {
         generation += 1
         let revision = generation
-        let desired = Array(requests.prefix(Self.maxGeofences))
+        var seen: Set<String> = []
+        let desired = requests.filter { seen.insert($0.identifier).inserted }
         let identifiers = Set(desired.map(\.identifier))
         for region in manager.monitoredRegions where !identifiers.contains(region.identifier) {
             manager.stopMonitoring(for: region)
         }
         registeredRegionIDs = Set(manager.monitoredRegions.map(\.identifier)).intersection(identifiers)
         var cache: [String: [LocationPlaceMatch]] = [:]
+        var selected: Set<String> = []
+        var additions: [CLCircularRegion] = []
         for request in desired {
             guard generation == revision, !Task.isCancelled else { return }
-            if registeredRegionIDs.contains(request.identifier) { continue }
+            guard selected.count < Self.maxGeofences else { break }
+            if registeredRegionIDs.contains(request.identifier) {
+                selected.insert(request.identifier)
+                continue
+            }
             let key = request.target.query + request.target.acceptedNames.joined(separator: "|")
             let matches: [LocationPlaceMatch]
             if let existing = cache[key] { matches = existing }
@@ -84,8 +91,19 @@ final class GeofenceCoordinator {
             let region = CLCircularRegion(center: match.coordinate, radius: 200, identifier: request.identifier)
             region.notifyOnEntry = true
             region.notifyOnExit = false
+            selected.insert(request.identifier)
+            additions.append(region)
+        }
+        guard generation == revision, !Task.isCancelled else { return }
+        // Unmatched providers consume no slots. Resolve the priority-ordered plan
+        // before replacing retained zones so monitoring never exceeds twenty.
+        for region in manager.monitoredRegions where !selected.contains(region.identifier) {
+            manager.stopMonitoring(for: region)
+        }
+        registeredRegionIDs = Set(manager.monitoredRegions.map(\.identifier)).intersection(selected)
+        for region in additions {
             manager.startMonitoring(for: region)
-            registeredRegionIDs.insert(request.identifier)
+            registeredRegionIDs.insert(region.identifier)
         }
     }
 
@@ -103,8 +121,13 @@ final class GeofenceCoordinator {
     /// gym/bank account is allowed after a provider was identified.
     func matchVisit(at coordinate: CLLocationCoordinate2D,
                     requests: [LocationRegionRequest]) async -> UUID? {
-        for request in requests.prefix(Self.maxGeofences) {
+        var searched: Set<String> = []
+        // Visit matching consumes no monitored-region slots. Do not discard a
+        // provider just because it falls outside the destination's twenty zones.
+        for request in requests {
             guard !Task.isCancelled else { return nil }
+            let key = request.target.query + request.target.acceptedNames.joined(separator: "|")
+            guard searched.insert(key).inserted else { continue }
             let matches = await searcher.search(target: request.target, near: coordinate, radius: 75)
             if !matches.isEmpty { return request.taskID }
         }

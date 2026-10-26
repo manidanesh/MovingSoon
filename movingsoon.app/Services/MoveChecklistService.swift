@@ -94,7 +94,7 @@ enum MoveChecklistService {
         }
     }
 
-    static func addRelevantTasks(for move: Move, in context: ModelContext) {
+    @discardableResult static func addRelevantTasks(for move: Move, in context: ModelContext) -> Bool {
         let flags = move.lifestyleProfile?.activeFlags ?? []
         for item in ChecklistGenerator.matchingItems(for: move, flags: flags) where !contains(item, in: move) {
             let task = ChecklistGenerator.task(from: item)
@@ -103,7 +103,7 @@ enum MoveChecklistService {
             move.tasks.append(task)
             move.completionCelebratedAt = nil
         }
-        context.saveOrLog()
+        return context.saveOrLog()
     }
 
     /// Keep earlier work when a location changes, but make outdated automatic
@@ -121,25 +121,14 @@ enum MoveChecklistService {
     @discardableResult
     static func addCustom(title: String, family: ReviewFamily, dueDate: Date, note: String,
                           to move: Move, in context: ModelContext) -> ChecklistTask? {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return nil }
-        let offset = Calendar.current.dateComponents([.day],
-            from: Calendar.current.startOfDay(for: move.anchorDate),
-            to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
         let categories: [ReviewFamily: TaskCategory] = [
             .identity: .government, .money: .financial, .home: .utilities,
             .insurance: .insurance, .family: .education, .healthPets: .healthcare,
             .shopping: .subscriptions, .memberships: .other, .travel: .travel, .work: .employer
         ]
-        let task = ChecklistTask(title: title, category: categories[family] ?? .other,
-                                 priority: .medium, tMinusDays: offset, isUserAdded: true)
-        task.customerNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        task.absoluteDueDate = Calendar.current.startOfDay(for: dueDate)
-        task.move = move
-        context.insert(task)
-        move.tasks.append(task)
-        move.completionCelebratedAt = nil
-        context.saveOrLog()
-        return task
+        do {
+            return try CustomTaskService.save(title: title, category: categories[family] ?? .other,
+                dueDate: dueDate, note: note, move: move, context: context)
+        } catch { PersistenceIssueCenter.shared.report(error); return nil }
     }
 }

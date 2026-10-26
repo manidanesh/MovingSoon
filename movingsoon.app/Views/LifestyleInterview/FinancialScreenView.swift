@@ -34,6 +34,13 @@ struct InstitutionPickerGrid: View {
 
     @State private var searchText = ""
     @State private var activeType: InstitutionType = .bank
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumColumnWidth = 150.0
+
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: minimumColumnWidth), spacing: 10)]
+    }
 
     // Only banks currently carry regionStates data, but filtering generically
     // here means any type can opt in later without touching this view.
@@ -70,13 +77,15 @@ struct InstitutionPickerGrid: View {
                                 withAnimation(.easeInOut(duration: 0.2)) { activeType = type }
                             } label: {
                                 Text(type.rawValue)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .themeText(13, weight: .medium)
                                     .foregroundColor(activeType == type ? .white : Theme.textSecondary)
                                     .padding(.horizontal, 14).padding(.vertical, 8)
-                                    .background(activeType == type ? Theme.accentPrimary : Theme.backgroundCard,
+                                    .frame(minHeight: 44)
+                                    .background(activeType == type ? Theme.accentButton : Theme.backgroundCard,
                                                 in: Capsule())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(activeType == type ? .isSelected : [])
                         }
                     }
                     .padding(.horizontal, 20)
@@ -85,7 +94,7 @@ struct InstitutionPickerGrid: View {
 
             // Grid
             let display = displayedInstitutions
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(display) { institution in
                     let isSelected = selectedInstitutions.contains(institution)
                     Button {
@@ -97,10 +106,11 @@ struct InstitutionPickerGrid: View {
                         HStack(spacing: 12) {
                             InstitutionBadgeView(initials: institution.initials,
                                                  colorHex: institution.colorHex, size: 30)
+                                .accessibilityHidden(true)
                             Text(institution.name)
-                                .font(.system(size: 13, weight: .medium, design: .default))
+                                .themeText(13, weight: .medium)
                                 .foregroundColor(isSelected ? .white : Theme.textSecondary)
-                                .lineLimit(2).minimumScaleFactor(0.8)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                             if isSelected {
                                 Circle()
@@ -109,6 +119,7 @@ struct InstitutionPickerGrid: View {
                             }
                         }
                         .padding(.horizontal, 14).padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 16)
                                 .fill(isSelected ? Theme.accentPrimary.opacity(0.1) : Color.clear)
@@ -119,13 +130,15 @@ struct InstitutionPickerGrid: View {
                     }
                     .scaleEffect(isSelected ? 0.98 : 1.0)
                     .buttonStyle(.plain)
+                    .accessibilityLabel(institution.name)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 20)
 
             if !selectedInstitutions.isEmpty {
                 Text("\(selectedInstitutions.count) account\(selectedInstitutions.count == 1 ? "" : "s") selected")
-                    .font(.system(size: 13, weight: .medium))
+                    .themeText(13, weight: .medium)
                     .foregroundColor(Theme.accentPrimary)
                     .padding(.horizontal, 20)
             }

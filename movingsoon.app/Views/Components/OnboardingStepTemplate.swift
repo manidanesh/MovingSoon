@@ -31,17 +31,20 @@ struct OnboardingStepTemplate<Content: View>: View {
                 .frame(height: 3)
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
+                .accessibilityHidden(true)
 
                 // MARK: Back / step counter
                 HStack {
                     if stepNumber > 1 {
                         Button(action: onBack) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 17, weight: .semibold))
+                                .themeText(17, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
+                                .frame(minWidth: 44, minHeight: 44)
                                 .padding(10)
                                 .background(Theme.backgroundElevated, in: Circle())
                         }
+                        .accessibilityLabel("Back")
                     }
                     Spacer()
                     Text("\(stepNumber) of \(totalSteps)")
@@ -56,19 +59,21 @@ struct OnboardingStepTemplate<Content: View>: View {
 
                         // MARK: Icon
                         Text(icon)
-                            .font(.system(size: 44))
+                            .themeText(44, weight: .regular)
                             .padding(.top, 32)
+                            .accessibilityHidden(true)
 
                         // MARK: Title
                         Text(title)
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .themeRounded(30, weight: .bold)
                             .foregroundColor(Theme.textPrimary)
                             .padding(.top, 16)
                             .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityAddTraits(.isHeader)
 
                         // MARK: Subtitle
                         Text(subtitle)
-                            .font(.system(size: 16))
+                            .themeText(16, weight: .regular)
                             .foregroundColor(Theme.textSecondary)
                             .padding(.top, 8)
                             .fixedSize(horizontal: false, vertical: true)
@@ -87,10 +92,10 @@ struct OnboardingStepTemplate<Content: View>: View {
                 Button(action: onNext) {
                     HStack {
                         Text(stepNumber == totalSteps ? "Let's Go →" : "Continue")
-                            .font(.system(size: 17, weight: .semibold))
+                            .themeText(17, weight: .semibold)
                         if stepNumber < totalSteps {
                             Image(systemName: "arrow.right")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                         }
                     }
                     .frame(maxWidth: .infinity)

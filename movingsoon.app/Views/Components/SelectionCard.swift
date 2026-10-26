@@ -16,25 +16,27 @@ struct SelectionCard: View {
             HStack(spacing: 12) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
+                        .themeText(18, weight: .medium)
                         .foregroundColor(isSelected ? .white : Theme.textSecondary)
                         .frame(width: 24)
                 }
                 Text(label)
-                    .font(.system(size: 16, weight: .medium))
+                    .themeText(16, weight: .medium)
                     .foregroundColor(isSelected ? .white : Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.white)
-                        .font(.system(size: 18))
+                        .themeText(18, weight: .regular)
                 }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
+            .frame(minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(isSelected ? Theme.accentPrimary : Theme.backgroundCard)
+                    .fill(isSelected ? Theme.accentButton : Theme.backgroundCard)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
                             .strokeBorder(
@@ -46,5 +48,7 @@ struct SelectionCard: View {
             .animation(.easeInOut(duration: 0.18), value: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

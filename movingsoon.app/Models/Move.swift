@@ -7,6 +7,8 @@ import CoreLocation
 final class Move {
     var id: UUID
     var anchorDate: Date
+    var anchorDateOnly: String?
+    var dateOnlyBackfillTimeZoneIdentifier: String?
     var originZip: String?
     var originNeighborhood: String?         // Geocoder-resolved: e.g. "Silverlake, Los Angeles, CA"
     var destinationZip: String
@@ -34,6 +36,7 @@ final class Move {
     // Location consent — set when user grants 30-day location access
     var locationConsentGrantedAt: Date?
     var locationConsentRequestedAt: Date?
+    var locationConsentStoppedAt: Date?
 
     // Set the first time every task is completed, so the celebration finale
     // (confetti + review prompt) fires once per move, not on every dashboard
@@ -55,10 +58,12 @@ final class Move {
         originLatitude: Double? = nil,
         originLongitude: Double? = nil,
         destinationLatitude: Double? = nil,
-        destinationLongitude: Double? = nil
+        destinationLongitude: Double? = nil,
+        calendar: Calendar = .current
     ) {
         self.id                       = UUID()
         self.anchorDate               = anchorDate
+        self.anchorDateOnly           = DateOnly.string(from: anchorDate, calendar: calendar)
         self.originZip                = originZip
         self.originNeighborhood       = originNeighborhood
         self.destinationZip           = destinationZip
@@ -76,6 +81,39 @@ final class Move {
     }
 
     // MARK: - Computed
+
+    /// Use this property at UI boundaries; keep the legacy instant for store compatibility.
+    var effectiveAnchorDate: Date {
+        get { moveDate() }
+        set { setMoveDate(newValue) }
+    }
+
+    func moveDate(calendar: Calendar = .current) -> Date {
+        DateOnly.resolve(anchorDateOnly, legacy: anchorDate, calendar: calendar) ?? anchorDate
+    }
+
+    func setMoveDate(_ date: Date, calendar: Calendar = .current) {
+        anchorDate = date
+        anchorDateOnly = DateOnly.string(from: date, calendar: calendar)
+    }
+
+    /// Legacy releases never recorded a source timezone. A caller may supply it
+    /// when known; otherwise keep the calendar days currently shown on the device.
+    @discardableResult
+    func backfillDateOnlyValues(calendar: Calendar = .current) -> Bool {
+        var changed = false
+        if DateOnly.date(from: anchorDateOnly, calendar: calendar) == nil {
+            anchorDateOnly = DateOnly.string(from: anchorDate, calendar: calendar)
+            changed = true
+        }
+        for task in tasks {
+            if task.backfillDateOnlyValues(calendar: calendar) { changed = true }
+        }
+        if changed, dateOnlyBackfillTimeZoneIdentifier == nil {
+            dateOnlyBackfillTimeZoneIdentifier = calendar.timeZone.identifier
+        }
+        return changed
+    }
 
     var destinationCoordinate: CLLocationCoordinate2D? {
         guard let lat = destinationLatitude, let lon = destinationLongitude else { return nil }
@@ -150,7 +188,7 @@ final class Move {
 
     var daysUntilMove: Int {
         Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
-                                        to: Calendar.current.startOfDay(for: anchorDate)).day ?? 0
+                                        to: Calendar.current.startOfDay(for: effectiveAnchorDate)).day ?? 0
     }
 
     var completedCount: Int { tasks.filter { $0.status == .completed }.count }
@@ -226,7 +264,7 @@ final class Move {
         let items = grouped.map { category, categoryTasks -> CategoryProgress in
             let completed = categoryTasks.filter { $0.status == .completed }.count
             let nextDueInDays = categoryTasks.filter { $0.status != .completed }
-                .map { $0.daysUntilDue(moveDate: anchorDate) }.min()
+                .map { $0.daysUntilDue(moveDate: effectiveAnchorDate) }.min()
             return CategoryProgress(category: category, completed: completed, total: categoryTasks.count, nextDueInDays: nextDueInDays)
         }
         return items.sorted { lhs, rhs in

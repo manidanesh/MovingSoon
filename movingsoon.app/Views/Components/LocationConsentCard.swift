@@ -73,6 +73,7 @@ struct LocationConsentCard: View {
                 } else {
                     // Denied — prompt to open Settings
                     Button {
+                        onAllow()
                         if let url = URL(string: UIApplication.openSettingsURLString) {
                             UIApplication.shared.open(url)
                         }
@@ -112,6 +113,48 @@ struct LocationConsentCard: View {
                         .strokeBorder(Theme.accentPrimary.opacity(0.25), lineWidth: 1)
                 )
         )
+    }
+}
+
+/// Reviews an expired window without renewing consent or requesting permissions.
+struct LocationConsentRenewalCard: View {
+    let onReview: () -> Void
+    let onDismiss: () -> Void
+    let completionPaused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Nearby reminders paused", systemImage: "location.slash")
+                .font(.headline)
+                .foregroundStyle(Theme.textPrimary)
+            Text("Critical tasks remain on your checklist, and your 30-day location reminder window has ended.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if completionPaused {
+                Text("Nearby alerts also stay paused while your checklist is at least 80% complete.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button(action: onReview) {
+                Text("Review & extend").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.accentPrimary)
+            .foregroundStyle(.black)
+            Button("Not now", action: onDismiss)
+                .buttonStyle(.plain)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .padding(20)
+        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 20))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20)
+                .strokeBorder(Theme.accentPrimary.opacity(0.25), lineWidth: 1)
+        }
     }
 }
 

@@ -3,91 +3,108 @@ import Foundation
 
 enum ZipBucketService {
 
-    /// Returns (stateBucket, cityBucket?) from a 5-digit US zip code or 6-char Canadian postal code.
+    /// Approximate postal region, not address verification or a jurisdiction decision.
+    /// Unassigned prefixes stay unknown; military and Pacific postal regions are explicit.
+    /// Reviewed 2026-10-20 against IRS IRM 3.41.267 ZIP ranges, USPS DMM 608.2,
+    /// USPS Postal Facts and Canada Post's postal-code/delivery-region documentation.
     static func bucket(zip: String) -> (state: String, city: String?) {
-        let cleanZip = zip.replacingOccurrences(of: " ", with: "").uppercased()
-        
-        // 1. Canadian Postal Code Check (e.g., V6B 1A1 -> length 6, first char is letter)
-        if cleanZip.count == 6 && cleanZip.first!.isLetter {
-            let province = canadianProvince(prefix: String(cleanZip.first!))
-            return (province, nil) // We don't have city buckets for Canada yet
-        }
-        
-        // 2. US Zip Code Check
-        guard cleanZip.count >= 5, let prefix = Int(cleanZip.prefix(3)) else {
-            return ("US", nil)
-        }
-
-        let state = stateBucket(prefix: prefix)
-        let city  = cityBucket(zip: String(cleanZip.prefix(5)))
-        return (state, city)
+        let value = PostalCodeService.normalize(zip)
+        guard PostalCodeService.isValid(value) else { return ("US", nil) }
+        if value.count == 6 { return (canadianProvince(postalCode: value), nil) }
+        guard let code = Int(value) else { return ("US", nil) }
+        let state = usRegion(code: code)
+        return (state, cityBucket(zip: value))
     }
 
-    // MARK: - State mapping (3-digit zip prefix → 2-letter state)
-    //
-    // Uses the first 3 digits (not 2) specifically because New England + NJ
-    // interleave multiple states within the same 2-digit prefix (e.g. "02" is
-    // both MA and RI), and because VA/WV and TN/MS each share a 2-digit
-    // prefix boundary (WV = 247-268 inside old "22...24"; MS = 386-399 inside
-    // old "37...38"). 2-digit granularity silently merged those pairs.
-    private static func stateBucket(prefix: Int) -> String {
-        switch prefix {
-        case 10...27:   return "MA"
-        case 28...29:   return "RI"
-        case 30...38:   return "NH"
-        case 39...49:   return "ME"
-        case 50...59:   return "VT"
-        case 60...69:   return "CT"
-        case 70...89:   return "NJ"
+    /// Repairs stale persisted buckets from earlier prefix tables without changing progress.
+    /// The caller saves the context and reconciles task/location rules after a change.
+    @discardableResult
+    static func repairRegionBuckets(for move: Move) -> Bool {
+        let region = bucket(zip: move.destinationZip)
+        guard move.destinationStateBucket != region.state || move.destinationCityBucket != region.city else { return false }
+        move.destinationStateBucket = region.state
+        move.destinationCityBucket = region.city
+        return true
+    }
+
+    private static func usRegion(code: Int) -> String {
+        // Five-digit exceptions precede prefix ranges. ZIPs may cross boundaries;
+        // use the actual address and official agency when determining requirements.
+        switch code {
+        case 501, 544, 6390: return "NY"
+        case 5501, 5544: return "MA"
+        case 96799: return "AS"
+        case 96910, 96912, 96913, 96915, 96916, 96917, 96919,
+             96921, 96923, 96928, 96929, 96931, 96932: return "GU"
+        case 96939, 96940: return "PW"
+        case 96941...96944: return "FM"
+        case 96950...96952: return "MP"
+        case 96960, 96970: return "MH"
+        default: break
+        }
+        switch code / 100 {
+        case 6, 7, 9: return "PR"
+        case 8: return "VI"
+        case 10...27: return "MA"
+        case 28...29: return "RI"
+        case 30...38: return "NH"
+        case 39...49: return "ME"
+        case 50...54, 56...59: return "VT"
+        case 60...69: return "CT"
+        case 70...89: return "NJ"
+        case 90...98: return "AE"
         case 100...149: return "NY"
-        case 150...199: return "PA"
-        case 200...209: return "DC"
-        case 210...219: return "MD"
-        case 220...246: return "VA"
+        case 150...196: return "PA"
+        case 197...199: return "DE"
+        case 200, 202...205: return "DC"
+        case 201, 220...246: return "VA"
+        case 206...219: return "MD"
         case 247...268: return "WV"
         case 270...289: return "NC"
         case 290...299: return "SC"
-        case 300...319: return "GA"
-        case 320...349: return "FL"
+        case 300...319, 398...399: return "GA"
+        case 320...339, 341...342, 344, 346...347, 349: return "FL"
+        case 340: return "AA"
         case 350...369: return "AL"
         case 370...385: return "TN"
-        case 386...399: return "MS"
-        case 400...429: return "KY"
+        case 386...397: return "MS"
+        case 400...427: return "KY"
         case 430...459: return "OH"
         case 460...479: return "IN"
         case 480...499: return "MI"
-        case 500...529: return "IA"
+        case 500...528: return "IA"
         case 530...549: return "WI"
-        case 550...569: return "MN"
-        case 570...579: return "SD"
-        case 580...589: return "ND"
+        case 550...567: return "MN"
+        case 570...577: return "SD"
+        case 580...588: return "ND"
         case 590...599: return "MT"
         case 600...629: return "IL"
-        case 630...659: return "MO"
+        case 630...658: return "MO"
         case 660...679: return "KS"
-        case 680...699: return "NE"
-        case 700...719: return "LA"
-        case 720...729: return "AR"
-        case 730...749: return "OK"
-        case 750...799: return "TX"
-        case 800...819: return "CO"
-        case 820...829: return "WY"
-        case 830...839: return "ID"
-        case 840...849: return "UT"
-        case 850...869: return "AZ"
-        case 870...889: return "NM"
-        case 890...899: return "NV"
-        case 900...969: return "CA"
+        case 680...693: return "NE"
+        case 700...714: return "LA"
+        case 716...729: return "AR"
+        case 730...732, 734...749: return "OK"
+        case 733, 750...799, 885: return "TX"
+        case 800...816: return "CO"
+        case 820...831: return "WY"
+        case 832...838: return "ID"
+        case 840...847: return "UT"
+        case 850...865: return "AZ"
+        case 870...884: return "NM"
+        case 889...898: return "NV"
+        case 900...908, 910...961: return "CA"
+        case 962...966: return "AP"
+        case 967...968: return "HI"
         case 970...979: return "OR"
-        case 980...999: return "WA"
-        default:        return "US"
+        case 980...986, 988...994: return "WA"
+        case 995...999: return "AK"
+        default: return "US"
         }
     }
 
-    // MARK: - Canadian Province mapping (first letter → 2-letter province)
-
-    private static func canadianProvince(prefix: String) -> String {
-        switch prefix {
+    private static func canadianProvince(postalCode: String) -> String {
+        switch postalCode.first {
         case "A": return "NL"
         case "B": return "NS"
         case "C": return "PE"
@@ -98,9 +115,11 @@ enum ZipBucketService {
         case "S": return "SK"
         case "T": return "AB"
         case "V": return "BC"
-        case "X": return "NT" // NT / NU
+        case "X":
+            if ["X0A", "X0B", "X0C"].contains(String(postalCode.prefix(3))) { return "NU" }
+            return "NT"
         case "Y": return "YT"
-        default: return "CA"  // Generic Canada
+        default: return "CA"
         }
     }
 

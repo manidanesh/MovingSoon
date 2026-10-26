@@ -9,12 +9,10 @@ struct ZenDashboardView: View {
     let move: Move
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showingMailComposer = false
     @State private var selectedAgenticTask: ChecklistTask?
 
-    // Unsplash Integration
-    @State private var unsplashService = UnsplashService()
-    @State private var ambientImageURL: URL?
 
     // Aggregate Census context for the entered postal areas. This is distinct from
     // the user's self-reported LifestyleProfile and is never used as a household fact.
@@ -28,6 +26,7 @@ struct ZenDashboardView: View {
     @State private var locationManager = LocationManager.shared
     @State private var consentCardDismissed = false
     @State private var alwaysUpgradeCardDismissed = false
+    @State private var dismissedRenewalWindow: String?
 
     // Notification tap routing — see NotificationRouter for why this can't be handled
     // directly by NotificationDelegate.
@@ -49,6 +48,11 @@ struct ZenDashboardView: View {
     }
     @State private var allTasksSheetContext: AllTasksSheetContext? = nil
     @State private var showingEditMove = false
+    @State private var showingReminders = false
+    #if DEBUG
+    @State private var screenshotCatalogItem: CatalogItem?
+    @State private var screenshotLibrary = false
+    #endif
     @State private var showingAddMoreServices = false
 
     // Reminders
@@ -81,6 +85,24 @@ struct ZenDashboardView: View {
             status: locationManager.authorizationStatus, dismissed: alwaysUpgradeCardDismissed)
     }
 
+    private var renewalWindowID: String {
+        "\(move.id.uuidString)|\(move.locationConsentGrantedAt?.timeIntervalSince1970 ?? 0)"
+    }
+
+    private var locationConsentRenewalPrompt: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            if ReminderPolicy.shouldOfferConsentRenewal(for: move, now: context.date),
+               dismissedRenewalWindow != renewalWindowID {
+                LocationConsentRenewalCard(
+                    onReview: { showingReminders = true },
+                    onDismiss: { dismissedRenewalWindow = renewalWindowID },
+                    completionPaused: move.completionFraction >= 0.80
+                )
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
     private var locationReminderStatus: String {
         if !locationManager.consentActive { return "30-day location reminders have ended" }
         if !locationManager.backgroundRemindersEnabled { return "Finish location setup below" }
@@ -98,13 +120,13 @@ struct ZenDashboardView: View {
                 !sessionSkippedTaskIDs.contains($0.id) &&
                 ($0.snoozedUntil == nil || $0.snoozedUntil! < now)
             }
-            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
+            .sorted { $0.isDueBefore($1, moveDate: move.effectiveAnchorDate) }
     }
 
     private var heroTask: ChecklistTask? {
         guard let earliest = pendingTasks.first else { return nil }
         guard let preferred = pendingTasks.first(where: { $0.isHeroItem }) else { return earliest }
-        return earliest.dueDate(moveDate: move.anchorDate) < preferred.dueDate(moveDate: move.anchorDate)
+        return earliest.dueDate(moveDate: move.effectiveAnchorDate) < preferred.dueDate(moveDate: move.effectiveAnchorDate)
             ? earliest : preferred
     }
 
@@ -120,7 +142,7 @@ struct ZenDashboardView: View {
         let today = Calendar.current.startOfDay(for: Date())
         return move.tasks.filter { task in
             guard task.status == .toDo else { return false }
-            let due = task.dueDate(moveDate: move.anchorDate, calendar: Calendar.current)
+            let due = task.dueDate(moveDate: move.effectiveAnchorDate, calendar: Calendar.current)
             return Calendar.current.startOfDay(for: due) < today
         }.count
     }
@@ -131,7 +153,7 @@ struct ZenDashboardView: View {
         guard let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: today) else { return 0 }
         return move.tasks.filter { task in
             guard task.status == .toDo else { return false }
-            let due = task.dueDate(moveDate: move.anchorDate, calendar: Calendar.current)
+            let due = task.dueDate(moveDate: move.effectiveAnchorDate, calendar: Calendar.current)
             let dueDay = Calendar.current.startOfDay(for: due)
             return dueDay >= today && dueDay <= weekEnd
         }.count
@@ -230,9 +252,10 @@ struct ZenDashboardView: View {
         let task = ChecklistTask(title: title, category: .other, priority: .medium,
                                  tMinusDays: -14, isUserAdded: true)
         task.move = move
+        task.setCustomDueDate(task.baseDueDate(moveDate: move.effectiveAnchorDate))
         modelContext.insert(task)
         move.tasks.append(task)
-        modelContext.saveOrLog()
+        guard modelContext.saveOrLog() else { return }
         reminderService.reschedule(for: move)
         moveFitTaskAdded = true
     }
@@ -359,7 +382,7 @@ struct ZenDashboardView: View {
         .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
     }
 
-    var body: some View {
+    private var dashboardContent: some View {
         GeometryReader { geo in
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 40) {
@@ -376,8 +399,7 @@ struct ZenDashboardView: View {
                             Text(dashboardTitle)
                                 .themeSerif(28, weight: .bold)
                                 .foregroundColor(Theme.textPrimary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
+                                .fixedSize(horizontal: false, vertical: true)
 
                             // City/state subtitle when neighbourhood is set (#12)
                             if let subtitle = dashboardSubtitle {
@@ -395,7 +417,7 @@ struct ZenDashboardView: View {
                                     Text(route)
                                         .themeText(11, weight: .medium)
                                         .foregroundColor(Theme.textTertiary)
-                                        .lineLimit(1)
+                                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                                         .truncationMode(.middle)
                                 }
                                 .padding(.horizontal, 8)
@@ -468,7 +490,8 @@ struct ZenDashboardView: View {
                         }
                         Spacer()
 
-                        // Sleek Momentum Ring
+                        // Text elsewhere carries the progress at accessibility sizes.
+                        if !typeSize.isAccessibilitySize {
                         ZStack {
                             Circle()
                                 .stroke(Theme.backgroundElevated, lineWidth: 4)
@@ -482,13 +505,16 @@ struct ZenDashboardView: View {
                                 .foregroundColor(Theme.textPrimary)
                         }
                         .frame(width: 50, height: 50)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(move.completedCount) of \(move.totalCount) tasks completed")
+                        }
 
                         // Settings button
                         Button { showingEditMove = true } label: {
                             Image(systemName: "slider.horizontal.3")
-                                .themeText(16, weight: .medium)
+                                .font(.system(size: 20, weight: .medium))
                                 .foregroundColor(Theme.textSecondary)
-                                .frame(width: 36, height: 36)
+                                .frame(width: 44, height: 44)
                                 .background(Theme.backgroundElevated, in: Circle())
                         }
                         .buttonStyle(.plain)
@@ -497,6 +523,11 @@ struct ZenDashboardView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
 
+                    Button { showingReminders = true } label: {
+                        Label("Reminders", systemImage: "bell")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24)
+                    }
                     nextActionSection
 
                     if move.tasks.contains(where: { $0.needsLocationReview == true && $0.status != .completed }) {
@@ -541,7 +572,7 @@ struct ZenDashboardView: View {
                                         .padding(.horizontal, 24)
 
                                     LazyVGrid(
-                                        columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+                                        columns: Array(repeating: GridItem(.flexible()), count: typeSize.isAccessibilitySize ? 1 : 3),
                                         spacing: 18
                                     ) {
                                         ForEach(group.items) { progress in
@@ -579,6 +610,8 @@ struct ZenDashboardView: View {
                         .padding(.horizontal, 20)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
+
+                    locationConsentRenewalPrompt
 
                     // MARK: Location Reminders Visibility
                     // Previously a fully silent background system — consent granted or
@@ -686,19 +719,6 @@ struct ZenDashboardView: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
 
-                    if let url = ambientImageURL {
-                        AsyncImage(url: url) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: geo.size.width, height: geo.size.height)
-                                    .clipped()
-                                    .transition(.opacity.animation(.easeInOut(duration: 1.0)))
-                            }
-                        }
-                    }
-
                     LinearGradient(
                         colors: [Theme.backgroundPrimary.opacity(0.85), Theme.backgroundPrimary],
                         startPoint: .top,
@@ -708,9 +728,12 @@ struct ZenDashboardView: View {
                 .ignoresSafeArea()
             }
         }
+    }
+
+    private var dashboardSheets: some View {
+        dashboardContent
         .ignoresSafeArea(edges: .bottom)
-        .dynamicTypeSize(...(.accessibility1))
-        .sheet(isPresented: $showingMailComposer) {
+        .sheet(isPresented: $showingMailComposer, onDismiss: resumePendingReminderRoute) {
             if let task = selectedAgenticTask {
                 MailComposeView(
                     toRecipients: [],
@@ -720,7 +743,11 @@ struct ZenDashboardView: View {
                 )
             }
         }
-        .sheet(item: $allTasksSheetContext, onDismiss: resyncNotificationsAndGeofences) { context in
+        #if DEBUG
+        .sheet(item: $screenshotCatalogItem, onDismiss: resumePendingReminderRoute) { item in ServiceAccountsView(move: move, item: item) }
+        .sheet(isPresented: $screenshotLibrary, onDismiss: resumePendingReminderRoute) { MoveLibraryView() }
+        #endif
+        .sheet(item: $allTasksSheetContext, onDismiss: resyncAfterDashboardSheet) { context in
             NavigationStack {
                 DashboardView(
                     move: move,
@@ -738,15 +765,23 @@ struct ZenDashboardView: View {
             }
             .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showingEditMove, onDismiss: resyncNotificationsAndGeofences) {
+        .sheet(isPresented: $showingReminders, onDismiss: presentPendingNotificationTaskIfNeeded) {
+            NavigationStack {
+                ReminderControlsView(move: move)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingReminders = false }
+                    } }
+            }
+        }
+        .sheet(isPresented: $showingEditMove, onDismiss: resyncAfterDashboardSheet) {
             EditMoveView(move: move)
                 .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showingAddMoreServices, onDismiss: resyncNotificationsAndGeofences) {
+        .sheet(isPresented: $showingAddMoreServices, onDismiss: resyncAfterDashboardSheet) {
             AddMoreServicesView(move: move, area: areaMarketComparison)
                 .preferredColorScheme(.dark)
         }
-        .sheet(item: $notificationActionTask) { task in
+        .sheet(item: $notificationActionTask, onDismiss: resumePendingReminderRoute) { task in
             TaskActionSheet(
                 task: task,
                 onAlreadyDone: {
@@ -754,7 +789,7 @@ struct ZenDashboardView: View {
                     notificationActionTask = nil
                 },
                 onUpdateNow: {
-                    if let url = task.deepLinkURL {
+                    if let url = task.actionURL {
                         UIApplication.shared.open(url)
                     }
                     notificationActionTask = nil
@@ -765,11 +800,15 @@ struct ZenDashboardView: View {
                     notificationActionTask = nil
                 }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var dashboardOverlays: some View {
+        dashboardSheets
         .overlay {
             // #2 — Undo toast
             VStack {
@@ -868,10 +907,14 @@ struct ZenDashboardView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    var body: some View {
+        dashboardOverlays
         .onChange(of: move.allTasksCompleted) { _, allDone in
             guard allDone, move.completionCelebratedAt == nil else { return }
             move.completionCelebratedAt = Date()
-            modelContext.saveOrLog()
+            guard modelContext.saveOrLog() else { return }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                 showingCompletionCelebration = true
             }
@@ -881,7 +924,7 @@ struct ZenDashboardView: View {
         }
         .task {
             MoveChecklistService.backfillCatalogIDs(for: move)
-            modelContext.saveOrLog()
+            guard modelContext.saveOrLog() else { return }
             locationManager.attach(move, context: modelContext)
             locationManager.startForegroundUpdates()
             // Ask for notification permission here, contextually — once the user has reached
@@ -889,16 +932,32 @@ struct ZenDashboardView: View {
             // at cold launch before onboarding, where there's no reason yet to say yes.
             // TEMPORARY: skipped during screenshot seeding so the system prompt doesn't
             // cover the dashboard in captures. Remove alongside the other seed-flag checks.
+            #if DEBUG
             if ProcessInfo.processInfo.environment["SEED_SCREENSHOT_DATA"] != "1" {
                 reminderService.requestPermissions()
             }
+            #else
+            reminderService.requestPermissions()
+            #endif
             reminderService.reschedule(for: move)
             // Covers a cold launch triggered by tapping a notification — the router's
             // value was set before this view existed, so onChange below wouldn't fire.
-            presentPendingNotificationTaskIfNeeded()
-            if ambientImageURL == nil {
-                ambientImageURL = await unsplashService.fetchAmbientBackgroundURL(for: move.destinationZip, cityBucket: move.destinationCityBucket)
+            if !presentPendingRemindersIfNeeded() {
+                presentPendingNotificationTaskIfNeeded()
             }
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["SEED_SCREENSHOT_DATA"] == "1" {
+                switch ProcessInfo.processInfo.environment["SCREENSHOT_SCREEN"] {
+                case "task": notificationActionTask = move.tasks.first { $0.catalogItemID == "wine_club" }
+                case "reminders": showingReminders = true
+                case "accounts": screenshotCatalogItem = ItemCatalog.byID["wine_club"]
+                case "settings": showingEditMove = true
+                case "services": showingAddMoreServices = true
+                case "library": screenshotLibrary = true
+                default: break
+                }
+            }
+            #endif
         }
         .task(id: "\(move.originZip ?? "")|\(move.destinationZip)|\(move.areaInsightsEnabled == true)|\(areaRefreshID)") {
             await loadAreaMarketComparison(refresh: areaRefreshID > 0)
@@ -909,6 +968,9 @@ struct ZenDashboardView: View {
         .onChange(of: notificationRouter.pendingTaskID) { _, _ in
             presentPendingNotificationTaskIfNeeded()
         }
+        .onChange(of: notificationRouter.pendingRemindersMoveID) { _, _ in
+            presentPendingRemindersIfNeeded()
+        }
         .onChange(of: scenePhase) { _, newPhase in
             // Stop continuous GPS the moment the app leaves the foreground — geofence
             // entries still fire via region monitoring while backgrounded/suspended.
@@ -916,6 +978,7 @@ struct ZenDashboardView: View {
                 resyncNotificationsAndGeofences()
                 reminderService.refreshPermissions()
                 locationManager.startForegroundUpdates()
+                presentPendingRemindersIfNeeded()
             } else {
                 locationManager.stopForegroundUpdates()
             }
@@ -933,15 +996,8 @@ struct ZenDashboardView: View {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 
-        withAnimation {
-            task.advanceStatus()
-            if task.status == .pendingVerification {
-                task.advanceStatus()
-            }
-            modelContext.saveOrLog()
-            locationManager.taskStatusDidChange(task)
-        }
-        resyncNotificationsAndGeofences()
+        guard ChecklistActions.complete(task, in: modelContext) else { return }
+        locationManager.taskStatusDidChange(task)
 
         // Show undo toast for 4 seconds
         lastCompletedTask = task
@@ -956,11 +1012,7 @@ struct ZenDashboardView: View {
         guard let task = lastCompletedTask else { return }
         undoTimer?.invalidate()
         withAnimation(.spring(response: 0.4)) { undoVisible = false }
-        withAnimation {
-            task.resetStatus()
-            move.completionCelebratedAt = nil
-            modelContext.saveOrLog()
-        }
+        guard ChecklistActions.reopen(task, in: modelContext) else { return }
         lastCompletedTask = nil
         resyncNotificationsAndGeofences()
     }
@@ -969,11 +1021,9 @@ struct ZenDashboardView: View {
     private func skipTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        withAnimation {
+        ChecklistActions.perform(in: modelContext, move: move) {
             task.snoozedUntil = Calendar.current.date(byAdding: .day, value: 3, to: Date())
-            modelContext.saveOrLog()
         }
-        resyncNotificationsAndGeofences()
     }
 
     /// A real deletion, not a status change — the task is gone from move.tasks
@@ -994,12 +1044,10 @@ struct ZenDashboardView: View {
         lastRemovedResponse = MoveChecklistService.catalogID(for: task).flatMap { move.serviceResponses[$0] }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        MoveChecklistService.recordDismissal(task, for: move)
-        withAnimation {
+        guard ChecklistActions.perform(in: modelContext, move: move, mutation: {
+            MoveChecklistService.recordDismissal(task, for: move)
             move.tasks.removeAll { $0.id == task.id }
-            modelContext.saveOrLog()
-        }
-        resyncNotificationsAndGeofences()
+        }) else { return }
 
         lastRemovedTask = task
         withAnimation(.spring(response: 0.4)) { removeUndoVisible = true }
@@ -1018,23 +1066,22 @@ struct ZenDashboardView: View {
         guard let task = lastRemovedTask else { return }
         removeUndoTimer?.invalidate()
         withAnimation(.spring(response: 0.4)) { removeUndoVisible = false }
-        withAnimation {
+        guard ChecklistActions.perform(in: modelContext, move: move, mutation: {
             move.tasks.append(task)
             if let id = MoveChecklistService.catalogID(for: task) {
                 var responses = move.serviceResponses
                 responses[id] = lastRemovedResponse
                 move.serviceResponses = responses
             }
-            modelContext.saveOrLog()
-        }
-        resyncNotificationsAndGeofences()
+        }) else { return }
         lastRemovedTask = nil
         lastRemovedResponse = nil
     }
 
     private func resyncNotificationsAndGeofences() {
-        reminderService.reschedule(for: move)
-        locationManager.attach(move, context: modelContext)
+        let active = move.phase == .active ? move : nil
+        reminderService.reschedule(for: active)
+        locationManager.attach(active, context: modelContext)
     }
 
     private func requestAppStoreReviewIfAppropriate() {
@@ -1046,16 +1093,46 @@ struct ZenDashboardView: View {
     /// Consumes a task ID dropped by NotificationRouter (from a tapped notification)
     /// and presents the same TaskActionSheet used for in-dashboard taps.
     private func presentPendingNotificationTaskIfNeeded() {
+        guard !showingReminders else { return }
         guard let taskID = notificationRouter.pendingTaskID else { return }
         notificationRouter.pendingTaskID = nil
         notificationActionTask = move.tasks.first(where: { $0.id == taskID })
+    }
+
+    /// Only the matching active move may handle a renewal notification. Reviewing
+    /// an expired window never opts in or activates a saved move.
+    @discardableResult
+    private func presentPendingRemindersIfNeeded() -> Bool {
+        guard notificationRouter.pendingRemindersMoveID == move.id else { return false }
+        guard ReminderPolicy.shouldOfferConsentRenewal(for: move) else {
+            notificationRouter.pendingRemindersMoveID = nil
+            return false
+        }
+        // Leave the route queued until the current sheet's dismissal completes.
+        guard !showingMailComposer, allTasksSheetContext == nil, !showingEditMove,
+              !showingAddMoreServices, notificationActionTask == nil else { return true }
+        #if DEBUG
+        guard screenshotCatalogItem == nil, !screenshotLibrary else { return true }
+        #endif
+        notificationRouter.pendingRemindersMoveID = nil
+        showingReminders = true
+        return true
+    }
+
+    private func resumePendingReminderRoute() {
+        presentPendingRemindersIfNeeded()
+    }
+
+    private func resyncAfterDashboardSheet() {
+        resyncNotificationsAndGeofences()
+        resumePendingReminderRoute()
     }
 
     private func triggerAgenticAction(for task: ChecklistTask) {
         // Only open mail composer if the device can send mail
         guard MFMailComposeViewController.canSendMail() else {
             // Fallback: open the task's deep link directly if available
-            if let url = task.deepLinkURL {
+            if let url = task.actionURL {
                 UIApplication.shared.open(url)
             }
             return
@@ -1067,1593 +1144,16 @@ struct ZenDashboardView: View {
     private func snoozeContextualTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        withAnimation {
+        if ChecklistActions.perform(in: modelContext, move: move, mutation: {
             task.snoozedUntil = Date().addingTimeInterval(86400)
-            modelContext.saveOrLog()
-            locationManager.activeContextualTask = nil
-        }
-        resyncNotificationsAndGeofences()
+        }) { locationManager.activeContextualTask = nil }
     }
 
     private func muteContextualTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        withAnimation {
+        if ChecklistActions.perform(in: modelContext, move: move, mutation: {
             task.isMuted = true
-            modelContext.saveOrLog()
-            locationManager.activeContextualTask = nil
-            locationManager.taskStatusDidChange(task)
-        }
-        resyncNotificationsAndGeofences()
-    }
-}
-
-private struct MoveFitHousingCard: View {
-    let measure: MoveFitHousingMeasure
-    let homeValueMeasure: MoveFitHousingMeasure?
-    let originLabel: String
-    let destinationLabel: String
-    let taskAdded: Bool
-    let onAddBudgetCheck: () -> Void
-
-    private func amount(_ value: Double) -> String {
-        value.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-    }
-
-    private var interpretation: String {
-        switch measure.direction {
-        case .destinationHigher:
-            return "The destination area's median is about \(measure.differencePercent)% higher."
-        case .destinationLower:
-            return "The destination area's median is about \(measure.differencePercent)% lower."
-        case .noClearDifference:
-            return "Current estimates don’t show a clear difference between these areas."
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "house.fill")
-                    .foregroundColor(Theme.accentPrimary)
-                Text("HOUSING COST CONTEXT")
-                    .themeText(11, weight: .bold)
-                    .foregroundColor(Theme.textPrimary)
-                Spacer()
-                Text("MOVE FIT")
-                    .themeText(9, weight: .bold)
-                    .foregroundColor(Theme.textTertiary)
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                valueColumn(originLabel, amount(measure.originValue))
-                valueColumn(destinationLabel, amount(measure.destinationValue))
-            }
-            Text(interpretation)
-                .themeText(12, weight: .semibold)
-                .foregroundColor(Theme.textPrimary)
-            if let homeValueMeasure {
-                HStack(alignment: .top, spacing: 4) {
-                    Text("Home value context:")
-                        .themeText(10, weight: .semibold)
-                        .foregroundColor(Theme.textSecondary)
-                    Text("\(amount(homeValueMeasure.originValue)) → \(amount(homeValueMeasure.destinationValue)) · \(homeValueInterpretation(homeValueMeasure))")
-                        .themeText(10, weight: .regular)
-                        .foregroundColor(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Text("\(measure.title) is a ZIP-area estimate, not your rent, mortgage, or a quote. Directional comparisons account for Census margins of error; area data can’t determine whether a move is an upgrade.")
-                .themeText(10, weight: .regular)
-                .foregroundColor(Theme.textTertiary)
-
-            Button(action: onAddBudgetCheck) {
-                HStack(spacing: 6) {
-                    Image(systemName: taskAdded ? "checkmark.circle.fill" : "plus.circle.fill")
-                    Text(taskAdded ? "Added to your checklist" : "Add a personal budget check")
-                }
-                .themeText(11, weight: .semibold)
-                .foregroundColor(taskAdded ? Theme.textSecondary : Theme.accentPrimary)
-            }
-            .buttonStyle(.plain)
-            .disabled(taskAdded)
-            .accessibilityHint("Adds a checklist task only when you choose this button")
-            Text("2020–2024 US Census ACS · ZIP-area estimates")
-                .themeText(9, weight: .medium)
-                .foregroundColor(Theme.textTertiary)
-        }
-        .padding(16)
-        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.backgroundElevated, lineWidth: 1))
-    }
-
-    private func valueColumn(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label).themeText(10, weight: .medium).foregroundColor(Theme.textTertiary)
-            Text(value).themeText(16, weight: .semibold).foregroundColor(Theme.textPrimary)
-            Text("per month").themeText(9, weight: .regular).foregroundColor(Theme.textTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func homeValueInterpretation(_ value: MoveFitHousingMeasure) -> String {
-        switch value.direction {
-        case .destinationHigher: return "destination median about \(value.differencePercent)% higher"
-        case .destinationLower: return "destination median about \(value.differencePercent)% lower"
-        case .noClearDifference: return "no clear difference in estimates"
-        }
-    }
-}
-
-private struct AreaMarketUnavailableCard: View {
-    let message: String
-    let canRetry: Bool
-    let onRetry: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "chart.bar.xaxis")
-                .foregroundColor(Theme.textTertiary)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Area comparison unavailable")
-                    .themeText(12, weight: .semibold)
-                    .foregroundColor(Theme.textPrimary)
-                Text(message)
-                    .themeText(10, weight: .regular)
-                    .foregroundColor(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if canRetry {
-                    Button("Try again", action: onRetry)
-                        .themeText(10, weight: .semibold)
-                        .foregroundColor(Theme.accentPrimary)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 14))
-    }
-}
-
-private struct AreaMarketSnapshotCard: View {
-    let comparison: AreaMarketComparison
-    let originLabel: String
-    let destinationLabel: String
-    let originWasProvided: Bool
-
-    private var origin: AreaMarketProfile? { comparison.origin }
-    private var destination: AreaMarketProfile { comparison.destination }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "chart.bar.xaxis")
-                    .foregroundColor(Theme.accentPrimary)
-                Text("AREA SNAPSHOT")
-                    .themeText(11, weight: .bold)
-                    .foregroundColor(Theme.textPrimary)
-                Spacer()
-                Text("CENSUS ESTIMATES")
-                    .themeText(9, weight: .bold)
-                    .foregroundColor(Theme.textTertiary)
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                if let origin {
-                    areaColumn(label: originLabel, profile: origin)
-                    areaColumn(label: destinationLabel, profile: destination)
-                } else {
-                    areaColumn(label: destinationLabel, profile: destination)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(originWasProvided
-                             ? "Origin area estimate unavailable"
-                             : "Add an origin ZIP in Move settings")
-                            .themeText(11, weight: .medium)
-                            .foregroundColor(Theme.textSecondary)
-                        Text(originWasProvided
-                             ? "for this postal code"
-                             : "to compare areas")
-                            .themeText(10, weight: .regular)
-                            .foregroundColor(Theme.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
-                }
-            }
-
-            Text("Area averages describe the ZIP area, not your household income or which services you use. Estimates can be uncertain.")
-                .themeText(10, weight: .regular)
-                .foregroundColor(Theme.textTertiary)
-            Text("\(destination.vintage) · Retrieved \(destination.retrievedAt.formatted(date: .abbreviated, time: .omitted))")
-                .themeText(9, weight: .medium)
-                .foregroundColor(Theme.textTertiary)
-        }
-        .padding(16)
-        .background(Theme.backgroundCard, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.backgroundElevated, lineWidth: 1))
-    }
-
-    @ViewBuilder
-    private func areaColumn(label: String, profile: AreaMarketProfile) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(label)
-                .themeText(10, weight: .semibold)
-                .foregroundColor(Theme.textSecondary)
-                .lineLimit(1)
-            metric("Median income", value: profile.medianHouseholdIncome.formatted(.currency(code: "USD").precision(.fractionLength(0))))
-            metric("Avg. household", value: profile.averageHouseholdSize.formatted(.number.precision(.fractionLength(1))))
-            if let largerFamilies = profile.familyHouseholdsWithThreeOrMorePercent {
-                metric("Family HH 3+", value: "\(largerFamilies.formatted(.number.precision(.fractionLength(0))))%")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func metric(_ title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(title)
-                .themeText(9, weight: .regular)
-                .foregroundColor(Theme.textTertiary)
-                .lineLimit(1)
-            Spacer(minLength: 2)
-            Text(value)
-                .themeText(11, weight: .semibold)
-                .foregroundColor(Theme.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-    }
-}
-
-// MARK: - Category Tier Header
-//
-// One header per urgency tier (Overdue / Due Soon / On Track), colored to match
-// the tier's severity. This is where urgency lives now — the tiles beneath it
-// carry category identity only, never severity, so the two signals never fight
-// for the same pixel.
-struct CategoryTierHeader: View {
-    let tier: CategoryUrgencyTier
-    let count: Int
-
-    private var color: Color {
-        switch tier {
-        case .overdue: return Theme.priorityCritical
-        case .dueSoon: return Theme.accentWarning
-        case .onTrack: return Theme.accentSuccess
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(tier.rawValue)
-                .themeText(12, weight: .bold)
-                .foregroundColor(color)
-                .textCase(.uppercase)
-                .tracking(1.2)
-            Text("\(count)")
-                .themeText(12, weight: .semibold)
-                .foregroundColor(color.opacity(0.7))
-            Rectangle()
-                .fill(color.opacity(0.25))
-                .frame(height: 1)
-        }
-    }
-}
-
-// MARK: - Category Icon Tile
-//
-// iOS Home Screen icon convention, applied to categories: a fixed-color squircle
-// per category (TaskCategory.iconGradient) with an SF Symbol glyph, a soft top
-// highlight sheen like a real app icon, and a red count badge in the corner that
-// disappears entirely once nothing's left — the same "no badge = nothing
-// outstanding" signal every iPhone user already reads from their Home Screen.
-// No card container: tiles float on the dashboard background the way Home
-// Screen icons float on wallpaper, which is most of what makes this read as
-// smaller/lighter than the old card grid despite the icon itself being bigger.
-struct CategoryIconTile: View {
-    let progress: CategoryProgress
-
-    private var remaining: Int { progress.total - progress.completed }
-    private var gradient: (top: Color, bottom: Color) { progress.category.iconGradient }
-
-    var body: some View {
-        VStack(spacing: 7) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(LinearGradient(colors: [gradient.top, gradient.bottom], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 58, height: 58)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.28), Color.white.opacity(0)],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            )
-                    )
-                    .overlay(
-                        Image(systemName: progress.category.icon)
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(.white)
-                    )
-                    .shadow(color: gradient.bottom.opacity(0.35), radius: 6, x: 0, y: 3)
-
-                if remaining > 0 {
-                    Text("\(remaining)")
-                        .themeText(11, weight: .bold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, remaining > 9 ? 5 : 0)
-                        .frame(minWidth: 20, minHeight: 20)
-                        .background(Theme.priorityCritical, in: Circle())
-                        .overlay(Circle().stroke(Theme.backgroundPrimary, lineWidth: 2))
-                        .offset(x: 8, y: -8)
-                }
-            }
-
-            Text(progress.category.rawValue)
-                .themeText(12.5, weight: .semibold)
-                .foregroundColor(Theme.textPrimary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-// MARK: - Zen Hero Card
-struct ZenHeroCard: View {
-    let task: ChecklistTask
-    let onComplete: () -> Void
-    let onAgenticAction: () -> Void
-    let onSkip: () -> Void
-    /// Permanently removes the task — see TaskActionSheet's onNotApplicable for
-    /// why catalog tasks (Mathnasium, Goldfish Swim School, etc.) need this: a
-    /// broad lifestyle flag can put an irrelevant task in front of any user, and
-    /// once one lands here as the most urgent thing, it needs a real way out.
-    let onNotApplicable: () -> Void
-
-    @State private var showingRemoveConfirm = false
-
-    /// Human-readable label for the effective address-review deadline.
-    private var dueDateLabel: String? {
-        guard let move = task.move else { return nil }
-        let daysLeft = task.daysUntilDue(moveDate: move.anchorDate)
-        if daysLeft > 1  { return "Due in \(daysLeft) days" }
-        if daysLeft == 1 { return "Due tomorrow" }
-        if daysLeft == 0 { return "Due today" }
-        return "Overdue"
-    }
-
-    private var isOverdue: Bool {
-        guard let move = task.move else { return false }
-        return task.daysUntilDue(moveDate: move.anchorDate) < 0
-    }
-
-    /// Per-category question label (#9)
-    private var heroQuestionLabel: String {
-        if task.needsLocationReview == true { return "Check whether this still applies after your location change" }
-        if task.moveAction != .updateAddress { return task.moveAction.title }
-        if task.isUserAdded { return "Your reminder" }
-        if task.isHeroItem { return "First thing — set up your mail forwarding with" }
-        if task.institutionName != nil {
-            return "Have you updated your address with"
-        }
-        switch task.category {
-        case .government:   return "Have you notified"
-        case .utilities:    return "Have you updated your address with"
-        case .healthcare:   return "Have you updated your records with"
-        case .insurance:    return "Have you updated your policy address with"
-        case .employer:     return "Have you updated your HR records at"
-        case .subscriptions: return "Have you updated your billing address with"
-        case .legal:        return "Have you filed your change of address with"
-        case .education:    return "Have you updated your records with"
-        default:            return "Have you updated your address with"
-        }
-    }
-
-    var body: some View {
-        ZStack {
-            let gradientColor = task.priority == .critical ? Theme.priorityCritical.opacity(0.15) : Theme.accentPrimary.opacity(0.08)
-
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [gradientColor, Theme.backgroundCard],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                )
-
-            VStack(alignment: .leading, spacing: 20) {
-
-                // MARK: Question + title
-                VStack(alignment: .leading, spacing: 12) {
-                    // Due date + agentic badge row
-                    HStack(spacing: 8) {
-                        if let label = dueDateLabel {
-                            Text(label)
-                                .themeText(11, weight: .semibold)
-                                .foregroundColor(isOverdue ? Theme.priorityCritical : Theme.textTertiary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background((isOverdue ? Theme.priorityCritical : Color.white).opacity(0.08))
-                                .clipShape(Capsule())
-                        }
-                        Spacer()
-                        if task.actionType == .agenticUpdate {
-                            Image(systemName: "sparkles")
-                                .foregroundColor(Theme.accentPrimary)
-                                .themeText(16)
-                        }
-                    }
-
-                    // Small question label — per category (#9)
-                    Text(heroQuestionLabel)
-                        .themeText(13, weight: .regular)
-                        .foregroundColor(Theme.textSecondary)
-
-                    // Large emoji + task title
-                    Text("\(task.category.emoji) \(task.title)")
-                        .themeSerif(26, weight: .bold)
-                        .foregroundColor(Theme.textPrimary)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if task.nextShipmentDate != nil || task.nextRenewalDate != nil {
-                    AccountDatesSummaryView(task: task)
-                }
-                if let note = task.customerNote, !note.isEmpty {
-                    Text(note).font(.subheadline).foregroundStyle(Theme.textSecondary).lineLimit(4)
-                }
-
-                // MARK: Actions
-                VStack(spacing: 10) {
-                    if task.actionType == .agenticUpdate {
-                        Button(action: onAgenticAction) {
-                            Label("Draft address-change email", systemImage: "paperplane.fill")
-                                .themeText(16, weight: .bold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Theme.accentPrimary)
-                                .foregroundColor(.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
-                        }
-                        .buttonStyle(.plain)
-                    } else if let url = task.deepLinkURL {
-                        // Primary: open the service directly
-                        Button {
-                            UIApplication.shared.open(url)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.up.right")
-                                    .themeText(14, weight: .bold)
-                                Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
-                                    .themeText(16, weight: .bold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Theme.accentPrimary)
-                            .foregroundColor(.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .shadow(color: Theme.accentPrimary.opacity(0.35), radius: 10, x: 0, y: 4)
-                        }
-                        .buttonStyle(.plain)
-
-                        // Secondary: already done. Green = "confirmed done," everywhere
-                        // in the app — never blue, which is reserved for "take the
-                        // external action." See MoveImpactEngine-adjacent surfaces for
-                        // the same rule applied consistently.
-                        Button(action: onComplete) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "checkmark")
-                                    .themeText(13, weight: .bold)
-                                Text("Mark as Done")
-                                    .themeText(15, weight: .semibold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Theme.backgroundElevated)
-                            .foregroundColor(Theme.accentSuccess)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        // No deep link — this task was never going to have an "Update
-                        // Now" option, so "Mark as Done" is the only action here. It
-                        // still gets accentSuccess (green), not accentPrimary (blue) —
-                        // "done" is "done" regardless of whether a link exists.
-                        Button(action: onComplete) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark")
-                                    .themeText(14, weight: .bold)
-                                Text("Mark as Done")
-                                    .themeText(16, weight: .bold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Theme.accentSuccess)
-                            .foregroundColor(.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .shadow(color: Theme.accentSuccess.opacity(0.35), radius: 10, x: 0, y: 4)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Button(action: onSkip) {
-                        Text("Remind me in 3 days")
-                            .themeText(15, weight: .semibold)
-                            .foregroundColor(Theme.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Theme.backgroundElevated)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .buttonStyle(.plain)
-
-                    // Destructive: not applicable to this user at all — distinct
-                    // from "remind me later" (still relevant, just not now).
-                    Button {
-                        showingRemoveConfirm = true
-                    } label: {
-                        Text(task.hasAccountDetails ? "Remove this account" : "Not Applicable")
-                            .themeText(13, weight: .medium)
-                            .foregroundColor(Theme.priorityCritical.opacity(0.75))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(24)
-        }
-        .confirmationDialog(
-            "Remove \"\(task.title)\"?",
-            isPresented: $showingRemoveConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Remove", role: .destructive, action: onNotApplicable)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(task.isUserAdded ? "This removes your custom item."
-                : "This removes this item and its reminders. Other accounts stay on your checklist. You can add it again from Review services.")
-        }
-    }
-}
-
-// MARK: - Contextual Prompt Card
-struct ContextualPromptCard: View {
-    let task: ChecklistTask
-    let onYes: () -> Void
-    let onRemindTomorrow: () -> Void
-    var onUpdateNow: (() -> Void)? = nil
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(LinearGradient(colors: [Theme.accentPrimary.opacity(0.15), Theme.backgroundCard], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Theme.accentPrimary.opacity(0.3), lineWidth: 1)
-                )
-
-            VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top) {
-                    Label("Location Match", systemImage: "mappin.and.ellipse")
-                        .themeText(13, weight: .bold)
-                        .foregroundColor(Theme.accentPrimary)
-                        .textCase(.uppercase)
-                        .tracking(1.5)
-                    Spacer()
-                }
-
-                let displayName = task.institutionName ?? task.title
-                Text("We noticed you're near \(displayName). Have you updated your address on file?")
-                    .themeSerif(18, weight: .semibold)
-                    .foregroundColor(Theme.textPrimary)
-                    .lineSpacing(4)
-
-                VStack(spacing: 10) {
-                    // Primary: confirm done. Green — the same "confirmed done" color
-                    // used everywhere else in the app, not blue (blue is reserved for
-                    // "take the external action," below). Primary here, not secondary,
-                    // because this prompt only fires when the user is physically near
-                    // the place — the likely case is they just handled it.
-                    Button(action: onYes) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark")
-                                .themeText(14, weight: .bold)
-                            Text("Mark as Done")
-                                .themeText(15, weight: .bold)
-                        }
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Theme.accentSuccess, in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    .buttonStyle(.plain)
-
-                    HStack(spacing: 10) {
-                        // Previously missing entirely — if the user hasn't actually
-                        // done this yet, there was no way to act on the prompt itself.
-                        if let url = task.deepLinkURL, let onUpdateNow {
-                            Button {
-                                UIApplication.shared.open(url)
-                                onUpdateNow()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.up.right")
-                                        .themeText(12, weight: .bold)
-                                    Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
-                                        .themeText(14, weight: .semibold)
-                                }
-                                .foregroundColor(Theme.accentPrimary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Button(action: onRemindTomorrow) {
-                            Text("Remind Tomorrow")
-                                .themeText(14, weight: .semibold)
-                                .foregroundColor(Theme.textSecondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(24)
-        }
-    }
-}
-
-// MARK: - Up Next Section
-//
-// Formerly two sections — "Next Up" (ranks 2-3 of the pending-task list) and
-// "Coming Up" / TodaysPrioritiesSection (ranks 4-8) — that were never actually
-// distinct: both drew from the identical tMinusDays sort, split at an arbitrary
-// count. Merged into one list, one row style (UpcomingTaskRow, which already had
-// the richer detail — due date, checkbox, TaskActionSheet — the other section
-// lacked). ZenDrawerRow and the tap-to-promote-to-hero interaction it carried are
-// retired along with it; nothing downstream depended on either.
-struct UpNextSection: View {
-    let move: Move
-    /// Just the hero task's id — this section now owns everything else.
-    let excludedTaskIDs: Set<UUID>
-    let onTaskComplete: (ChecklistTask) -> Void
-    /// Fired after a task is deleted (Not Applicable) so the parent can resync
-    /// notifications/geofences — this section doesn't own reminderService or
-    /// locationManager itself. See ZenDashboardView.resyncNotificationsAndGeofences.
-    let onTaskRemoved: (ChecklistTask) -> Void
-    let onViewAll: () -> Void
-    @Environment(\.modelContext) private var modelContext
-    @State private var selectedTask: ChecklistTask? = nil
-
-    /// Tasks due soonest that aren't the hero item — up to 6 (previously 2 in "Next
-    /// Up" + 5 in "Coming Up" = 7 visible without tapping through; 6 keeps that same
-    /// ballpark as one continuous list instead of two visually separate blocks).
-    private var urgentTasks: [ChecklistTask] {
-        move.tasks
-            .filter { $0.status == .toDo && !$0.isHeroItem && !excludedTaskIDs.contains($0.id) }
-            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
-            .prefix(6)
-            .map { $0 }
-    }
-
-    private var overdueTasks: [ChecklistTask] {
-        let today = Date()
-        return move.tasks.filter { task in
-            task.status == .toDo && !task.isHeroItem && !excludedTaskIDs.contains(task.id) &&
-            task.dueDate(moveDate: move.anchorDate) < Calendar.current.startOfDay(for: today)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-
-            // Section header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Up Next")
-                        .themeText(12, weight: .semibold)
-                        .foregroundColor(Theme.textSecondary)
-                        .textCase(.uppercase)
-                        .tracking(2)
-                    if !overdueTasks.isEmpty {
-                        Text("\(overdueTasks.count) overdue")
-                            .themeText(11, weight: .semibold)
-                            .foregroundColor(Theme.accentPrimary)
-                    }
-                }
-                Spacer()
-                Button(action: onViewAll) {
-                    HStack(spacing: 4) {
-                        Text("All \(move.totalCount - move.completedCount) remaining")
-                            .themeText(12, weight: .medium)
-                        Image(systemName: "chevron.right")
-                            .themeText(10, weight: .semibold)
-                    }
-                    .foregroundColor(Theme.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 24)
-
-            // Task cards
-            if urgentTasks.isEmpty {
-                Text("All tasks complete or in progress.")
-                    .themeText(14)
-                    .foregroundColor(Theme.textSecondary)
-                    .padding(.horizontal, 24)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(urgentTasks) { task in
-                        UpcomingTaskRow(
-                            task: task,
-                            moveDate: move.anchorDate,
-                            // Opens the detail/confirm sheet rather than completing
-                            // instantly — a bare checkbox tap gave no way to see what
-                            // the task actually was, or choose "take the action" vs.
-                            // "confirm it's already done," before finishing it.
-                            onTap: { selectedTask = task }
-                        )
-                        if task.id != urgentTasks.last?.id {
-                            Rectangle()
-                                .fill(Theme.backgroundElevated)
-                                .frame(height: 0.5)
-                                .padding(.horizontal, 16)
-                        }
-                    }
-                }
-                .background(Theme.backgroundCard.opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 20)
-            }
-        }
-        .padding(.bottom, 40)
-        .sheet(item: $selectedTask) { task in
-            TaskActionSheet(
-                task: task,
-                onAlreadyDone: {
-                    onTaskComplete(task)
-                    selectedTask = nil
-                },
-                onUpdateNow: {
-                    // Opens the link only — does not auto-complete, matching Hero
-                    // Card's Update Now, which likewise only starts the process.
-                    if let url = task.deepLinkURL {
-                        UIApplication.shared.open(url)
-                    }
-                    selectedTask = nil
-                },
-                onLater: { selectedTask = nil },
-                onNotApplicable: {
-                    removeTaskNotApplicable(task)
-                    selectedTask = nil
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .preferredColorScheme(.dark)
-        }
-    }
-
-    /// See ZenDashboardView.removeTaskNotApplicable — same real-deletion contract,
-    /// duplicated here because this section owns its own `move`/`modelContext`
-    /// rather than reaching back up to the parent view.
-    private func removeTaskNotApplicable(_ task: ChecklistTask) {
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-        MoveChecklistService.recordDismissal(task, for: move)
-        withAnimation {
-            move.tasks.removeAll { $0.id == task.id }
-            modelContext.delete(task)
-            modelContext.saveOrLog()
-        }
-        onTaskRemoved(task)
-    }
-}
-
-// MARK: - Upcoming Task Row
-struct UpcomingTaskRow: View {
-    let task: ChecklistTask
-    let moveDate: Date
-    let onTap: () -> Void
-
-    private var dueLabel: String {
-        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
-        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
-                                                    to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
-        if days < 0  { return "Overdue" }
-        if days == 0 { return "Due today" }
-        if days == 1 { return "Due tomorrow" }
-        return "Due in \(days)d"
-    }
-
-    private var isOverdue: Bool {
-        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
-        return dueDate < Calendar.current.startOfDay(for: Date())
-    }
-
-    /// Escalating severity: overdue (red) > due within 3 days (amber) > everything
-    /// else (neutral). Previously this row only had two states — overdue or not —
-    /// so a task due tomorrow looked exactly as calm as one due in six weeks.
-    private var isDueSoon: Bool {
-        guard !isOverdue else { return false }
-        let dueDate = task.dueDate(moveDate: moveDate, calendar: Calendar.current)
-        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: Date()),
-                                                    to: Calendar.current.startOfDay(for: dueDate)).day ?? 0
-        return days <= 3
-    }
-
-    private var severityColor: Color {
-        if isOverdue { return Theme.priorityCritical }
-        if isDueSoon { return Theme.accentWarning }
-        return task.priority.color.opacity(0.5)
-    }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            // Status only — not a button. A circle signifies "tap this to toggle
-            // directly," same as Reminders/Things; using that shape to trigger a
-            // 3-choice menu instead breaks that trained mapping. The row itself is
-            // the call to action (below), so the circle just shows state.
-            Image(systemName: "circle")
-                .themeText(20, weight: .regular)
-                .foregroundColor(severityColor)
-                .accessibilityHidden(true)
-
-            rowContent
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Open \(task.title)")
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 14) {
-            // Emoji icon
-            if let emoji = task.institutionInitials, task.institutionName == nil {
-                Text(emoji).themeText(20)
-            } else if task.institutionName != nil {
-                InstitutionBadgeView(
-                    initials: task.institutionInitials ?? "?",
-                    colorHex: task.institutionColorHex ?? "#626567",
-                    size: 32
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .themeText(14, weight: .medium)
-                    .foregroundColor(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(task.category.rawValue)
-                    .themeText(11)
-                    .foregroundColor(Theme.textTertiary)
-            }
-
-            Spacer()
-
-            // Due label — same escalating severity as the checkbox
-            Text(dueLabel)
-                .themeText(11, weight: .semibold)
-                .foregroundColor(isOverdue ? Theme.priorityCritical : isDueSoon ? Theme.accentWarning : Theme.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    (isOverdue ? Theme.priorityCritical : isDueSoon ? Theme.accentWarning : Color.white)
-                        .opacity(isOverdue || isDueSoon ? 0.14 : 0.08)
-                )
-                .clipShape(Capsule())
-
-            // Decorative — hints a link exists; the whole row is the tap target (opens
-            // the action sheet), not this icon specifically.
-            if task.deepLinkURL != nil {
-                Image(systemName: "arrow.up.right.circle.fill")
-                    .themeText(18)
-                    .foregroundColor(Theme.accentPrimary.opacity(0.7))
-            }
-        }
-        .contentShape(Rectangle())
-    }
-}
-
-// MARK: - Move Timeline Section
-
-struct MoveTimelineSection: View {
-    let move: Move
-
-    /// Generate weekly buckets from T-5 weeks to T+2 weeks
-    private struct WeekBucket: Identifiable {
-        let id: Int               // offset in weeks from move date
-        let label: String
-        let startDate: Date
-        let endDate: Date
-        var tasks: [ChecklistTask] = []
-        let isMovWeek: Bool
-        let isPast: Bool
-        let isCurrent: Bool
-    }
-
-    private var buckets: [WeekBucket] {
-        let cal = Calendar.current
-        let moveDay = cal.startOfDay(for: move.anchorDate)
-        let today = cal.startOfDay(for: Date())
-
-        return (-5...2).map { offset in
-            let start = cal.date(byAdding: .weekOfYear, value: offset, to: moveDay)!
-            let end = cal.date(byAdding: .day, value: 6, to: start)!
-
-            let label: String
-            if offset == 0 {
-                label = "Move\nWeek"
-            } else if offset < 0 {
-                label = "\(abs(offset))w\nbefore"
-            } else {
-                label = "\(offset)w\nafter"
-            }
-
-            let weekTasks = move.tasks.filter { task in
-                let dueDate = task.dueDate(moveDate: move.anchorDate, calendar: cal)
-                return dueDate >= start && dueDate <= end
-            }
-
-            let isPast = end < today
-            let isCurrent = today >= start && today <= end
-
-            var bucket = WeekBucket(id: offset, label: label, startDate: start, endDate: end,
-                                     isMovWeek: offset == 0, isPast: isPast, isCurrent: isCurrent)
-            bucket.tasks = weekTasks
-            return bucket
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Move Timeline")
-                .themeText(12, weight: .semibold)
-                .foregroundColor(Theme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(2)
-                .padding(.horizontal, 24)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
-                        HStack(spacing: 0) {
-                            // Connecting line
-                            if index > 0 {
-                                Rectangle()
-                                    .fill(bucket.isPast ? Theme.accentSuccess.opacity(0.4) : Theme.backgroundElevated)
-                                    .frame(width: 20, height: 2)
-                                    .padding(.top, 18)
-                            }
-
-                            VStack(spacing: 6) {
-                                // Week node
-                                ZStack {
-                                    Circle()
-                                        .fill(bucket.isMovWeek ? Theme.accentPrimary :
-                                              bucket.isCurrent ? Theme.accentPrimary.opacity(0.3) :
-                                              bucket.isPast ? Theme.accentSuccess.opacity(0.2) :
-                                              Theme.backgroundElevated)
-                                        .frame(width: 38, height: 38)
-                                        .overlay(
-                                            Circle().stroke(
-                                                bucket.isMovWeek ? Theme.accentPrimary :
-                                                bucket.isCurrent ? Theme.accentPrimary :
-                                                Color.clear, lineWidth: 2
-                                            )
-                                        )
-
-                                    if bucket.isMovWeek {
-                                        Text("🏠").themeText(18)
-                                    } else if bucket.isPast {
-                                        Image(systemName: "checkmark")
-                                            .themeText(12, weight: .bold)
-                                            .foregroundColor(Theme.accentSuccess)
-                                    } else {
-                                        // Task count dot
-                                        let pending = bucket.tasks.filter { $0.status == .toDo }.count
-                                        if pending > 0 {
-                                            Text("\(pending)")
-                                                .themeRounded(12, weight: .bold)
-                                                .foregroundColor(bucket.isCurrent ? Theme.accentPrimary : Theme.textSecondary)
-                                        } else {
-                                            Image(systemName: "minus")
-                                                .themeText(10)
-                                                .foregroundColor(Theme.textTertiary)
-                                        }
-                                    }
-                                }
-
-                                // Week label
-                                Text(bucket.label)
-                                    .themeText(9, weight: bucket.isCurrent || bucket.isMovWeek ? .bold : .regular)
-                                    .foregroundColor(bucket.isMovWeek ? Theme.accentPrimary :
-                                                     bucket.isCurrent ? Theme.textPrimary :
-                                                     bucket.isPast ? Theme.textTertiary :
-                                                     Theme.textSecondary)
-                                    .multilineTextAlignment(.center)
-                                    .frame(width: 48)
-
-                                // Task category dots
-                                let pendingTasks = bucket.tasks.filter { $0.status == .toDo }
-                                if !pendingTasks.isEmpty && !bucket.isPast {
-                                    HStack(spacing: 2) {
-                                        ForEach(Array(Set(pendingTasks.compactMap { $0.poiCategory != nil ? "📍" : nil }
-                                            + pendingTasks.prefix(4).map { $0.category.emoji })).prefix(4), id: \.self) { emoji in
-                                            Text(emoji).themeText(8)
-                                        }
-                                    }
-                                    .frame(width: 48)
-                                }
-                            }
-                            .frame(width: 48)
-                        }
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 8)
-            }
-
-            // Legend
-            HStack(spacing: 16) {
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.accentSuccess.opacity(0.2)).frame(width: 8, height: 8)
-                    Text("Done").themeText(10).foregroundColor(Theme.textTertiary)
-                }
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.accentPrimary.opacity(0.3)).frame(width: 8, height: 8)
-                    Text("This week").themeText(10).foregroundColor(Theme.textTertiary)
-                }
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.backgroundElevated).frame(width: 8, height: 8)
-                    Text("Upcoming").themeText(10).foregroundColor(Theme.textTertiary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
-        }
-        .padding(.bottom, 32)
-    }
-}
-
-// MARK: - Achievement Milestones & Master Checklist (kept for reference, not rendered on main dashboard)
-
-enum AchievementClusterType: String, CaseIterable {
-    case utilities = "🔌 Utility & Housing Grid"
-    case media = "🍿 Media & Digital Subscriptions"
-    case financial = "💳 Financial & Payment Systems"
-    case government = "🏛️ Government & Essential Identity"
-    case lifestyle = "🌿 Lifestyle & Healthcare"
-
-    var title: String { rawValue }
-
-    var description: String {
-        switch self {
-        case .utilities: return "Power, water, internet, HOA, security, and home protection."
-        case .media: return "Streaming, cable, gaming, app stores, and digital media."
-        case .financial: return "Banks, loans, investments, PayPal, Apple Pay, and digital wallets."
-        case .government: return "USPS, DMV, voter registration, IRS, SSA, and professional licenses."
-        case .lifestyle: return "Doctors, pharmacies, vets, auto/life insurance, and memberships."
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .utilities: return Color.orange
-        case .media: return Color.purple
-        case .financial: return Color.green
-        case .government: return Color.blue
-        case .lifestyle: return Color.pink
-        }
-    }
-
-    var celebratoryMessage: String {
-        switch self {
-        case .utilities: return "Milestone Unlocked: Utility & Housing Grid Fully Secured! ⚡"
-        case .media: return "Milestone Unlocked: Media & Digital Subscriptions Mastered! 🍿"
-        case .financial: return "Milestone Unlocked: Financial & Payment Systems Safeguarded! 🔒"
-        case .government: return "Milestone Unlocked: Government & Essential Identity Established! 🏛️"
-        case .lifestyle: return "Milestone Unlocked: Lifestyle & Healthcare Orchestration Complete! 🌿"
-        }
-    }
-
-    func filterTasks(_ tasks: [ChecklistTask]) -> [ChecklistTask] {
-        switch self {
-        case .utilities:
-            return tasks.filter { task in
-                task.category == .utilities ||
-                (task.category == .other && (task.title.contains("HOA") || task.title.contains("Parking") || task.title.contains("Neighbor"))) ||
-                (task.category == .insurance && (task.title.contains("Warranty") || task.title.contains("Solar")))
-            }
-        case .media:
-            return tasks.filter { task in
-                task.category == .subscriptions &&
-                task.category != .utilities
-            }.filter { task in
-                // Exclude shopping/food/fitness items from media cluster
-                let shoppingKeywords = ["Amazon", "Costco", "Walmart", "Target", "Sam's", "BJ's", "Chewy",
-                                        "Fitness", "Gym", "AARP", "Publix", "H-E-B", "Meijer", "Wegmans",
-                                        "Kroger", "Safeway", "Albertsons", "Barnes", "Best Buy", "IKEA",
-                                        "Wayfair", "DoorDash", "Uber Eats", "Grubhub", "Instacart",
-                                        "HelloFresh", "Blue Apron", "Meal Kit", "Planet Fitness",
-                                        "Equinox", "LA Fitness", "Peloton", "ClassPass", "CrossFit",
-                                        "Orangetheory", "YMCA", "24 Hour", "Life Time", "JCC", "VASA",
-                                        "EoS", "Chuze", "Crunch", "Anytime Fitness"]
-                return !shoppingKeywords.contains(where: { task.title.contains($0) })
-            }
-        case .financial:
-            return tasks.filter { task in
-                task.category == .financial
-            }
-        case .government:
-            return tasks.filter { task in
-                task.category == .postal ||
-                task.category == .government ||
-                task.category == .legal ||
-                task.category == .employer ||
-                task.category == .education
-            }
-        case .lifestyle:
-            let claimedIds: Set<UUID> = Set(
-                AchievementClusterType.utilities.filterTasks(tasks).map { $0.id } +
-                AchievementClusterType.media.filterTasks(tasks).map { $0.id } +
-                AchievementClusterType.financial.filterTasks(tasks).map { $0.id } +
-                AchievementClusterType.government.filterTasks(tasks).map { $0.id }
-            )
-            return tasks.filter { !claimedIds.contains($0.id) }
-        }
-    }
-}
-
-struct AchievementMilestoneSection: View {
-    let move: Move
-    /// Reuses the parent's completeTask/removeTaskNotApplicable rather than owning
-    /// local copies — this section previously had its own completeTask that skipped
-    /// the toDo → pendingVerification → completed double-advance, so "Mark as Done"
-    /// left tasks stuck showing as pending instead of moving to Completed Achievements.
-    let onTaskComplete: (ChecklistTask) -> Void
-    let onNotApplicable: (ChecklistTask) -> Void
-    @State private var expandedClusters: Set<AchievementClusterType> = []
-    @State private var selectedTask: ChecklistTask? = nil
-    @Environment(\.modelContext) private var modelContext
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Achievement Milestones")
-                .themeText(12, weight: .semibold)
-                .foregroundColor(Theme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(2)
-                .padding(.horizontal, 24)
-
-            VStack(spacing: 16) {
-                ForEach(AchievementClusterType.allCases, id: \.self) { cluster in
-                    let clusterTasks = cluster.filterTasks(move.tasks)
-                    if !clusterTasks.isEmpty {
-                        let completedTasks = clusterTasks.filter { $0.status == .completed }
-                        let pendingTasks = clusterTasks.filter { $0.status != .completed }
-                        let isFullyAchieved = pendingTasks.isEmpty
-                        let isExpanded = expandedClusters.contains(cluster)
-
-                        VStack(spacing: 0) {
-                            // Cluster Header Card
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    if isExpanded { expandedClusters.remove(cluster) }
-                                    else { expandedClusters.insert(cluster) }
-                                }
-                            } label: {
-                                HStack(spacing: 16) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(isFullyAchieved ? Theme.accentSuccess.opacity(0.2) : cluster.accentColor.opacity(0.15))
-                                            .frame(width: 44, height: 44)
-                                        
-                                        Image(systemName: isFullyAchieved ? "trophy.fill" : "target")
-                                            .themeText(20, weight: .bold)
-                                            .foregroundColor(isFullyAchieved ? Theme.accentSuccess : cluster.accentColor)
-                                    }
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(cluster.title)
-                                            .themeSerif(16, weight: .bold)
-                                            .foregroundColor(Theme.textPrimary)
-
-                                        Text(isFullyAchieved ? cluster.celebratoryMessage : cluster.description)
-                                            .themeText(12)
-                                            .foregroundColor(isFullyAchieved ? Theme.accentSuccess : Theme.textSecondary)
-                                            .lineLimit(2)
-                                    }
-
-                                    Spacer()
-
-                                    // Progress Pill
-                                    HStack(spacing: 4) {
-                                        Text("\(completedTasks.count)/\(clusterTasks.count)")
-                                            .themeRounded(12, weight: .bold)
-                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                            .themeText(10, weight: .bold)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(isFullyAchieved ? Theme.accentSuccess.opacity(0.2) : Theme.backgroundElevated)
-                                    .foregroundColor(isFullyAchieved ? Theme.accentSuccess : Theme.textSecondary)
-                                    .clipShape(Capsule())
-                                }
-                                .padding(16)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .fill(isFullyAchieved ? LinearGradient(colors: [Theme.accentSuccess.opacity(0.15), Theme.backgroundCard], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [cluster.accentColor.opacity(0.1), Theme.backgroundCard], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                        .stroke(isFullyAchieved ? Theme.accentSuccess.opacity(0.4) : cluster.accentColor.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
-
-                            // Expanded Tasks List
-                            if isExpanded {
-                                VStack(spacing: 12) {
-                                    // Pending Section
-                                    if !pendingTasks.isEmpty {
-                                        Text("Pending Updates (\(pendingTasks.count))")
-                                            .themeText(11, weight: .bold)
-                                            .foregroundColor(cluster.accentColor)
-                                            .textCase(.uppercase)
-                                            .tracking(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.top, 8)
-
-                                        ForEach(pendingTasks) { task in
-                                            ZenMilestoneTaskRow(
-                                                task: task,
-                                                onTap: { selectedTask = task },
-                                                onComplete: { undoCompletion(task) }
-                                            )
-                                        }
-                                    }
-
-                                    // Completed Section
-                                    if !completedTasks.isEmpty {
-                                        Text("Completed Achievements (\(completedTasks.count))")
-                                            .themeText(11, weight: .bold)
-                                            .foregroundColor(Theme.accentSuccess)
-                                            .textCase(.uppercase)
-                                            .tracking(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.top, 8)
-
-                                        ForEach(completedTasks) { task in
-                                            ZenMilestoneTaskRow(
-                                                task: task,
-                                                onTap: { selectedTask = task },
-                                                onComplete: { undoCompletion(task) }
-                                            )
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                                .padding(.bottom, 16)
-                                .background(Theme.backgroundCard.opacity(0.3))
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .padding(.top, 4)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-        .padding(.bottom, 40)
-        .sheet(item: $selectedTask) { task in
-            TaskActionSheet(
-                task: task,
-                onAlreadyDone: {
-                    onTaskComplete(task)
-                    selectedTask = nil
-                },
-                onUpdateNow: {
-                    // Opens the link only — does not auto-complete, matching every
-                    // other Update Now in the app (Hero Card, Up Next, All Tasks).
-                    if let url = task.deepLinkURL {
-                        UIApplication.shared.open(url)
-                    }
-                    selectedTask = nil
-                },
-                onLater: {
-                    selectedTask = nil
-                },
-                onNotApplicable: {
-                    onNotApplicable(task)
-                    selectedTask = nil
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .preferredColorScheme(.dark)
-        }
-    }
-
-    /// ZenMilestoneTaskRow's checkmark tap is exclusively an undo — the parent's
-    /// onTaskComplete is one-way (advanceStatus() no-ops on an already-completed
-    /// task), so it can't handle this. Kept local since "tap checkmark to undo"
-    /// is specific to this row/section, not shared elsewhere.
-    private func undoCompletion(_ task: ChecklistTask) {
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-        withAnimation {
-            task.resetStatus()
-            modelContext.saveOrLog()
-        }
-    }
-}
-
-// MARK: - Zen Milestone Task Row
-struct ZenMilestoneTaskRow: View {
-    let task: ChecklistTask
-    let onTap: () -> Void
-    let onComplete: () -> Void
-
-    var body: some View {
-        HStack(spacing: 14) {
-            // Pending: status only, not a button — the whole row is the call to
-            // action (onTapGesture below), so the circle shouldn't also masquerade
-            // as a second, checkbox-shaped trigger for the same menu. Completed:
-            // the checkmark stays a real, direct toggle (undo), which a checkbox
-            // shape correctly signifies.
-            if task.status == .completed {
-                Button(action: onComplete) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .themeText(22, weight: .semibold)
-                        .foregroundColor(Theme.accentSuccess)
-                        .contentShape(Rectangle())
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Mark \(task.title) not complete")
-            } else {
-                Image(systemName: "circle")
-                    .themeText(22, weight: .semibold)
-                    .foregroundColor(Theme.textSecondary.opacity(0.5))
-                    .frame(width: 36, height: 36)
-                    .accessibilityHidden(true)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(task.title)
-                    .themeText(15, weight: .medium)
-                    .foregroundColor(task.status == .completed ? Theme.textSecondary : Theme.textPrimary)
-                    .strikethrough(task.status == .completed, color: Theme.textSecondary)
-
-                HStack {
-                    Text(task.category.rawValue)
-                        .themeText(11)
-                        .foregroundColor(Theme.textSecondary.opacity(0.6))
-
-                    if let poi = task.poiCategory {
-                        Text("• \(poi.rawValue)")
-                            .themeText(11)
-                            .foregroundColor(Theme.textSecondary.opacity(0.6))
-                    }
-                }
-            }
-
-            Spacer()
-
-            if task.status != .completed {
-                if task.actionType == .agenticUpdate {
-                    Image(systemName: "sparkles")
-                        .themeText(14)
-                        .foregroundColor(Theme.accentPrimary)
-                } else if task.deepLinkURL != nil {
-                    Image(systemName: "arrow.up.right.circle.fill")
-                        .themeText(20)
-                        .foregroundColor(Theme.accentPrimary.opacity(0.8))
-                }
-            }
-        }
-        .padding(12)
-        .background(Theme.backgroundElevated.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
-        .onTapGesture {
-            if task.status != .completed { onTap() }
-        }
-        // Only the pending row folds into one VoiceOver stop (it's a single button
-        // now). Completed rows leave the nested undo button reachable on its own —
-        // combining here would swallow it.
-        .modifier(CombinedAccessibilityIfPending(task: task))
-    }
-}
-
-/// Shared by every task row that puts the action-sheet trigger on the whole row
-/// instead of the leading circle (UnifiedTaskRow in DashboardView.swift is the
-/// other user): only the pending row folds into one VoiceOver stop, since it's
-/// a single button now. Completed rows leave their nested undo button reachable
-/// on its own — combining here would swallow it.
-struct CombinedAccessibilityIfPending: ViewModifier {
-    let task: ChecklistTask
-
-    func body(content: Content) -> some View {
-        if task.status == .completed {
-            content
-        } else {
-            content
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Open \(task.title)")
-        }
-    }
-}
-
-// MARK: - Task Action Sheet
-struct TaskActionSheet: View {
-    let task: ChecklistTask
-    @Environment(\.modelContext) private var modelContext
-    let onAlreadyDone: () -> Void
-    let onUpdateNow: () -> Void
-    let onLater: () -> Void
-    /// Permanently removes the task from the move — not a status, an actual
-    /// deletion (see the confirmation copy below). Catalog-generated tasks like
-    /// "Mathnasium — Update Account" or "Goldfish Swim School" are matched from
-    /// broad lifestyle flags (e.g. "has children") that can't know which specific
-    /// activities a family actually uses, so a wrong match needs a real way to
-    /// leave and never come back — not just a snooze.
-    let onNotApplicable: () -> Void
-
-    @State private var showingRemoveConfirm = false
-    @State private var showingAccountEditor = false
-
-    var body: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-            // Handle + title
-            VStack(alignment: .leading, spacing: 6) {
-                Text(task.category.rawValue)
-                    .themeText(11, weight: .semibold)
-                    .foregroundColor(Theme.accentPrimary)
-                    .textCase(.uppercase)
-                    .tracking(1.5)
-                Text("\(task.category.emoji) \(task.title)")
-                    .themeSerif(20, weight: .bold)
-                    .foregroundColor(Theme.textPrimary)
-            }
-            .padding(.top, 8)
-
-            if task.needsLocationReview == true {
-                Text("This task came from your previous location choices. Confirm it still applies or remove it below.")
-                    .font(.subheadline).foregroundStyle(Theme.accentWarning)
-                Button("This still applies") {
-                    if let move = task.move, let id = MoveChecklistService.catalogID(for: task) {
-                        move.respond(to: id, with: .confirmed)
-                    }
-                    task.needsLocationReview = false
-                    modelContext.saveOrLog()
-                }
-            }
-
-            if task.move != nil {
-                AccountDatesSummaryView(task: task)
-                Button("Edit account & reminder dates") { showingAccountEditor = true }
-                    .font(.subheadline.weight(.semibold))
-            }
-            if task.moveAction != .updateAddress {
-                Text(task.moveAction.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
-            }
-            if let id = MoveChecklistService.catalogID(for: task), let guidance = ItemCatalog.byID[id]?.moveGuidance {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("For this move").font(.subheadline.weight(.semibold))
-                    Text(guidance).font(.subheadline).foregroundStyle(Theme.textSecondary)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let note = task.customerNote, !note.isEmpty {
-                ScrollView { Text(note).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(maxHeight: 100)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-
-            VStack(spacing: 10) {
-                // Primary: take the action, if there's a link to take it with —
-                // matches Hero Card's hierarchy (Update Now leads when possible).
-                // Blue = "take the external action" everywhere in this app.
-                if task.deepLinkURL != nil {
-                    Button(action: onUpdateNow) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.up.right")
-                                .themeText(14, weight: .bold)
-                            Text(task.moveAction == .updateAddress ? "Update address" : "Open provider")
-                                .themeText(16, weight: .bold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .background(Theme.accentPrimary)
-                        .foregroundColor(.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Confirm done. Green = "confirmed done" everywhere in this app —
-                // the same color law as Hero Card and the geofence prompt.
-                Button(action: onAlreadyDone) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .themeText(14, weight: .bold)
-                        Text("Mark as Done")
-                            .themeText(16, weight: .semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(task.deepLinkURL != nil ? Theme.backgroundElevated : Theme.accentSuccess)
-                    .foregroundColor(task.deepLinkURL != nil ? Theme.accentSuccess : .black)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-
-                // Tertiary: later
-                Button(action: onLater) {
-                    Text("I'll do this later")
-                        .themeText(14, weight: .medium)
-                        .foregroundColor(Theme.textTertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
-
-                // Destructive: not applicable to this user at all — distinct from
-                // "later" (still on the list, just deferred). Tinted, not filled,
-                // so it doesn't compete visually with Update Now / Mark as Done.
-                Button {
-                    showingRemoveConfirm = true
-                } label: {
-                    Text(task.hasAccountDetails ? "Remove this account" : "Not Applicable")
-                        .themeText(13, weight: .medium)
-                        .foregroundColor(Theme.priorityCritical.opacity(0.75))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Theme.backgroundCard)
-        .confirmationDialog(
-            "Remove \"\(task.title)\"?",
-            isPresented: $showingRemoveConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Remove", role: .destructive, action: onNotApplicable)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(task.hasAccountDetails ? "This removes only this account and its reminders. Other accounts stay on your checklist."
-                : task.isUserAdded ? "This removes your custom item."
-                : "This removes this item and its reminders. Other accounts stay on your checklist. You can add it again from Review services.")
-        }
-        .sheet(isPresented: $showingAccountEditor) {
-            if let move = task.move { ServiceAccountEditorView(move: move, task: task) }
-        }
+        }) { locationManager.activeContextualTask = nil }
     }
 }

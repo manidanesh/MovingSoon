@@ -11,6 +11,8 @@ struct EditMoveView: View {
     @State private var showingResetConfirm = false
     @State private var showingAddServices = false
     @State private var showingHousehold = false
+    @State private var showingLibrary = false
+    @State private var lifecycleChoice: String?
 
     // ZIP & Neighborhood edit state
     @State private var originZip: String
@@ -28,7 +30,7 @@ struct EditMoveView: View {
 
     init(move: Move) {
         self.move = move
-        self._anchorDate = State(initialValue: move.anchorDate)
+        self._anchorDate = State(initialValue: move.effectiveAnchorDate)
         self._originZip = State(initialValue: move.originZip ?? "")
         self._destinationZip = State(initialValue: move.destinationZip)
 
@@ -73,7 +75,7 @@ struct EditMoveView: View {
                         // MARK: Move Date
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Move Date")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -89,7 +91,7 @@ struct EditMoveView: View {
                         // MARK: Starting Point (Origin)
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Starting Point")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -97,14 +99,14 @@ struct EditMoveView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack {
                                     Text("Origin postal code")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .themeText(14, weight: .medium)
                                         .foregroundColor(Theme.textSecondary)
                                     Spacer()
                                     TextField("Optional", text: $originZip)
                                         .keyboardType(.asciiCapable)
                                         .textInputAutocapitalization(.characters)
                                         .autocorrectionDisabled()
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .themeText(16, weight: .semibold)
                                         .foregroundColor(Theme.textPrimary)
                                         .multilineTextAlignment(.trailing)
                                         .frame(maxWidth: 120)
@@ -119,7 +121,7 @@ struct EditMoveView: View {
                                             .progressViewStyle(CircularProgressViewStyle(tint: Theme.textSecondary))
                                             .scaleEffect(0.8)
                                         Text("Finding neighborhoods…")
-                                            .font(.system(size: 12))
+                                            .themeText(12)
                                             .foregroundColor(Theme.textTertiary)
                                         Spacer()
                                     }
@@ -127,7 +129,7 @@ struct EditMoveView: View {
                                 } else if !originNeighborhoods.isEmpty {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("Select Neighborhood")
-                                            .font(.system(size: 11, weight: .semibold))
+                                            .themeText(11, weight: .semibold)
                                             .foregroundColor(Theme.textTertiary)
                                             .textCase(.uppercase)
                                             .tracking(1)
@@ -145,14 +147,14 @@ struct EditMoveView: View {
                                                     } label: {
                                                         VStack(alignment: .leading, spacing: 2) {
                                                             Text(hood.neighborhood)
-                                                                .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                                                                .themeText(13, weight: isSelected ? .bold : .medium)
                                                                 .foregroundColor(isSelected ? .black : Theme.textPrimary)
                                                             
                                                             let context = hood.fullLabel
                                                                 .replacingOccurrences(of: hood.neighborhood + ", ", with: "")
                                                             if !context.isEmpty && context != hood.neighborhood {
                                                                 Text(context)
-                                                                    .font(.system(size: 10))
+                                                                    .themeText(10)
                                                                     .foregroundColor(isSelected ? .black.opacity(0.6) : Theme.textTertiary)
                                                             }
                                                         }
@@ -172,7 +174,7 @@ struct EditMoveView: View {
                                     HStack {
                                         Spacer()
                                         Text(label)
-                                            .font(.system(size: 12))
+                                            .themeText(12)
                                             .foregroundColor(Theme.textTertiary)
                                             .padding(.horizontal, 16)
                                             .padding(.bottom, 14)
@@ -186,7 +188,7 @@ struct EditMoveView: View {
                         // MARK: New Home (Destination)
                         VStack(alignment: .leading, spacing: 12) {
                             Text("New Home")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -194,14 +196,14 @@ struct EditMoveView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack {
                                     Text("Destination postal code")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .themeText(14, weight: .medium)
                                         .foregroundColor(Theme.textSecondary)
                                     Spacer()
                                     TextField("Required", text: $destinationZip)
                                         .keyboardType(.asciiCapable)
                                         .textInputAutocapitalization(.characters)
                                         .autocorrectionDisabled()
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .themeText(16, weight: .semibold)
                                         .foregroundColor(Theme.textPrimary)
                                         .multilineTextAlignment(.trailing)
                                         .frame(maxWidth: 120)
@@ -216,7 +218,7 @@ struct EditMoveView: View {
                                             .progressViewStyle(CircularProgressViewStyle(tint: Theme.accentPrimary))
                                             .scaleEffect(0.8)
                                         Text("Finding neighborhoods…")
-                                            .font(.system(size: 12))
+                                            .themeText(12)
                                             .foregroundColor(Theme.textTertiary)
                                         Spacer()
                                     }
@@ -224,7 +226,7 @@ struct EditMoveView: View {
                                 } else if !destinationNeighborhoods.isEmpty {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("Select Neighborhood")
-                                            .font(.system(size: 11, weight: .semibold))
+                                            .themeText(11, weight: .semibold)
                                             .foregroundColor(Theme.textTertiary)
                                             .textCase(.uppercase)
                                             .tracking(1)
@@ -242,14 +244,14 @@ struct EditMoveView: View {
                                                     } label: {
                                                         VStack(alignment: .leading, spacing: 2) {
                                                             Text(hood.neighborhood)
-                                                                .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                                                                .themeText(13, weight: isSelected ? .bold : .medium)
                                                                 .foregroundColor(isSelected ? .black : Theme.textPrimary)
                                                             
                                                             let context = hood.fullLabel
                                                                 .replacingOccurrences(of: hood.neighborhood + ", ", with: "")
                                                             if !context.isEmpty && context != hood.neighborhood {
                                                                 Text(context)
-                                                                    .font(.system(size: 10))
+                                                                    .themeText(10)
                                                                     .foregroundColor(isSelected ? .black.opacity(0.6) : Theme.textTertiary)
                                                             }
                                                         }
@@ -269,7 +271,7 @@ struct EditMoveView: View {
                                     HStack {
                                         Spacer()
                                         Text(label)
-                                            .font(.system(size: 12))
+                                            .themeText(12)
                                             .foregroundColor(Theme.textTertiary)
                                             .padding(.horizontal, 16)
                                             .padding(.bottom, 14)
@@ -289,7 +291,7 @@ struct EditMoveView: View {
                         // MARK: Info Rows
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Status")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -306,7 +308,7 @@ struct EditMoveView: View {
                         // MARK: Add More Services (#8)
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Customize")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -318,7 +320,7 @@ struct EditMoveView: View {
                                     Image(systemName: "plus.circle.fill")
                                     Text("Add More Services")
                                 }
-                                .font(.system(size: 16, weight: .semibold))
+                                .themeText(16, weight: .semibold)
                                 .foregroundColor(Theme.accentPrimary)
                                 .frame(maxWidth: .infinity)
                                 .padding()
@@ -336,35 +338,45 @@ struct EditMoveView: View {
                                 .foregroundStyle(Theme.accentPrimary)
 
                             Text("Review services or household answers while keeping your completed tasks. After changing locations, review any requirements from your previous area.")
-                                .font(.system(size: 12))
+                                .themeText(12)
                                 .foregroundColor(Theme.textTertiary)
                                 .lineSpacing(2)
                         }
 
                         // MARK: About
+                        VStack(alignment: .leading, spacing: 16) {
+                            NavigationLink("Reminders") { ReminderControlsView(move: move) }
+                            Button("Moves, sharing & backups") { showingLibrary = true }
+                            ShareLink(item: MoveBackupService.checklistText(for: move)) {
+                                Label("Share this checklist", systemImage: "square.and.arrow.up")
+                            }
+                            Text("Sharing includes task names, assignments and notes. It creates a snapshot, not live shared editing.")
+                                .font(.caption).foregroundStyle(Theme.textSecondary)
+                            Button("Archive & start another move") { lifecycleChoice = "archive" }
+                            Button("Cancel this move", role: .destructive) { lifecycleChoice = "cancel" }
+                            Text("Archived and cancelled moves keep their progress in Moves & backups. Their reminders stop.")
+                                .font(.caption).foregroundStyle(Theme.textSecondary)
+                            Link("Support website", destination: SupportLinks.contact)
+                            Link("GitHub support", destination: SupportLinks.github)
+                            Link("Email support", destination: SupportLinks.email)
+                        }
+                        .foregroundStyle(Theme.accentPrimary)
+
                         VStack(alignment: .leading, spacing: 12) {
                             Text("About")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(2)
 
-                            Link("Email support", destination: SupportLinks.email)
-                                .foregroundColor(Theme.accentPrimary)
-                                .frame(minHeight: 44, alignment: .leading)
-
-                            Link("GitHub support", destination: SupportLinks.github)
-                                .foregroundColor(Theme.accentPrimary)
-                                .frame(minHeight: 44, alignment: .leading)
-
                             Link(destination: SupportLinks.privacy) {
                                 HStack {
                                     Text("Privacy Policy")
-                                        .font(.system(size: 16, weight: .medium))
+                                        .themeText(16, weight: .medium)
                                         .foregroundColor(Theme.textPrimary)
                                     Spacer()
                                     Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .themeText(13, weight: .semibold)
                                         .foregroundColor(Theme.textTertiary)
                                 }
                                 .padding(.horizontal, 16)
@@ -378,7 +390,7 @@ struct EditMoveView: View {
                         // MARK: Danger Zone
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Danger Zone")
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.priorityCritical)
                                 .textCase(.uppercase)
                                 .tracking(2)
@@ -390,7 +402,7 @@ struct EditMoveView: View {
                                     Image(systemName: "arrow.counterclockwise")
                                     Text("Start Over")
                                 }
-                                .font(.system(size: 16, weight: .semibold))
+                                .themeText(16, weight: .semibold)
                                 .foregroundColor(Theme.priorityCritical)
                                 .frame(maxWidth: .infinity)
                                 .padding()
@@ -404,7 +416,7 @@ struct EditMoveView: View {
                             .buttonStyle(.plain)
 
                             Text("Deletes all tasks and restarts the lifestyle interview. Your move date and ZIPs are kept.")
-                                .font(.system(size: 12))
+                                .themeText(12)
                                 .foregroundColor(Theme.textTertiary)
                                 .lineSpacing(2)
                         }
@@ -427,12 +439,12 @@ struct EditMoveView: View {
                     Button("Save") {
                         // Explicit dates on customer-created items stay fixed if move day changes.
                         for task in move.tasks where task.isUserAdded {
-                            let due = task.baseDueDate(moveDate: move.anchorDate)
-                            task.absoluteDueDate = due
+                            let due = task.baseDueDate(moveDate: move.effectiveAnchorDate)
+                            task.setCustomDueDate(due)
                             task.tMinusDays = Calendar.current.dateComponents([.day],
                                 from: Calendar.current.startOfDay(for: anchorDate), to: due).day ?? 0
                         }
-                        move.anchorDate = anchorDate
+                        move.effectiveAnchorDate = anchorDate
                         move.originZip = PostalCodeService.isValid(originZip) ? PostalCodeService.normalize(originZip) : nil
                         move.originNeighborhood = selectedOrigin?.fullLabel
                         move.originLatitude = selectedOrigin?.coordinate?.latitude
@@ -450,13 +462,13 @@ struct EditMoveView: View {
                             profile.activeFlags = profile.activeFlags.subtracting(PostalCodeService.geographicFlags)
                                 .union(PostalCodeService.regionalFlags(for: move.destinationZip))
                             MoveChecklistService.flagLocationChanges(for: move)
-                            MoveChecklistService.addRelevantTasks(for: move, in: modelContext)
+                            guard MoveChecklistService.addRelevantTasks(for: move, in: modelContext) else { return }
                         }
 
-                        modelContext.saveOrLog()
+                        guard modelContext.saveOrLog() else { return }
                         dismiss()
                     }
-                    .font(.system(size: 16, weight: .semibold))
+                    .themeText(16, weight: .semibold)
                     .foregroundColor(Theme.accentPrimary)
                     .disabled(!PostalCodeService.isValid(destinationZip) ||
                         (!PostalCodeService.normalize(originZip).isEmpty && !PostalCodeService.isValid(originZip)))
@@ -483,6 +495,17 @@ struct EditMoveView: View {
                 fetchOriginNeighborhoods(for: newZip)
             }
             .sheet(isPresented: $showingHousehold) { HouseholdDetailsView(move: move) }
+            .sheet(isPresented: $showingLibrary) { MoveLibraryView() }
+            .confirmationDialog("Keep this move in your history?", isPresented: Binding(
+                get: { lifecycleChoice != nil }, set: { if !$0 { lifecycleChoice = nil } }), titleVisibility: .visible) {
+                Button(lifecycleChoice == "cancel" ? "Cancel move & stop reminders" : "Archive & start another") {
+                    if MoveLifecycleService.archive(move, cancelled: lifecycleChoice == "cancel", in: modelContext) {
+                        lifecycleChoice = nil
+                        dismiss()
+                    }
+                }
+                Button("Keep working on this move", role: .cancel) { lifecycleChoice = nil }
+            } message: { Text("Your tasks, account details and progress stay available in Moves & backups. Nearby reminders stop.") }
             .sheet(isPresented: $showingAddServices) {
                 AddMoreServicesView(move: move)
                     .preferredColorScheme(.dark)
@@ -503,11 +526,11 @@ struct EditMoveView: View {
     private func infoRow(label: String, value: String) -> some View {
         HStack(alignment: .center) {
             Text(label)
-                .font(.system(size: 14, weight: .medium))
+                .themeText(14, weight: .medium)
                 .foregroundColor(Theme.textSecondary)
             Spacer()
             Text(value)
-                .font(.system(size: 14, weight: .medium))
+                .themeText(14, weight: .medium)
                 .foregroundColor(Theme.textPrimary)
         }
         .padding(.horizontal, 16)
@@ -591,7 +614,7 @@ struct EditMoveView: View {
         move.reviewedFamiliesJSON = nil
         move.completionCelebratedAt = nil
 
-        modelContext.saveOrLog()
+        guard modelContext.saveOrLog() else { return }
         dismiss()
     }
 }

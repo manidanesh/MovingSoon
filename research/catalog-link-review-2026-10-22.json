@@ -1,0 +1,634 @@
+{
+  "mode": "live",
+  "static_errors": [],
+  "inventory_count": 70,
+  "results": [
+    {
+      "kind": "guidance",
+      "id": "canada_post",
+      "url": "https://www.canadapost-postescanada.ca/cpc/en/support/kb/receiving/forwarding-mail/how-to-purchase-mail-forwarding.page",
+      "status": 200,
+      "final_url": "https://www.canadapost-postescanada.ca/cpc/en/support/kb/receiving/forwarding-mail/how-to-purchase-mail-forwarding.page",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "cra_address",
+      "url": "https://www.canada.ca/en/government/change-address.html",
+      "result": "unverified",
+      "error": "The read operation timed out"
+    },
+    {
+      "kind": "guidance",
+      "id": "elections_canada",
+      "url": "https://www.elections.ca/content.aspx?section=vot&dir=reg&document=index&lang=e",
+      "status": 200,
+      "final_url": "https://www.elections.ca/content.aspx?section=vot&dir=reg&document=index&lang=e",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "irs",
+      "url": "https://www.irs.gov/faqs/irs-procedures/address-changes/address-changes",
+      "status": 200,
+      "final_url": "https://www.irs.gov/faqs/irs-procedures/address-changes/address-changes",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "medicare",
+      "url": "https://www.medicare.gov/basics/change-address",
+      "status": 200,
+      "final_url": "https://www.medicare.gov/basics/change-address",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "microchip",
+      "url": "https://www.aaha.org/resources/how-to-update-microchip-details-the-first-step-in-lost-pet-prevention/",
+      "status": 200,
+      "final_url": "https://www.aaha.org/resources/how-to-update-microchip-details-the-first-step-in-lost-pet-prevention/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "passport",
+      "url": "https://travel.state.gov/en/passports/contact-support/faq.html",
+      "status": 403,
+      "final_url": "https://travel.state.gov/en/passports/contact-support/faq.html",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "guidance",
+      "id": "passport_canada",
+      "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/help-centre/general.html",
+      "result": "unverified",
+      "error": "The read operation timed out"
+    },
+    {
+      "kind": "guidance",
+      "id": "service_canada",
+      "url": "https://www.canada.ca/en/government/change-address.html",
+      "result": "unverified",
+      "error": "The read operation timed out"
+    },
+    {
+      "kind": "guidance",
+      "id": "ssa",
+      "url": "https://www.ssa.gov/faqs/en/questions/KA-01711.html",
+      "status": 403,
+      "final_url": "https://www.ssa.gov/faqs/en/questions/KA-01711.html",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "guidance",
+      "id": "student_loans",
+      "url": "https://studentaid.gov/articles/6-ways-prepare-repayment-begin-again/",
+      "status": 200,
+      "final_url": "https://studentaid.gov/articles/prepare-for-payments/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "usps",
+      "url": "https://faq.usps.com/articles/Knowledge/Change-of-Address-The-Basics",
+      "status": 200,
+      "final_url": "https://faq.usps.com/articles/Knowledge/Change-of-Address-The-Basics",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "guidance",
+      "id": "va",
+      "url": "https://www.va.gov/change-address/",
+      "status": 200,
+      "final_url": "https://www.va.gov/change-address/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "AK",
+      "url": "https://dmv.alaska.gov/",
+      "status": 403,
+      "final_url": "https://dmv.alaska.gov/",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "AL",
+      "url": "https://www.alea.gov/dps/driver-license",
+      "status": 200,
+      "final_url": "https://www.alea.gov/dps/driver-license",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "AR",
+      "url": "https://www.dfa.arkansas.gov/",
+      "status": 200,
+      "final_url": "https://www.dfa.arkansas.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "AZ",
+      "url": "https://azdot.gov/mvd",
+      "status": 200,
+      "final_url": "https://azdot.gov/mvd",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "CA",
+      "url": "https://www.dmv.ca.gov/",
+      "status": 200,
+      "final_url": "https://www.dmv.ca.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "CO",
+      "url": "https://dmv.colorado.gov/",
+      "status": 200,
+      "final_url": "https://dmv.colorado.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "CT",
+      "url": "https://portal.ct.gov/dmv",
+      "status": 200,
+      "final_url": "https://portal.ct.gov/dmv",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "DC",
+      "url": "https://dmv.dc.gov/",
+      "status": 200,
+      "final_url": "https://dmv.dc.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "DE",
+      "url": "https://www.dmv.de.gov/",
+      "status": 200,
+      "final_url": "https://dmv.de.gov/",
+      "method": "GET",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "FL",
+      "url": "https://www.flhsmv.gov/",
+      "status": 200,
+      "final_url": "https://www.flhsmv.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "GA",
+      "url": "https://dds.georgia.gov/",
+      "status": 200,
+      "final_url": "https://dds.georgia.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "GU",
+      "url": "https://www.guamtax.com/",
+      "status": 200,
+      "final_url": "https://www.guamtax.com/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "HI",
+      "url": "https://hidot.hawaii.gov/driverslicense/",
+      "status": 200,
+      "final_url": "https://hidot.hawaii.gov/driverslicense/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "IA",
+      "url": "https://iowadot.gov/mvd",
+      "status": 200,
+      "final_url": "https://iowadot.gov/dmv-services",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "ID",
+      "url": "https://itd.idaho.gov/itddmv/",
+      "status": 200,
+      "final_url": "https://itd.idaho.gov/dmv/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "IL",
+      "url": "https://www.ilsos.gov/",
+      "result": "unverified",
+      "error": "The read operation timed out"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "IN",
+      "url": "https://www.in.gov/bmv/",
+      "status": 200,
+      "final_url": "https://www.in.gov/bmv/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "KS",
+      "url": "https://www.ksrevenue.gov/dovindex.html",
+      "status": 200,
+      "final_url": "https://www.ksrevenue.gov/dovindex.html",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "KY",
+      "url": "https://drive.ky.gov/",
+      "status": 200,
+      "final_url": "https://drive.ky.gov/Pages/index.aspx",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "LA",
+      "url": "https://www.expresslane.org/",
+      "status": 200,
+      "final_url": "https://expresslane.la.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MA",
+      "url": "https://www.mass.gov/orgs/massachusetts-registry-of-motor-vehicles",
+      "status": 403,
+      "final_url": "https://www.mass.gov/orgs/massachusetts-registry-of-motor-vehicles",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MD",
+      "url": "https://mva.maryland.gov/",
+      "status": 200,
+      "final_url": "https://mva.maryland.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "ME",
+      "url": "https://www.maine.gov/sos/bmv/",
+      "status": 403,
+      "final_url": "https://www.maine.gov/sos/bmv/",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MI",
+      "url": "https://www.michigan.gov/sos/",
+      "status": 200,
+      "final_url": "https://www.michigan.gov/sos/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MN",
+      "url": "https://dps.mn.gov/divisions/dvs",
+      "status": 200,
+      "final_url": "https://dps.mn.gov/divisions/dvs",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MO",
+      "url": "https://dor.mo.gov/",
+      "status": 200,
+      "final_url": "https://dor.mo.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MS",
+      "url": "https://www.dps.ms.gov/",
+      "status": 200,
+      "final_url": "https://www.dps.ms.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "MT",
+      "url": "https://mvdmt.gov/",
+      "status": 200,
+      "final_url": "https://mvdmt.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NC",
+      "url": "https://www.ncdot.gov/dmv/",
+      "status": 200,
+      "final_url": "https://www.ncdot.gov/dmv/Pages/default.aspx",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "ND",
+      "url": "https://www.dot.nd.gov/",
+      "status": 200,
+      "final_url": "https://www.dot.nd.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NE",
+      "url": "https://dmv.nebraska.gov/",
+      "status": 200,
+      "final_url": "https://dmv.nebraska.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NH",
+      "url": "https://www.dmv.nh.gov/",
+      "status": 403,
+      "final_url": "https://www.dmv.nh.gov/",
+      "method": "GET",
+      "result": "unverified",
+      "error": "HTTP 403"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NJ",
+      "url": "https://www.nj.gov/mvc/",
+      "status": 200,
+      "final_url": "https://www.nj.gov/mvc/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NM",
+      "url": "https://www.mvd.newmexico.gov/",
+      "status": 200,
+      "final_url": "https://www.mvd.newmexico.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NV",
+      "url": "https://dmv.nv.gov/",
+      "status": 200,
+      "final_url": "https://dmv.nv.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "NY",
+      "url": "https://dmv.ny.gov/",
+      "status": 200,
+      "final_url": "https://dmv.ny.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "OH",
+      "url": "https://www.bmv.ohio.gov/",
+      "status": 200,
+      "final_url": "https://www.bmv.ohio.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "OK",
+      "url": "https://service.ok.gov/",
+      "status": 200,
+      "final_url": "https://oklahoma.gov/service.html",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "OR",
+      "url": "https://www.oregon.gov/odot/dmv/",
+      "status": 200,
+      "final_url": "https://www.oregon.gov/odot/dmv/Pages/index.aspx",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "PA",
+      "url": "https://www.pa.gov/agencies/dmv.html",
+      "status": 200,
+      "final_url": "https://www.pa.gov/agencies/dmv",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "RI",
+      "url": "https://dmv.ri.gov/",
+      "status": 200,
+      "final_url": "https://dmv.ri.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "SC",
+      "url": "https://www.scdmvonline.com/",
+      "status": 200,
+      "final_url": "https://dmv.sc.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "SD",
+      "url": "https://dps.sd.gov/driver-licensing",
+      "status": 200,
+      "final_url": "https://www.sd.gov/dps",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "TN",
+      "url": "https://www.tn.gov/safety/driver-services.html",
+      "result": "unverified",
+      "error": "<urlopen error [Errno 54] Connection reset by peer>"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "TX",
+      "url": "https://www.dps.texas.gov/section/driver-license",
+      "status": 200,
+      "final_url": "https://www.dps.texas.gov/section/driver-license",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "UT",
+      "url": "https://dld.utah.gov/",
+      "status": 200,
+      "final_url": "https://dld.utah.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "VA",
+      "url": "https://www.dmv.virginia.gov/",
+      "status": 200,
+      "final_url": "https://www.dmv.virginia.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "VT",
+      "url": "https://dmv.vermont.gov/",
+      "status": 200,
+      "final_url": "https://dmv.vermont.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "WA",
+      "url": "https://dol.wa.gov/",
+      "status": 200,
+      "final_url": "https://dol.wa.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "WI",
+      "url": "https://wisconsindmv.gov/",
+      "status": 200,
+      "final_url": "https://wisconsindot.gov/Pages/online-srvcs/external/dmv.aspx",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "WV",
+      "url": "https://transportation.wv.gov/dmv/",
+      "status": 200,
+      "final_url": "https://dmv.wv.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "motor-vehicle",
+      "id": "WY",
+      "url": "https://www.dot.state.wy.us/",
+      "status": 200,
+      "final_url": "https://www.dot.state.wy.us/home.html",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "registration",
+      "id": "TX",
+      "url": "https://www.txdmv.gov/",
+      "status": 200,
+      "final_url": "https://www.txdmv.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "registration",
+      "id": "GA",
+      "url": "https://dor.georgia.gov/motor-vehicles",
+      "status": 200,
+      "final_url": "https://dor.georgia.gov/motor-vehicles",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "registration",
+      "id": "UT",
+      "url": "https://dmv.utah.gov/",
+      "status": 200,
+      "final_url": "https://dmv.utah.gov/",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "support",
+      "id": "vote.gov",
+      "url": "https://vote.gov/register",
+      "status": 200,
+      "final_url": "https://vote.gov/register",
+      "method": "HEAD",
+      "result": "reachable"
+    },
+    {
+      "kind": "support",
+      "id": "www.usa.gov",
+      "url": "https://www.usa.gov/state-motor-vehicle-services",
+      "status": 200,
+      "final_url": "https://www.usa.gov/state-motor-vehicle-services",
+      "method": "HEAD",
+      "result": "reachable"
+    }
+  ],
+  "checked_at_utc": "2026-10-22T19:27:31.955867+00:00"
+}

@@ -7,7 +7,7 @@ MovingSoon
 Your Moving Address Checklist
 
 ## Price
-$4.99 (Tier 5)
+US storefront target: **$4.99, one-time paid download**. Select and verify the price and regional equivalents in App Store Connect; this file does not configure storefront pricing.
 
 ## Bundle ID
 app.movingsoon
@@ -15,58 +15,53 @@ app.movingsoon
 ## Website / Marketing URL
 https://movingsoon.app
 
-The website is being prepared. Verify it serves the final landing page before entering it as the Marketing URL in App Store Connect.
+The website, support page and privacy page were verified live over HTTPS on October 24, 2026. Recheck these public URLs before submission.
 
 ## Support URL
-https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md#contact
+https://movingsoon.app/support/
 
 ## Support Email
 support@movingsoon.app
 
 ## Privacy Policy URL
-https://github.com/manidanesh/MovingSoon/blob/main/PRIVACY_POLICY.md
-
-Keep the working GitHub support/privacy URLs until the new website's corresponding pages are published and verified.
-
----
+https://movingsoon.app/privacy/
 
 ## Description (4,000 chars max)
 
-Moving is one of the most address-intensive events in your life. Banks, utilities, government agencies, subscriptions, gyms, streaming services — dozens of places need your new address, and missing even one can cause missed bills, lost mail, or lapsed coverage.
+Remember the accounts that need your new address, then work through them one step at a time.
 
-MovingSoon generates a personalized, prioritized checklist of every address update you need to make — based on your actual lifestyle, not a generic list.
+MovingSoon builds a personalized address-change checklist from your move date, US ZIP or Canadian postal codes, household answers and selected services. No MovingSoon account is required.
 
-**How it works:**
+HOW IT WORKS
+1. Describe your move and household. Optional questions can be skipped.
+2. Pick the banks and services you use, then review suggestions for anything you missed.
+3. Open provider or agency links, follow their instructions and record your progress.
 
-1. Enter your move date and ZIPs (where you're moving from and to)
-2. Complete a quick lifestyle interview — tap the services you actually use
-3. Get a smart checklist tailored to you, sorted by urgency
+PERSONAL CHECKLIST
+Review accounts across government, money, home, insurance, family, healthcare, pets, deliveries, memberships, travel and work. Search the catalog or add your own item with a date and note. Separate accounts can keep their own names, websites, shipment dates and renewal dates.
 
-**What makes it different:**
+USEFUL NEXT STEPS
+See a next task, upcoming work, suggested planning dates and completion progress. Guidance explains what to prepare and what to confirm with the organization. Official source links are provided for selected government tasks. Agency, insurer and provider deadlines take precedence over the app's planning dates.
 
-• **Personalized** — 150+ services across government, financial, utilities, healthcare, shopping, streaming, fitness, and more. You only see what's relevant to you.
+REMEMBER THE EASY-TO-MISS ACCOUNTS
+Think through recurring deliveries, clothing rentals, wine clubs, groceries, pet care and local memberships. Services are added by you; suggestions do not establish that you use a provider or that it serves your new address. Category review is tracked separately from task completion.
 
-• **Regional intelligence** — Moving from California to Colorado? The app knows LA Fitness isn't in Colorado and Xcel Energy is. Your checklist reflects your actual move, not a generic template.
+OPTIONAL REMINDERS
+Enable local notifications for relevant task reminders. Optional 30-day location reminders can notify you near supported matching providers, subject to iOS location and notification permissions. They help you return to an unfinished task; the app does not submit the address change.
 
-• **Smart location reminders** — Optionally grant 30-day location access and get notified when you're near a bank, DMV, pharmacy, or other place that needs your new address. One tap to mark it done.
+KEEP YOUR WORK
+Archive or cancel a move without deleting its checklist. Share a readable checklist or save a manual backup. Restoring adds archived copies; it does not synchronize devices or silently enable location reminders.
 
-• **Financial institutions** — Pick your exact banks, credit cards, investment accounts, and student loan servicers. Each gets its own dedicated task with a direct link.
+REGIONAL CONTEXT
+Postal regions help organize applicable services. You can request nearby provider listings through Apple Maps and verify availability or membership transfer directly. Optional US Census area estimates compare public ZIP-area context and are separate from your household facts.
 
-• **USPS first** — Mail forwarding is always the #1 task. We warn you about third-party sites that charge $40 for a service that costs $1.10.
+YOUR INFORMATION
+Your move, household answers, service choices and progress are stored on your device. There is no provider sign-in, automatic account update or live shipment import. Optional Census lookups send the entered US ZIP codes to the Census Bureau. Apple handles postal-code geocoding and requested Maps searches. No data is sold, and there are no third-party analytics or advertising SDKs.
 
-• **Achievement milestones** — Track progress across five clusters: Government & Identity, Financial & Payments, Utility & Housing, Media & Subscriptions, and Lifestyle & Healthcare.
-
-• **Edit anytime** — Change your move date or restart the interview if your plans change.
-
-**Categories covered:**
-Postal · Government · Financial · Utilities · Healthcare · Insurance · Education · Legal · Employer · Shopping · Food Delivery · Streaming · Fitness · Pets · Travel · Digital Wallets · Business
-
-No account required. Your move profile, selected services, and checklist stay on your device. If you view the optional US area snapshot, the app sends your entered ZIP code(s) to the US Census Bureau API for aggregate area estimates; it does not send your household profile or selected services. If you request a nearby-provider search, Apple MapKit receives the provider search phrase and the selected destination area. No data is sold.
-
----
+MovingSoon is a planning aid. It does not guarantee discovery of every account, legal eligibility, local coverage or completion with an outside organization. US and Canadian postal formats are supported; cross-border and jurisdiction-specific requirements should be checked with the relevant agencies.
 
 ## Keywords (100 chars max)
-moving,address change,checklist,relocation,move,USPS,utilities,address update,moving checklist
+moving,address change,checklist,relocation,move,postal,utilities,address update,moving checklist
 
 ## Category
 Productivity
@@ -74,24 +69,21 @@ Productivity
 ## Secondary Category
 Utilities
 
----
-
 ## What's New (Version 1.0)
-First release. Personalized moving address checklist with smart location reminders, regional intelligence, and financial institution tracking.
-
----
+First release. Personalized address-change checklists, service review, separate accounts and optional local and location reminders.
 
 ## Age Rating
-4+ (no objectionable content)
+Complete the current App Store Connect questionnaire based on the shipped build; do not infer the final rating from this file.
 
 ## Copyright
-© 2026 Mani Danesh
-
----
+2026 Mani Danesh
 
 ## Review Notes for Apple
-This app helps users update their address with services when they move. Location access is used two ways, both to send proximity-based reminders relevant to the user's pending address-change tasks: (1) a small number of specific places near the user's destination are monitored directly, and (2) Apple's low-power visit-detection API (`CLVisit`/`startMonitoringVisits`) is used to recognize relevant places anywhere the user goes, not only near the destination — this is why the app requests "Always" rather than "While Using" authorization. Location access is time-limited to a 30-day consent window and is entirely optional — the app works fully without it. No continuous background GPS is used; both mechanisms are Apple's low-power, event-driven APIs (region monitoring and visit detection).
 
-No login or account is required. All data is stored on-device using SwiftData.
+No login is required. Enter a US ZIP (for example, 80202) or Canadian postal code (for example, K1A 0B1), a move date and household/service choices to generate a checklist. Government tasks with eligibility requirements are reviewed and explicitly added by the customer. Links open the outside provider or agency; the app does not change provider records automatically.
 
-Test the app by entering any US ZIP code (e.g. 90210 for Beverly Hills, 80202 for Denver) or Canadian postal code (e.g. K1A 0B1 for Ottawa) and a future move date.
+Location reminders are optional and use two Apple event-driven mechanisms: monitoring selected destination regions and low-power visit detection near supported matching providers. Background operation requires Always authorization. The app records an explicit 30-day consent window, rejects location reminders after expiration, and removes monitoring when it next runs or receives an event. It does not run continuous background GPS or store a route history. The checklist remains usable without location permission. Background reminders require device acceptance testing; simulator results alone do not establish OS delivery.
+
+US Census area context is off until enabled with the ZIP-sharing explanation. Background photos are bundled with the app and do not cause Unsplash requests.
+
+Support is available at https://movingsoon.app/support/ and support@movingsoon.app, with GitHub Issues as a fallback. The product website is https://movingsoon.app and the privacy policy is https://movingsoon.app/privacy/. Before submission, confirm the final screenshots, price, age questionnaire, support URL and privacy URL in App Store Connect. Public URLs and storefront settings are release checks, not features configured by this document.

@@ -1,8 +1,69 @@
 # Address-change experience: implementation status
 
-Updated October 8, 2026. This describes the local working tree; it has not been published to the App Store.
+Updated October 26, 2026. This describes the local working tree; it has not been published to the App Store. Current integrated validation is recorded below; earlier results are retained as history.
 
-## Implemented
+## October 26 expired-location-window invitation
+
+- Added a one-shot local invitation after the 30-day nearby-reminder window expires when at least one eligible critical address-change task remains. The notification opens Reminders; extending access still needs the explicit **Enable another 30 days** action.
+- Added a dashboard **Review & extend** card for expired windows, including older windows whose fixed notification time already passed. Reopening does not create repeated catch-up alerts. Explicitly stopped reminders do not invite renewal.
+- Renewal requests reserve one scheduling slot, honor quiet hours, pin the planned deadline to its timezone and reject stale move/consent-cycle payloads. Successful grant/stop saves reconcile the queue; task and lifecycle changes remove obsolete notices. No model migration, background tracking or new network service was added.
+- **iOS 26 suite passed: 306 test definitions / 338 executions, 53 suites, 0 failures/skips.** Results: `/tmp/movingsoon-renewal-2026-10-26-verified.xcresult`; log: `/tmp/movingsoon-renewal-2026-10-26-verified-tests.log`. The new 16-definition renewal suite covers expiry/DST/timezones, quiet hours, eligibility, cycle identity, cancellation and reserved capacity. The dashboard view expression was split into content/presentation/overlay boundaries to keep SwiftUI compilation tractable.
+- On an isolated iPhone 16e / iOS 26 simulator with fictional expired consent, confirmed the critical-task explanation and explicit renewal button. Verified dashboard **Review & extend** opens Reminders and the window remains expired without an explicit renewal. Physical notification delivery and phone installation remain pending.
+- Signed version 1.0 build 4 archived successfully; strict archive signature and release-resource checks passed. Artifacts and actual renewal-screen QA are in `build/release-2026-10-26`. App Store IPA export failed because Xcode reported no permission to create iOS App Store profiles and no distribution certificate; the earlier build 3 cloud-managed export does not validate current signing access. No upload/submission or phone installation occurred. The paired iPhone is disconnected.
+
+## October 25 nearby-reminder correction
+
+- Investigated the owner's report of 10 a.m. alerts without nearby alerts. The budget rejected every immediate location alert while any same-day Hero/Digest remained delivered. Nearby reminders now have their own persistent two-per-local-day allowance, independent of scheduled reminders and clearing Notification Center.
+- Fixed sparse destination matching: provider searches that find no location no longer consume the twenty-region selection limit. Successful matches retain due-date priority, unchanged regions remain monitored, and replacements remove displaced zones before starting new ones.
+- Reminder settings show the remaining nearby allowance and disclose quiet hours, completion/category suppression and destination/visit coverage. Precise Location authorization is observed and explained; monitoring errors are surfaced. No new continuous background tracking, coordinate history or provider sign-in was added.
+- **iOS 26 suite passed: 290 test definitions / 302 executions, 52 suites, 0 failures/skips.** Result `/tmp/movingsoon-nearby-fix-2026-10-25.xcresult`; log `/tmp/movingsoon-nearby-fix-2026-10-25-tests.log`. Added regression coverage for nearby alerts after scheduled reminders, failed submissions, persisted budgets/local-midnight reset and sparse priority-ordered provider matches.
+- Signed version 1.0 build 3 archived/exported successfully. The archive/IPA signatures, distribution entitlements, version/resource checks and IPA ZIP integrity passed. Artifacts: `build/release-2026-10-25`.
+- Actual nearby event/delivery acceptance remains pending. The app still selects one matching provider branch near the destination (8 km search,200 m zone) and uses precise/recent iOS visits elsewhere. It does not promise an alert when passing any branch anywhere. Always+Precise Location, notification permission and active 30-day consent must be checked on the physical phone.
+
+## October 24 domain and support contact
+
+- Published the focused contact update at GitHub commit `6a37a74`: product domain `https://movingsoon.app` (website being prepared) and preferred email `support@movingsoon.app`. README, published privacy policy, store metadata, contributor guidance and the shared app support links are aligned. Working GitHub support/privacy URLs remain active until the replacement website pages are published and verified.
+- Both the exact contact-only publication checkout's Release simulator build and the complete local working copy's Debug simulator build passed. Logs: `/tmp/movingsoon-contact-publish-build.log` and `/tmp/movingsoon-contact-local-build.log`. No Swift compiler diagnostics; the existing AppIntents metadata warning remains benign.
+- Local `main` is aligned to the published contact commit. All 151 existing working paths were verified unchanged during Git alignment; earlier app-hardening edits remain local and uncommitted. The October 23 signed IPA and installed phone binary predate this contact update and require a new archive/install to show the new email.
+
+## October 23 distribution preparation
+
+- Signed Release archive and App Store IPA export succeeded with the existing Apple team. Both signatures, IPA ZIP integrity and required resources passed verification. Version 1.0 (1), bundle `app.movingsoon`; the exported IPA uses Cloud Managed Apple Distribution signing. Artifacts and logs are in the ignored `build/release-2026-10-23` directory.
+- Saved a private pre-upgrade copy of the paired iPhone's MovingSoon database/preferences, then installed the signed Release candidate on iPhone 12 Pro / iOS 26.6.2. The initial launch was blocked by the lock screen; the later installation and launch retry succeeded. Interactive startup/data inspection, migration and background acceptance remain pending.
+- The attempted App Store Connect upload failed at app-record lookup: `missingApp(bundleId: "app.movingsoon")`. An app record must be created before retrying; nothing has been uploaded or submitted.
+- Published the owner-approved updated privacy policy and email support contact to GitHub at commit `eb64e2b`. Confirmed current content. Store metadata now points its Support URL directly to the published Contact section and avoids an unconfigured age-rating claim. App Store Connect price, account, age/privacy and release settings remain pending.
+- See the [release handoff, artifact links and physical-phone checklist](RELEASE_HANDOFF_2026-10-23.md). Native Computer Use continued to report disabled after the readiness reply; the in-app browser was unavailable, so account UI settings could not be completed here.
+
+## October 22 paid-release hardening
+
+The current working tree adds:
+
+- A shared successful-save boundary for task completion/reopen/removal, visible save-error recovery and retained form drafts. Reminder scheduling follows successful persistence. The main context uses explicit saves rather than autosave.
+- Date-only calendar storage for moving day, shipment/renewal dates and custom deadlines, with legacy Date backfill. Travel between timezones does not change the selected calendar dates. Consent, snooze and event timestamps remain instants.
+- Reversible task mute/snooze controls, notification settings without location opt-in, explicit location stop/renew choices and visible consent expiry. Scheduled alerts use a rolling 30-day window, seven-day critical check-ins and a finite capacity; settings disclose refresh/deferred alerts.
+- Shared destination provider zones (at most 20) instead of one zone per account. Visit matching considers eligible unique providers beyond the destination cap. Explicit customer-entered provider names participate in matching; a nickname alone is not provider identity.
+- Archive/cancel/reactivate workflows, readable checklist sharing, assignment labels and versioned JSON backup/restore. Restore adds archived copies without overwriting existing moves and leaves nearby consent/Census requests off; assignment labels do not synchronize a shared household.
+- Editing of custom task title/category/date/note, retained completed tasks and household/service choices, and intake support for customers who already moved.
+- An unreadable-store recovery screen with retry and user-chosen recovery export, preserving original files rather than deleting them. Restoring a backup is an explicit action.
+- Action guidance for 44 important service identities, with eligibility, preparation, steps, planning timing and source review metadata. Official instructions and provider-neutral checklists are distinguished; DMV actions use official destination agencies. Issued US passports have no generic address-change requirement; benefit/voter-sensitive tasks require explicit review.
+- Corrected postal-region ranges for all 50 states/DC and explicit territory/Pacific/military buckets, including Canadian Nunavut. Stale persisted destination buckets can be repaired without resetting progress. Postal context remains approximate and is not address verification or legal-jurisdiction determination.
+- Extracted dashboard supporting views and task details, scalable typography and improved selection semantics. Background images are bundled; live Unsplash code was removed. Store copy now matches this scope and keeps the US $4.99 target separate from actual App Store Connect pricing.
+- Current owner-confirmed support is [support@movingsoon.app](mailto:support@movingsoon.app), with [GitHub Issues](https://github.com/manidanesh/MovingSoon/issues) as fallback. The product domain is [movingsoon.app](https://movingsoon.app), whose website is being prepared. Public storefront/support/privacy links must still be checked in the submitted configuration.
+
+### Current validation boundary
+
+- CI selects the newest complete installed Xcode 26+ through job-local `DEVELOPER_DIR`, with a clear failure if the runner has none. Five Python selection regressions pass; local selection resolves `/Applications/Xcode.app/Contents/Developer`, verified as Xcode 26.0 (17A324). Host-wide Xcode selection is unchanged.
+- The catalog/geography regression block occurs exactly once in the sole wired test file. It covers representative 50-state/DC cases, exceptional/military/Pacific/Canadian mappings, conservative persisted repair, eligibility, action guidance and official DMV routing.
+- `python3 scripts/check_catalog_links.py` passes deterministic inventory validation for 70 maintained URLs, including all 50 state DMV destinations and DC. `python3 -m py_compile scripts/check_catalog_links.py` passes. Static checks do not establish live reachability.
+- The October 22 full HTTP review checked all 70 maintained URLs: **59 reachable, 11 unverified, zero permanent HTTP failures**. The earlier Hawaii 404 was repaired and the replacement is reachable. SSA/passport and AK/MA/ME/NH DMV sites returned HTTP 403; Canadian government and Illinois pages timed out; Tennessee reset the connection. These remain inaccessible checks, not certified broken pages or passed links. The live command exits 1 while anything is unverified. Full evidence: [public-link report](research/catalog-link-review-2026-10-22.json).
+- **Final iOS 26.0 run passed: 285 test definitions, 295 executions including parameters, zero failures/skips**, on iPhone 17. Result: `/tmp/movingsoon-fixes-final-285.xcresult`; log: `/tmp/movingsoon-fixes-final-285.log`. This includes previous-schema migration, timezone/date editing, provider identities, backup/restore, capacity and consent, and scalar/relationship/verification-event save failure recovery.
+- **iOS 18.6 passed: 283 definitions, 293 executions, zero failures/skips**, on iPhone 16. Result: `/tmp/movingsoon-fixes-ios18-tests.xcresult`. This predates only the two additional relationship failure tests and final decorative accessibility layout corrections. No iOS 17 runtime is installed, so the declared minimum itself was not exercised.
+- **Final unsigned Release iPhone build and bundle checks passed.** Log: `/tmp/movingsoon-release-final-285.log`. MovingSoon display name, iOS 17 minimum, privacy manifest, app assets, pilot resource and required Census key configuration were verified; key values were not logged. There are no Swift compiler diagnostics; the AppIntents metadata tool reports its benign missing-framework warning. This is not a signed archive/upload validation.
+- **15 Python tests passed**; deterministic catalog inventory checks for 70 URLs and `git diff --check` passed. CI chooses an installed Xcode 26+ explicitly and validates the release bundle rather than depending on the runner's default Xcode.
+- Refreshed six real simulator screen captures with fictional Debug-only data: [release screenshot candidates](AppStoreScreenshots/ReleaseCandidate-2026-10-22/README.md). The dashboard was also inspected at the largest accessibility text size; clipped decorative progress and settings glyphs were corrected. [QA screenshot](AppStoreScreenshots/QA-2026-10-22/dashboard-max-text.png). Native interactive computer access was unavailable, so this does not establish a complete VoiceOver, small-phone or permission walkthrough.
+- A physical-phone permission/background-delivery walkthrough and App Store Connect account/pricing/privacy/age/support checks remain **manual release checks**. No code or simulator test establishes Apple approval, a correct account configuration, or actual background notification delivery.
+
+## Earlier implemented behavior
 
 | Review finding | Delivered behavior |
 |---|---|
@@ -32,7 +93,7 @@ Additional safeguards:
 
 ## Offline and data scope
 
-Checklist generation, task tracking, household edits, service/category answers and the rule engine run locally. There is no app backend or LLM dependency. Uncached Census estimates, neighborhood geocoding, live background photos and provider searches need internet access.
+Checklist generation, task tracking, household edits, service/category answers and the rule engine run locally. There is no app backend or LLM dependency. Uncached Census estimates, neighborhood geocoding and provider searches need internet access. Current background images are bundled and do not make network requests.
 
 Area income, household composition and housing medians remain area context. There is no validated service-enrollment dataset in this project, so the app does not predict a person's income or brand memberships from a ZIP. Income-based enrollment probabilities, crime/neighborhood grades, exact home valuations and automated provider account updates remain outside this delivery. The catalog's existing timing suggestions are not a maintained jurisdiction-specific legal deadline system.
 
@@ -53,9 +114,9 @@ See the [pilot source assessment and study contract](research/income-pilot/READM
 
 Implemented explicit permission-request persistence and Always/settings recovery, named-provider matching, replacement of stale destination zones, exact-task eligibility checks, task-backed notification Snooze/Mute, serialized scheduling, finite calendar triggers, and location initialization before the dashboard loads. Catalog metadata identifies 39 supported provider entries; unknown personal providers retain ordinary checklist reminders.
 
-See [the implementation and phone acceptance checks](LOCATION_REMINDERS_IMPLEMENTATION.md) for behavior, limits and regression coverage. This does not enable income-based membership predictions or automatic account updates.
+This paragraph records the earlier reminder delivery. The current unique-provider/visit, consent-renewal and capacity behavior is described in [the implementation and phone acceptance checks](LOCATION_REMINDERS_IMPLEMENTATION.md). This does not enable income-based membership predictions or automatic account updates.
 
-## Build and validation
+## Historical build and validation
 
 ### October 8 account and date delivery
 
@@ -86,7 +147,7 @@ See [the implementation and phone acceptance checks](LOCATION_REMINDERS_IMPLEMEN
 - The Census key resource remains ignored and untracked; the key was not copied into source or documentation.
 - A simulator interaction walkthrough and saved-data migration inspection were not run. The in-memory persistence test does not establish existing-store migration compatibility. Screen layout, the full permission flow and real background notification delivery still need manual validation.
 
-## Next validation pass
+## Manual acceptance scenarios
 
 Start with the new account flow: rename the first wine-club task, add a second provider, give them different shipment/renewal dates, and reopen the app. Complete, snooze, mute and remove accounts independently; confirm the other account remains active. Change moving day and confirm account dates stay fixed. Clear or edit a date and inspect replacement notifications. Reopen a completed account to resume reminders. Use an existing installation to inspect migration rather than relying on a fresh install.
 

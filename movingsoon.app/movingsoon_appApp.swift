@@ -14,6 +14,8 @@ struct movingsoon_appApp: App {
 
     let container: ModelContainer?
     private let notificationDelegate: NotificationDelegate?
+    private let schema: Schema
+    private let configuration: ModelConfiguration
 
     init() {
         let schema = Schema([
@@ -25,6 +27,8 @@ struct movingsoon_appApp: App {
             LifestyleProfile.self
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        self.schema = schema
+        self.configuration = config
         let container = Self.makeContainer(schema: schema, configuration: config)
         self.container = container
         self.notificationDelegate = container.map { NotificationDelegate(container: $0) }
@@ -44,6 +48,7 @@ struct movingsoon_appApp: App {
         }
         #endif
         if let container {
+            container.mainContext.autosaveEnabled = false
             LocationManager.shared.configure(context: container.mainContext)
         }
     }
@@ -114,6 +119,32 @@ struct movingsoon_appApp: App {
         }
         move.tasks = tasks
 
+        // Explicitly selected fictional state for renewal-screen QA. Existing
+        // customer stores and every Release build bypass screenshot seeding.
+        if ProcessInfo.processInfo.environment["SEED_LOCATION_CONSENT"] == "expired" {
+            move.locationConsentGrantedAt = Calendar.current.date(byAdding: .day, value: -31, to: Date())
+            move.locationConsentRequestedAt = move.locationConsentGrantedAt
+        }
+
+        // Fictional accounts make the optional account/date screenshots reviewable.
+        if let item = ItemCatalog.byID["wine_club"] {
+            for (index, nickname) in ["Family", "Gift account"].enumerated() {
+                let task = ChecklistGenerator.task(from: item)
+                task.accountProviderName = "Example Wine Club"
+                task.accountNickname = nickname
+                task.accountBaseTitle = item.title
+                task.title = "Example Wine Club — \(nickname)"
+                task.deepLinkURLString = nil
+                task.setShipmentDate(Calendar.current.date(byAdding: .day, value: 7 + index * 5, to: Date()))
+                task.setRenewalDate(Calendar.current.date(byAdding: .day, value: 28 + index * 5, to: Date()))
+                task.assignee = index == 0 ? "Alex" : nil
+                task.move = move
+                context.insert(task)
+                move.tasks.append(task)
+            }
+            move.respond(to: item.canonicalID, with: .confirmed)
+        }
+
         try? context.save()
     }
 
@@ -143,16 +174,9 @@ struct movingsoon_appApp: App {
             if let container {
                 ContentView().modelContainer(container)
             } else {
-                VStack(spacing: 18) {
-                    Image(systemName: "externaldrive.badge.exclamationmark").font(.largeTitle)
-                    Text("Your saved checklist couldn’t open").font(.title2.weight(.semibold))
-                    Text("Your data has been kept. Close and reopen the app to try again. If this continues, contact support before reinstalling.")
-                        .foregroundStyle(.secondary)
-                    Link("Contact support", destination: URL(string: "https://github.com/manidanesh/MovingSoon/issues")!)
+                StoreRecoveryView(storeURL: configuration.url) {
+                    Self.makeContainer(schema: schema, configuration: configuration)
                 }
-                .multilineTextAlignment(.center)
-                .padding(28)
-                .preferredColorScheme(.dark)
             }
         }
     }

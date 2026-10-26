@@ -6,11 +6,13 @@ struct ContentView: View {
     @Query private var moves: [Move]
     @Environment(\.modelContext) private var modelContext
     @State private var phase: AppPhase = .loading
+    @State private var showingLibrary = false
+    @State private var issues = PersistenceIssueCenter.shared
 
     enum AppPhase { case loading, onboarding, lifestyleInterview, dashboard }
 
     private var activeMove: Move? {
-        moves.first { $0.phase == .active }
+        moves.filter { $0.phase == .active }.sorted { $0.createdAt > $1.createdAt }.first
     }
 
     var body: some View {
@@ -55,6 +57,20 @@ struct ContentView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top) {
+            if activeMove == nil {
+                HStack {
+                    Spacer()
+                    Button("Moves & backups") { showingLibrary = true }
+                        .font(.subheadline).padding(12)
+                }
+            }
+        }
+        .sheet(isPresented: $showingLibrary) { MoveLibraryView() }
+        .alert("Change couldn’t be saved", isPresented: Binding(
+            get: { issues.message != nil }, set: { if !$0 { issues.message = nil } })) {
+                Button("OK") { issues.message = nil }
+        } message: { Text(issues.message ?? "") }
         .onChange(of: activeMove?.lifestyleProfile == nil) { _, _ in resolvePhase() }
         .onChange(of: activeMove?.id) { _, _ in resolvePhase() }
         .onChange(of: moves.count) { _, _ in resolvePhase() }
@@ -63,6 +79,12 @@ struct ContentView: View {
     }
 
     private func resolvePhase() {
+        var repaired = false
+        for move in moves {
+            repaired = move.backfillDateOnlyValues() || repaired
+            repaired = ZipBucketService.repairRegionBuckets(for: move) || repaired
+        }
+        if repaired && !modelContext.saveOrLog() { return }
         let reminderMove = activeMove?.lifestyleProfile == nil ? nil : activeMove
         LocationManager.shared.attach(reminderMove, context: modelContext)
         SmartReminderService.shared.reschedule(for: reminderMove)

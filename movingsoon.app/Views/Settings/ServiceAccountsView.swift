@@ -47,10 +47,10 @@ struct AccountDatesSummaryView: View {
     let task: ChecklistTask
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let date = task.nextShipmentDate {
+            if let date = task.effectiveNextShipmentDate {
                 Label("Shipment: \(date.formatted(date: .abbreviated, time: .omitted))", systemImage: "shippingbox")
             }
-            if let date = task.nextRenewalDate {
+            if let date = task.effectiveNextRenewalDate {
                 Label("Renewal: \(date.formatted(date: .abbreviated, time: .omitted))", systemImage: "calendar")
             }
         }.font(.caption).foregroundStyle(Theme.textSecondary)
@@ -96,7 +96,9 @@ struct ServiceAccountEditorView: View {
                     TextField("Provider website (optional)", text: $draft.website)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                 } header: { Text("Which account is this?") }
-                footer: { Text("A friendly name is enough. You don't need an account number or password.") }
+                footer: {
+                    Text("A friendly name is enough. You don't need an account number or password. When you choose a different provider, its old catalog website is cleared. Enter the new provider's website, or use Nickname for another account with the same provider.")
+                }
 
                 Section {
                     Toggle("Next shipment", isOn: $hasShipment)

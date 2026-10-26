@@ -8,6 +8,7 @@ import OSLog
 final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate {
     static let shared = LocationManager()
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    private(set) var accuracyAuthorization: CLAccuracyAuthorization = .reducedAccuracy
     private(set) var currentLocation: CLLocation?
     var activeContextualTask: ChecklistTask?
     var move: Move?
@@ -22,10 +23,12 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
     private var hasRequestedAlwaysUpgrade = false
     private var inFlightCategories: Set<POICategory> = []
     private let logger = Logger(subsystem: "app.movingsoon", category: "LocationManager")
+    private(set) var lastError: String?
 
     override init() {
         super.init()
         authorizationStatus = manager.authorizationStatus
+        accuracyAuthorization = manager.accuracyAuthorization
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         manager.distanceFilter = 50
@@ -39,6 +42,8 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     func attach(_ move: Move?, context: ModelContext) {
+        authorizationStatus = manager.authorizationStatus
+        accuracyAuthorization = manager.accuracyAuthorization
         if self.move?.id != move?.id {
             visitTask?.cancel()
             currentLocation = nil
@@ -53,8 +58,8 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     var consentActive: Bool {
-        guard let move, move.phase == .active, move.lifestyleProfile != nil else { return false }
-        return SuppressionEngine.consentExpiryGatePasses(grantedAt: move.locationConsentGrantedAt, now: Date())
+        guard let move else { return false }
+        return ReminderPolicy.consentIsActive(for: move)
     }
     var canMonitor: Bool {
         consentActive && (authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse)
@@ -77,23 +82,56 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     func requestPermissions() {
-        guard let move else { return }
-        if let granted = move.locationConsentGrantedAt,
-           !SuppressionEngine.consentExpiryGatePasses(grantedAt: granted, now: Date()) { return }
-        if move.locationConsentGrantedAt == nil {
-            move.locationConsentRequestedAt = Date()
-            modelContext?.saveOrLog()
+        guard let move, let modelContext else { return }
+        let previous = move.locationConsentRequestedAt
+        ReminderPolicy.beginConsentRequest(for: move)
+        do { try modelContext.save(); lastError = nil }
+        catch {
+            move.locationConsentRequestedAt = previous
+            lastError = "Your reminder choice couldn’t be saved. Try again."
+            return
         }
         authorizationStatus = manager.authorizationStatus
         recordRequestedConsentIfAuthorized()
         if authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
-        else if authorizationStatus == .authorizedWhenInUse { requestAlwaysUpgrade() }
+        else if authorizationStatus == .authorizedWhenInUse {
+            hasRequestedAlwaysUpgrade = false
+            requestAlwaysUpgrade()
+        }
         syncGeofencesIfActive()
     }
 
+    /// Stops the app's monitoring immediately without asking the customer to
+    /// revoke system permission. Re-enabling always needs another explicit tap.
+    func stopLocationReminders() {
+        guard let move, let modelContext else { return }
+        let previous = move.locationConsentStoppedAt, request = move.locationConsentRequestedAt
+        ReminderPolicy.stopConsent(for: move)
+        do { try modelContext.save(); lastError = nil }
+        catch {
+            move.locationConsentStoppedAt = previous
+            move.locationConsentRequestedAt = request
+            lastError = "Your reminder choice couldn’t be saved. Try again."
+            return
+        }
+        checkConsentExpiry()
+        SmartReminderService.shared.reschedule(for: move)
+    }
+
     private func recordRequestedConsentIfAuthorized() {
-        guard let move, ReminderPolicy.recordRequestedConsent(for: move, status: authorizationStatus) else { return }
-        modelContext?.saveOrLog()
+        guard let move, let modelContext else { return }
+        let grant = move.locationConsentGrantedAt, stopped = move.locationConsentStoppedAt
+        guard ReminderPolicy.recordRequestedConsent(for: move, status: authorizationStatus) else { return }
+        do {
+            try modelContext.save()
+            lastError = nil
+            SmartReminderService.shared.reschedule(for: move)
+        }
+        catch {
+            move.locationConsentGrantedAt = grant
+            move.locationConsentStoppedAt = stopped
+            lastError = "Nearby reminders couldn’t be enabled because your choice wasn’t saved. Try again."
+        }
     }
 
     private func requestAlwaysUpgrade() {
@@ -108,6 +146,7 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+        accuracyAuthorization = manager.accuracyAuthorization
         recordRequestedConsentIfAuthorized()
         if authorizationStatus == .authorizedWhenInUse { requestAlwaysUpgrade() }
         syncGeofencesIfActive()
@@ -133,6 +172,7 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
     }
     func locationManager(_ manager: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
         if let region { geofenceCoordinator.monitoringFailed(identifier: region.identifier) }
+        lastError = "A nearby reminder location couldn’t be monitored. Check Always and Precise Location in Settings, then reopen Reminders to try again."
         logger.error("A nearby reminder zone could not be monitored.")
     }
 
@@ -211,6 +251,7 @@ final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate
             manager.stopMonitoringVisits()
             manager.stopUpdatingLocation()
             boundaryTimer?.invalidate()
+            currentLocation = nil
             activeContextualTask = nil
             return
         }

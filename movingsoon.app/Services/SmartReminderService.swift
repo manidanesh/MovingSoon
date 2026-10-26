@@ -30,6 +30,10 @@ import OSLog
 final class SmartReminderService {
     static let shared = SmartReminderService()
     private(set) var isAuthorized = false
+    private(set) var coverage: ReminderScheduleCoverage?
+    private(set) var queuedRequestCount = 0
+    private(set) var capacityDeferredCount = 0
+    private(set) var schedulingError: String?
     private let center: any ReminderNotificationCenter
     private let hasLocationBudget: () async -> Bool
     private let recordLocationDelivery: () -> Void
@@ -37,6 +41,8 @@ final class SmartReminderService {
     private var revision = 0
     private var worker: Task<Void, Never>?
     private var move: Move?
+    private var scheduleDate = Date()
+    private var scheduleCalendar = Calendar.current
     private var sendingLocation = false
     private let logger = Logger(subsystem: "app.movingsoon", category: "Reminders")
 
@@ -55,17 +61,30 @@ final class SmartReminderService {
             let digest = UNNotificationCategory(identifier: "DigestReminder", actions: [
                 UNNotificationAction(identifier: "REVIEW_NOW", title: "Review Tasks", options: [.foreground])
             ], intentIdentifiers: [])
-            UNUserNotificationCenter.current().setNotificationCategories([task, digest])
+            let renewal = UNNotificationCategory(identifier: LocationConsentRenewal.categoryIdentifier, actions: [
+                UNNotificationAction(identifier: LocationConsentRenewal.reviewActionIdentifier,
+                                     title: "Review & Extend", options: [.foreground])
+            ], intentIdentifiers: [])
+            UNUserNotificationCenter.current().setNotificationCategories([task, digest, renewal])
             refreshPermissions()
         }
     }
 
     func refreshPermissions() { Task { isAuthorized = await center.authorized() } }
-    func requestPermissions() { Task { isAuthorized = await center.requestPermission() } }
+    func requestPermissions() {
+        Task {
+            isAuthorized = await center.requestPermission()
+            if isAuthorized { reschedule(for: move) }
+        }
+    }
 
-    func reschedule(for move: Move?, now: Date = Date()) {
+    func reschedule(for move: Move?, now: Date = Date(), calendar: Calendar = .current) {
         self.move = move
-        desired = move.map { ReminderScheduleBuilder.requests(for: $0, now: now) } ?? []
+        scheduleDate = now
+        scheduleCalendar = calendar
+        let plan = move.map { ReminderScheduleBuilder.plan(for: $0, now: now, calendar: calendar) }
+        desired = plan?.requests ?? []
+        coverage = plan?.coverage
         revision += 1
         guard worker == nil else { return }
         worker = Task { await reconcile() }
@@ -80,23 +99,37 @@ final class SmartReminderService {
             let version = revision
             let pending = await center.pending()
             guard version == revision else { continue }
+            let unrelatedCount = pending.filter { !ReminderScheduleBuilder.owns($0.identifier) }.count
             center.removePending(pending.filter { ReminderScheduleBuilder.owns($0.identifier) }.map(\.identifier))
             let delivered = await center.delivered()
             guard version == revision else { continue }
             let eligible = Set(move?.tasks.filter { ReminderPolicy.isEligible($0) }.map { $0.id.uuidString } ?? [])
             center.removeDelivered(delivered.filter { request in
                 guard ReminderScheduleBuilder.owns(request.identifier) else { return false }
+                if LocationConsentRenewal.owns(request.identifier) {
+                    return !LocationConsentRenewal.isRelevant(request, for: move,
+                        now: scheduleDate, calendar: scheduleCalendar)
+                }
                 let ids = (request.content.userInfo["taskIDs"] as? [String])
                     ?? (request.content.userInfo["taskID"] as? String).map { [$0] } ?? []
                 return ids.isEmpty || !Set(ids).isSubset(of: eligible)
             }.map(\.identifier))
-            let requests = desired
+            // iOS's pending limit is shared by all of this app's notification
+            // channels. Preserve unrelated requests and reserve four immediate slots.
+            let available = max(0, 64 - 4 - unrelatedCount)
+            let requests = Array(desired.prefix(available))
+            var failed = 0, queued = 0
             for request in requests {
                 guard version == revision else { break }
-                do { try await center.add(request) }
-                catch { logger.error("Unable to schedule a reminder.") }
+                do { try await center.add(request); queued += 1 }
+                catch { failed += 1; logger.error("Unable to schedule a reminder.") }
             }
-            if version == revision { break }
+            if version == revision {
+                queuedRequestCount = queued
+                capacityDeferredCount = desired.count - requests.count
+                schedulingError = failed > 0 ? "Some reminders couldn’t be queued. Refresh reminders to try again." : nil
+                break
+            }
         }
         worker = nil
     }

@@ -1,0 +1,45 @@
+name: iOS validation
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      require_census_key:
+        description: Verify release Census configuration using the CENSUS_API_KEY repository secret
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select installed Xcode 26 or later
+        shell: bash
+        run: |
+          developer_dir="$(python3 scripts/select_xcode.py)"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$developer_dir" xcodebuild -version
+      - name: Build Release and run the shared test suite
+        env:
+          REQUIRE_CENSUS_KEY: ${{ inputs.require_census_key || false }}
+          CENSUS_API_KEY: ${{ inputs.require_census_key && secrets.CENSUS_API_KEY || '' }}
+        shell: bash
+        run: |
+          if [[ "$REQUIRE_CENSUS_KEY" == "true" ]]; then
+            scripts/validate_release.sh --require-census-key
+          else
+            scripts/validate_release.sh
+          fi
+      - name: Upload validation logs and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-validation
+          path: |
+            build/validation/*.log
+            build/validation/*.xcresult
+          if-no-files-found: ignore

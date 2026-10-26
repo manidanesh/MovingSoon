@@ -534,6 +534,7 @@ final class LifestyleViewModel {
 struct LifestyleInterviewView: View {
     let move: Move
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let onComplete: () -> Void
 
     @State private var vm: LifestyleViewModel
@@ -559,6 +560,7 @@ struct LifestyleInterviewView: View {
                     }
                 }
                 .padding(.top, 60)
+                .accessibilityHidden(true)
                 Spacer()
             }
 
@@ -582,14 +584,18 @@ struct LifestyleInterviewView: View {
 
     private var quickQuestionsScreen: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("A few things about your household")
-                .font(.system(size: 30, weight: .bold, design: .serif))
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.top, 100)
-            Text("Help us remember the accounts that matter to you. You can skip any answer.")
-                .foregroundStyle(Theme.textSecondary)
             ScrollView {
-                HouseholdQuestions(vm: vm).padding(.vertical, 8)
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("A few things about your household")
+                        .themeSerif(30, weight: .bold)
+                        .foregroundStyle(Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, 100)
+                    Text("Help us remember the accounts that matter to you. You can skip any answer.")
+                        .foregroundStyle(Theme.textSecondary)
+                    HouseholdQuestions(vm: vm).padding(.vertical, 8)
+                }
             }
             continueButton("Continue →") { vm.next() }
         }
@@ -616,26 +622,26 @@ struct LifestyleInterviewView: View {
     // MARK: - Screen 3: Optional extras
 
     private var optionalExtrasScreen: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer()
-
+        VStack(alignment: .leading, spacing: 20) {
+            ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("We found")
-                        .font(.system(size: 18, weight: .regular))
+                        .themeText(18, weight: .regular)
                         .foregroundColor(Theme.textSecondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    summaryLayout {
                         Text("\(estimatedTaskCount)")
-                            .font(.system(size: 52, weight: .bold, design: .rounded))
+                            .themeRounded(52, weight: .bold)
                             .foregroundColor(Theme.accentSuccess)
                             .contentTransition(.numericText())
                             .animation(.spring(response: 0.3), value: estimatedTaskCount)
                         Text("tasks for you.")
-                            .font(.system(size: 22, weight: .semibold, design: .serif))
+                            .themeSerif(22, weight: .semibold)
                             .foregroundColor(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text("Think about deliveries and places you belong to. Choose the services you use; you can explore the full catalog from your checklist.")
-                        .font(.system(size: 15))
+                        .themeText(15, weight: .regular)
                         .foregroundColor(Theme.textSecondary)
                 }
 
@@ -649,7 +655,6 @@ struct LifestyleInterviewView: View {
                     ("life",      "Life & Finance",            "💼"),
                 ]
 
-                ScrollView(showsIndicators: false) {
                     VStack(spacing: 8) {
                         ForEach(categories, id: \.id) { cat in
                             OptionalCategoryCard(
@@ -671,11 +676,9 @@ struct LifestyleInterviewView: View {
                             )
                         }
                     }
-                }
-                .frame(maxHeight: 320)
             }
-
-            Spacer()
+            .padding(.top, 100)
+            }
 
             HStack(spacing: 12) {
                 backButton { vm.back() }
@@ -684,6 +687,11 @@ struct LifestyleInterviewView: View {
         }
         .padding(.horizontal, 28)
         .padding(.bottom, 40)
+    }
+
+    private var summaryLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 4))
     }
 
     private var estimatedTaskCount: Int {
@@ -698,7 +706,7 @@ struct LifestyleInterviewView: View {
     private func continueButton(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 17, weight: .bold))
+                .themeText(17, weight: .bold)
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
@@ -711,12 +719,13 @@ struct LifestyleInterviewView: View {
     private func backButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "chevron.left")
-                .font(.system(size: 16, weight: .semibold))
+                .themeText(16, weight: .semibold)
                 .foregroundColor(Theme.textSecondary)
                 .frame(width: 54, height: 54)
                 .background(Theme.backgroundElevated, in: RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Back")
     }
 
     // MARK: - Commit
@@ -752,7 +761,7 @@ struct LifestyleInterviewView: View {
             modelContext.insert(task)
         }
         move.tasks = tasks
-        modelContext.saveOrLog()
+        guard modelContext.saveOrLog() else { return }
 
         withAnimation(.easeInOut(duration: 0.4)) { onComplete() }
     }
@@ -770,22 +779,25 @@ struct YesNoCard: View {
         Button(action: onToggle) {
             HStack(spacing: 16) {
                 Text(emoji)
-                    .font(.system(size: 26))
+                    .themeText(26, weight: .regular)
                     .frame(width: 44, height: 44)
                     .background(isSelected ? Theme.accentPrimary.opacity(0.15) : Theme.backgroundElevated,
                                 in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityHidden(true)
 
                 Text(question)
-                    .font(.system(size: 17, weight: .medium))
+                    .themeText(17, weight: .medium)
                     .foregroundColor(isSelected ? Theme.textPrimary : Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer()
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22))
+                    .themeText(22, weight: .regular)
                     .foregroundColor(isSelected ? Theme.accentPrimary : Theme.textTertiary)
             }
             .padding(16)
+            .frame(minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(isSelected ? Theme.accentPrimary.opacity(0.08) : Theme.backgroundCard)
@@ -796,6 +808,8 @@ struct YesNoCard: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(question)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 }
@@ -810,6 +824,18 @@ struct OptionalCategoryCard: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     let onChipTap: (BubbleChip) -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumChipWidth = 120.0
+
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: minimumChipWidth), spacing: 8)]
+    }
+
+    private var headerLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+    }
 
     private var selectedCount: Int {
         chips.flatMap { $0.chips }.filter { $0.isSelected }.count
@@ -818,51 +844,61 @@ struct OptionalCategoryCard: View {
     var body: some View {
         VStack(spacing: 0) {
             Button(action: onToggle) {
-                HStack {
-                    Text(emoji).font(.system(size: 20))
+                headerLayout {
+                    Text(emoji).themeText(20, weight: .regular)
+                        .accessibilityHidden(true)
                     Text(label)
-                        .font(.system(size: 15, weight: .medium))
+                        .themeText(15, weight: .medium)
                         .foregroundColor(Theme.textPrimary)
-                    Spacer()
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                     if selectedCount > 0 {
                         Text("\(selectedCount) selected")
-                            .font(.system(size: 12, weight: .semibold))
+                            .themeText(12, weight: .semibold)
                             .foregroundColor(Theme.accentPrimary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(Theme.accentPrimary.opacity(0.12), in: Capsule())
                     }
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
+                        .themeText(12, weight: .semibold)
                         .foregroundColor(Theme.textTertiary)
                 }
                 .padding(14)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityValue("\(selectedCount) selected, \(isExpanded ? "expanded" : "collapsed")")
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(chips) { section in
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                        LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(section.chips) { chip in
                                 Button {
                                     onChipTap(chip)
                                 } label: {
                                     HStack(spacing: 6) {
-                                        Text(chip.emoji).font(.system(size: 14))
+                                        Text(chip.emoji).themeText(14, weight: .regular)
+                                            .accessibilityHidden(true)
                                         Text(chip.label)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .lineLimit(1)
+                                            .themeText(13, weight: .medium)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        if chip.isSelected { Image(systemName: "checkmark").accessibilityHidden(true) }
                                     }
                                     .foregroundColor(chip.isSelected ? .white : Theme.textSecondary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                     .background(
-                                        chip.isSelected ? Theme.accentPrimary : Theme.backgroundElevated,
+                                        chip.isSelected ? Theme.accentButton : Theme.backgroundElevated,
                                         in: RoundedRectangle(cornerRadius: 10)
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel(chip.label)
+                                .accessibilityAddTraits(chip.isSelected ? .isSelected : [])
                                 .animation(.easeInOut(duration: 0.15), value: chip.isSelected)
                             }
                         }

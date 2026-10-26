@@ -303,4 +303,5 @@ enum CatalystType: String, Codable, CaseIterable {
 enum MovePhase: String, Codable {
     case active   = "Active"
     case archived = "Archived"
+    case cancelled = "Cancelled"
 }

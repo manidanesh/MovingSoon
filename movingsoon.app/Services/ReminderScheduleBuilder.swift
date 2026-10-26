@@ -1,14 +1,41 @@
 import Foundation
 import UserNotifications
 
+struct ReminderScheduleCoverage {
+    let horizonEnd: Date
+    let criticalReminderEnd: Date
+    let refreshRecommendedAt: Date
+    let deferredRequestCount: Int
+    let capacityLimited: Bool
+}
+
+struct ReminderSchedulePlan {
+    let requests: [UNNotificationRequest]
+    let coverage: ReminderScheduleCoverage
+}
+
 /// Pure schedule construction shared by foreground edits and notification actions.
 /// Requests are one-shot so an unattended critical reminder cannot repeat forever.
 enum ReminderScheduleBuilder {
+    static let horizonDays = 30
+    static let criticalReminderDays = 7
+    static let maximumRequests = 60
+
     static func requests(for move: Move, now: Date = Date(), calendar: Calendar = .current) -> [UNNotificationRequest] {
-        guard move.phase == .active else { return [] }
+        plan(for: move, now: now, calendar: calendar).requests
+    }
+
+    static func plan(for move: Move, now: Date = Date(), calendar: Calendar = .current) -> ReminderSchedulePlan {
+        let horizonEnd = calendar.date(byAdding: .day, value: horizonDays, to: now) ?? now
+        let criticalEnd = calendar.date(byAdding: .day, value: criticalReminderDays,
+            to: calendar.startOfDay(for: now)) ?? now
+        let empty = ReminderSchedulePlan(requests: [], coverage: ReminderScheduleCoverage(horizonEnd: horizonEnd,
+            criticalReminderEnd: criticalEnd, refreshRecommendedAt: criticalEnd, deferredRequestCount: 0, capacityLimited: false))
+        guard move.phase == .active else { return empty }
+        let moveDate = move.moveDate(calendar: calendar)
         let tasks = move.tasks.filter { $0.status == .toDo && !$0.isMuted && $0.needsLocationReview != true }
-            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate, calendar: calendar) }
-        guard !tasks.isEmpty else { return [] }
+            .sorted { $0.isDueBefore($1, moveDate: moveDate, calendar: calendar) }
+        guard !tasks.isEmpty else { return empty }
         var output: [(Date, UNNotificationRequest)] = []
         func add(id: String, title: String, body: String, date: Date, items: [ChecklistTask]) {
             guard date > now, !items.isEmpty else { return }
@@ -32,11 +59,11 @@ enum ReminderScheduleBuilder {
             output.append((date, UNNotificationRequest(identifier: id, content: content,
                 trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))))
         }
-        for day in 0..<7 {
+        for day in 0..<criticalReminderDays {
             guard let start = calendar.date(byAdding: .day, value: day, to: calendar.startOfDay(for: now)) else { continue }
             for hour in [10, 18] {
                 guard let fire = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: start), fire > now else { continue }
-                let remaining = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: move.anchorDate)).day ?? 0
+                let remaining = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: moveDate)).day ?? 0
                 guard hour == 10 || (0...3).contains(remaining),
                       let hero = tasks.first(where: { $0.priority == .critical && ReminderPolicy.isEligible($0, at: fire) }) else { continue }
                 add(id: "Hero-\(Int(fire.timeIntervalSince1970))", title: "An important address update",
@@ -71,10 +98,10 @@ enum ReminderScheduleBuilder {
         for task in tasks {
             for offset in [-3, 0] {
                 guard let day = calendar.date(byAdding: .day, value: offset,
-                    to: task.baseDueDate(moveDate: move.anchorDate, calendar: calendar)) else { continue }
+                    to: task.baseDueDate(moveDate: moveDate, calendar: calendar)) else { continue }
                 queue(task, on: day, detail: offset == 0 ? "address review due today" : "address review due in 3 days")
             }
-            for (kind, date) in [("shipment", task.nextShipmentDate), ("renewal", task.nextRenewalDate)] {
+            for (kind, date) in [("shipment", task.shipmentDate(calendar: calendar)), ("renewal", task.renewalDate(calendar: calendar))] {
                 guard let date else { continue }
                 for offset in Set([-task.reminderLeadDays, 0]).sorted() {
                     guard let day = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: date)) else { continue }
@@ -94,7 +121,7 @@ enum ReminderScheduleBuilder {
             }
         }
         for (date, bucket) in buckets {
-            let entries = bucket.values.sorted { $0.task.isDueBefore($1.task, moveDate: move.anchorDate, calendar: calendar) }
+            let entries = bucket.values.sorted { $0.task.isDueBefore($1.task, moveDate: moveDate, calendar: calendar) }
             let names = entries.prefix(3).map { "\($0.task.title) — \($0.details.joined(separator: "; "))" }.joined(separator: "\n")
             let extra = entries.count > 3 ? "\nAnd \(entries.count - 3) more address updates." : ""
             add(id: "Digest-\(Int(date.timeIntervalSince1970))", title: "Address updates to review", body: names + extra,
@@ -102,23 +129,39 @@ enum ReminderScheduleBuilder {
         }
         let active = tasks.filter { ReminderPolicy.isEligible($0, at: now) }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now),
-                                          to: calendar.startOfDay(for: move.anchorDate)).day ?? 0
+                                          to: calendar.startOfDay(for: moveDate)).day ?? 0
         if days > 0, let fire = calendar.date(byAdding: .day, value: max(1, min(4, days / 3)), to: now) {
             add(id: "ReengagementReminder", title: "Your checklist is here when you're ready",
                 body: "You still have address updates to review before moving day.", date: fire, items: active)
         }
-        if let day = calendar.date(byAdding: .day, value: 14, to: move.anchorDate),
+        if let day = calendar.date(byAdding: .day, value: 14, to: moveDate),
            let fire = calendar.date(bySettingHour: 11, minute: 0, second: 0, of: day) {
             add(id: "PostMoveCheckIn", title: "How did the move go?",
                 body: "Take a moment to check any address updates that are still open.", date: fire,
                 items: tasks.filter { ReminderPolicy.isEligible($0, at: fire) })
         }
-        // Leave capacity for immediate notifications; deterministic chronological order.
-        return output.sorted { $0.0 == $1.0 ? $0.1.identifier < $1.1.identifier : $0.0 < $1.0 }.prefix(60).map(\.1)
+        // A bounded rolling window is explicit in settings. Far-future dates stay
+        // on the checklist until a later app visit refreshes this one-shot queue.
+        // Day digests batch all tasks; earlier alerts take precedence at capacity.
+        let sorted = output.sorted { $0.0 == $1.0 ? $0.1.identifier < $1.1.identifier : $0.0 < $1.0 }
+        let inWindow = sorted.filter { $0.0 <= horizonEnd }
+        let renewal = LocationConsentRenewal.request(for: move, now: now, calendar: calendar)
+        // Reserve one slot for the consent deadline. Quiet hours may move this
+        // one bounded event just past the usual rolling 30-day date horizon.
+        let ordinaryLimit = maximumRequests - (renewal == nil ? 0 : 1)
+        let selected = Array(inWindow.prefix(ordinaryLimit))
+        let firstOmitted = inWindow.dropFirst(ordinaryLimit).first?.0
+        let refresh = min(criticalEnd, firstOmitted ?? criticalEnd)
+        var requests = selected.map(\.1)
+        if let renewal { requests.insert(renewal, at: 0) }
+        return ReminderSchedulePlan(requests: requests, coverage: ReminderScheduleCoverage(
+            horizonEnd: horizonEnd, criticalReminderEnd: criticalEnd, refreshRecommendedAt: refresh,
+            deferredRequestCount: sorted.count - selected.count, capacityLimited: inWindow.count > ordinaryLimit))
     }
 
     static func owns(_ identifier: String) -> Bool {
         ["Hero", "Digest-", "TMinus-", "Snooze-", "LocationReminder-"].contains { identifier.hasPrefix($0) }
             || ["ReengagementReminder", "PostMoveCheckIn"].contains(identifier)
+            || LocationConsentRenewal.owns(identifier)
     }
 }

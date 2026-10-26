@@ -9,5 +9,6 @@ import Foundation
 final class NotificationRouter {
     static let shared = NotificationRouter()
     var pendingTaskID: UUID?
+    var pendingRemindersMoveID: UUID?
     private init() {}
 }

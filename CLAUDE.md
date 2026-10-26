@@ -1,86 +1,63 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for work in the MovingSoon repository. Updated October 22, 2026 for the current local architecture; release/device verification is recorded separately.
 
-## Project
+## Project and build
 
-MovingSoon — a SwiftUI/SwiftData iOS app that generates a personalized, prioritized moving checklist (address updates across banks, government, subscriptions, etc.) based on a lifestyle interview. iOS 17+, Xcode 15+. See `README.md` for the full feature list and `APP_STORE_LISTING.md` / `PRIVACY_POLICY.md` for store-facing copy.
+MovingSoon is a SwiftUI/SwiftData address-change checklist for iOS 17+. It uses one plain `.xcodeproj`, filesystem-synchronized source groups and no CocoaPods/SPM dependency layer. Xcode 26 or later is required for the current release validation. `scripts/select_xcode.py` reads installed app version metadata and chooses the newest complete compatible installation; CI exports its developer directory through `GITHUB_ENV` without changing host-wide `xcode-select`.
 
-The owner-confirmed product domain is `https://movingsoon.app` and preferred support email is `support@movingsoon.app`; GitHub Issues remains a support fallback. The website is being prepared, so retain the working GitHub privacy/support URLs until replacement pages are published and verified. Keep `Services/SupportLinks.swift`, store metadata, README and privacy contact details aligned.
-
-## Build & Test
-
-This is a plain `.xcodeproj` (no SPM package, no CocoaPods/Carthage). Xcode uses the newer file-system-synchronized groups, so adding a `.swift` file to the right folder on disk is enough — no manual "add to target" step needed for files already under a synced group.
-
-```bash
-# Build
-xcodebuild build -project movingsoon.app.xcodeproj -scheme movingsoon.app \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
-
-# Run the full test suite
-xcodebuild test -project movingsoon.app.xcodeproj -scheme movingsoon.app \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
-
-# Run a single test (Swift Testing syntax — see note below)
-xcodebuild test -project movingsoon.app.xcodeproj -scheme movingsoon.app \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:movingsoon.appTests/ConsentExpiryGateTests
+```sh
+xcodebuild build -project movingsoon.app.xcodeproj -scheme movingsoon.app -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project movingsoon.app.xcodeproj -scheme movingsoon.app -destination 'platform=iOS Simulator,name=iPhone 16'
 ```
 
-Or open `movingsoon.app.xcodeproj` in Xcode and press ⌘U.
+`movingsoon.appTests/movingsoon_appTests.swift` is the sole wired test suite, using `Testing` (`@Suite`, `@Test`, `#expect`, `@testable import movingsoon_app`). Add meaningful regression coverage there, not a second unwired XCTest folder. Local simulator names may differ; inspect `xcodebuild -showdestinations` when needed. Device background delivery, permissions and old-store upgrade behavior require acceptance checks beyond unit tests.
 
-**One test suite, one target:**
-- `movingsoon.appTests/movingsoon_appTests.swift` is the only test suite, wired into the `movingsoon.appTests` target and written with the Swift **Testing** framework (`@Suite` / `@Test` / `#expect`, `@testable import movingsoon_app`). This is what `xcodebuild test` runs. Add new coverage here.
-- There used to be a second, unwired legacy `movingsoonTests/` folder (XCTest-based, silently ignored by `xcodebuild test`). Its coverage was ported into `movingsoon.appTests/movingsoon_appTests.swift` and the folder was deleted — don't recreate a second test folder.
-- `GeofenceCoordinator` and `SmartReminderService` now have injected place-search, region-monitor and notification-center adapters. Their reconciliation and race behavior is covered in the same test file. Actual CoreLocation background callbacks, permissions, UI and OS delivery still require device/simulator checks.
+## Data flow and views
 
-## Architecture
+1. `CoreIntakeView` creates a move from a calendar move date, destination postal code and optional origin. The household/service interview uses three screens, not the original seven-screen plan.
+2. `LifestyleProfile` stores household answers and JSON-encoded lifestyle flags; `KnownInstitutions` supplies the selected financial organizations.
+3. `ChecklistGenerator` uses the shared declarative `ItemCatalog*.swift` definitions, explicit confirmations and independent origin/destination geographic contexts. Exclusions, confirmation requirements and household applicability must remain consistent between generation and review.
+4. `MoveChecklistService` preserves canonical catalog identity and explicit decisions; task UUIDs represent separate account instances. Do not use display titles as the primary identity. Existing titles/obsolete links have conservative migration aliases.
+5. `ContentView` routes the newest active move through intake/interview/dashboard. Archived/cancelled moves stay in the library; only one move is active after an explicit activation.
+6. `ZenDashboardView` owns dashboard orchestration. Supporting tiles/rows/timeline/milestones live in `DashboardSupportingViews.swift`; `TaskActionSheet.swift` owns task detail and guidance. `DashboardView` is the full task list. Avoid recreating duplicate view definitions in the main dashboard file.
 
-### Data flow: lifestyle flags → checklist
+The core model retains three stored task states (`toDo`, `pendingVerification`, `completed`), while normal manual completion advances directly through pending to completed. The app does not verify outside-provider completion. Use `ChecklistActions` for complete/reopen/remove: save first, then reschedule/reattach reminders only on success. Reopen clears mute and snooze. `ModelContext.saveOrLog()` returns a Bool indicating whether saving succeeded, rolls failures back and reports through `PersistenceIssueCenter`; affected entity types are refetched in the same context to refresh SwiftData's cached observed values. Views must not dismiss drafts or celebrate a failed save. The main context disables autosave so explicit-save rollback boundaries remain meaningful.
 
-The entire app pivots on one idea: a `Set<LifestyleFlag>` (100+ cases in `Models/LifestyleProfile.swift`) drives which of the 150+ `CatalogItem`s in `Services/ItemCatalog*.swift` become `ChecklistTask`s.
+## Calendar dates
 
-1. **Onboarding** (`Views/Onboarding/CoreIntakeView.swift`) collects move date + destination ZIP and creates the `Move` (SwiftData model).
-2. **Lifestyle Interview** (`Views/LifestyleInterview/LifestyleInterviewView.swift`, 7 screens) toggles `LifestyleFlag`s on the `Move`'s `LifestyleProfile` (stored as JSON-encoded `[String]`, not a native SwiftData relationship to enum cases) and financial institutions (`FinancialScreenView.swift`, backed by `Services/KnownInstitutions.swift`).
-3. **`ChecklistGenerator.generate(for:profile:institutions:)`** (`Services/ChecklistGenerator.swift`) is the single point where flags become tasks:
-   - Iterates `ItemCatalog.all` (merged from `ItemCatalog.swift` + `ItemCatalog+{Canada,Digital,Insurance,Lifestyle,Travel}.swift` extensions), applying `shouldInclude` filter logic on each `CatalogItem`: `excludes` (any match → drop, trumps everything) → `alwaysInclude` (short-circuits to include) → `requires` (must be a subset of flags, AND) → `requiresAny` (must intersect flags, OR).
-   - Generates one task per selected `FinancialInstitution`, with priority/timing derived from `InstitutionType` (banks/credit unions/mortgages are `.critical` at t-14; cards/loans `.high` at t-7; investments `.high` at t+7).
-   - USPS Mail Forwarding is `alwaysInclude` + `isHeroItem`, excluded only for `.isCanadian`; hero items are always sorted first.
-4. **`ContentView`** is a phase router (`loading → onboarding → lifestyleInterview → dashboard`) keyed off whether an "active" `Move` exists and whether it has a `LifestyleProfile` yet — there's no separate navigation stack/coordinator.
-5. **`ZenDashboardView`** is the primary UI: one "Current Objective" hero task, a "Next Up" drawer, and a completion ring computed from `Move.completionFraction`.
+`Models/DateOnly.swift` stores Gregorian `YYYY-MM-DD` components for moving day, shipment/renewal dates and custom deadlines. These are calendar dates, not UTC instants. Use the model's `moveDate(calendar:)`, `effectiveAnchorDate`, shipment/renewal/custom date accessors and setters, and existing calendar-based due-date helpers. Reminder schedules interpret dates in the current local timezone. Legacy Date fields remain for compatibility; backfill preserves the day currently displayed because the historical originating timezone was never stored. Do not replace these helpers with raw time-interval arithmetic for day-only values. Consent, snooze and event timestamps remain instants.
 
-`ChecklistTask` is a 3-state machine (`toDo → pendingVerification → completed`) via `advanceStatus()`; each transition to `completed` appends a `VerificationEvent`. `resetStatus()` undoes it and clears events.
+## Action content and postal regions
 
-### Regional intelligence (on-device, no network)
+`CatalogGuidance` returns eligibility, preparation, steps, suggested timing, source URL/title, review date and `sourceNote`. Distinguish primary-source instructions from provider-neutral checks. `actionURL(for:move:)` resolves US motor-vehicle actions to an official destination agency or the USAGov directory; do not reintroduce commercial dmv.org links. App dates are planning suggestions, not a jurisdiction deadline system. Source maintenance: `python3 scripts/check_catalog_links.py` is deterministic/offline; `--live-verify` explicitly enables public HTTP checks and leaves blocked/time-out destinations unverified.
 
-`Services/ZipBucketService.swift` maps a US ZIP prefix (3-digit, not 2 — New England/NJ, WV, and MS/TN each need that precision to avoid collapsing distinct states into one bucket) or Canadian postal-code letter to a state/province bucket (and city bucket for major metros) purely with static lookup tables — no geocoding call. Unmapped/invalid prefixes return the literal string `"US"`, not `nil` — any code branching on the bucket (e.g. `KnownInstitutions.filtered(_:forStateBucket:)`) must treat `"US"` the same as "unknown," not as a real state. `Services/KnownInstitutions.swift`'s `filtered(_:forStateBucket:)` filters *only strictly regional* banks (sourced from the FDIC BankFind API) by that state bucket; national and branchless/digital-first banks aren't touched. (There is no longer a separate RegionalIntelligenceService — it gated regional grocery/gym/ISP chips the interview never actually offered, so it was dead code and was removed.) `Services/CityBackgroundMapper.swift` uses the same bucket to pick a bundled ambient background image (with `Services/UnsplashService.swift` as the network-backed alternative). `Services/GeocoderService.swift` resolves human-readable neighborhood strings for display only, and is separate from `ZipBucketService`'s bucket logic.
+`ZipBucketService` is an offline postal-region approximation covering the 50 states/DC, explicit territory/Pacific/military postal regions and Canadian provinces/territories (including NU). It is not address validation or proof of a legal jurisdiction. Unknown/unassigned prefixes return `US`; downstream code must treat that as unknown, not as a real state. `repairRegionBuckets(for:)` repairs stale persisted destination state/city values without touching progress. `PostalCodeService` provides consistent formatting and independent origin/destination eligibility. `GeocoderService` uses Apple's service for optional display neighborhoods/coordinates.
 
-### Smart Location Reminders (geofencing + anti-nag notifications)
+Catalog files and institution directories intentionally remain flat declarative data. Add consistent IDs, applicability and maintained links in that form. Equivalent entries share a canonical ID; a new explicitly added account receives another UUID. Never assume enrollment from children, retirement, income or a postal region. `ServiceDiscoveryEngine` ranks review questions, respects remembered answers and reviewed families, and retains the seven-day unsure pause.
 
-This subsystem was built from a formal spec — see `.kiro/specs/smart-location-reminders/{requirements,design,tasks}.md` for the authoritative behavior contract before changing any of these files:
+## Reminders and location
 
-**October 5, 2026 amendment:** [LOCATION_REMINDERS_IMPLEMENTATION.md](LOCATION_REMINDERS_IMPLEMENTATION.md) describes the current behavior and supersedes the earlier API names/timing below where they differ. `ReminderPolicy`, `LocationPlaceTarget` and `ReminderScheduleBuilder` centralize eligibility, provider identity and finite schedules. `matchVisit` returns an exact task ID. `reschedule(for:)` is the single schedule-update entry point, including notification Snooze/Mute. Consent setup is available before the final 14 days, and an optional request timestamp bridges first-time authorization callbacks.
+`LOCATION_REMINDERS_IMPLEMENTATION.md` documents the current contract and supersedes older `.kiro/specs/smart-location-reminders/` names, timings and limits.
 
-- `Services/SuppressionEngine.swift` is a **stateless**, fully unit-tested gate evaluator (`shouldFire`) — six gates must *all* pass, fail-fast in order: consent-not-expired (30 days from `Move.locationConsentGrantedAt`) → move <80% complete → 9am–7pm local time → within 8000m of destination → a matching non-muted/non-snoozed `.toDo` task exists for the POI category → per-category cooldown (max 1/day, `CooldownStore`, UserDefaults-backed). Each gate is exposed as its own static function specifically so it can be tested in isolation — keep that shape when modifying.
-- `Services/GeofenceCoordinator.swift` resolves real POI coordinates near the **destination** (not the user's current location) via `MKLocalSearch`, capped at iOS's 20-geofence system limit, sorted by task urgency (`tMinusDays`).
-- `Services/LocationManager.swift` owns `CLLocationManager` authorization/delegate callbacks and is the glue that calls `SuppressionEngine` then `SmartReminderService.fireLocationNotification`.
-- `Services/SmartReminderService.swift` also runs two independent notification protocols: a daily 10am reminder for the hero task *only if* it's `.critical` priority ("anti-nag"), and a T-minus-3-days **digest** notification (one push per day summarizing all tasks due soon, not one per task).
-- Consent, once granted, is never re-requested — `locationConsentGrantedAt` on `Move` is the only source of truth; there's no separate "denied" flag to re-check.
-- **Visit-triggered layer (added after the original spec, not covered by `.kiro`'s docs)**: `LocationManager.didVisit` + `GeofenceCoordinator.matchVisitCategory` + `SuppressionEngine.shouldFireForVisit` cover POIs *anywhere* the user dwells (via `CLVisit`, Apple's lowest-power "did the user stop somewhere" API), not just the destination. This is additive to, not a replacement for, the destination geofencing above — it reuses the same `searchQuery(for:)` strings to identify what's at a visit's coordinate (not `MKPointOfInterestCategory`, whose case set doesn't cover DMV/bookstore/hardware-store anyway) and runs the same five gates minus the 8000m distance gate (a visit is its own proximity signal). Requires `.authorizedAlways`, same as background geofence delivery — `syncGeofencesIfActive()` is the single call site that starts both.
-- `Services/NotificationBudget.swift` caps immediate-fire notifications (geofence + visit) at 2/day combined, and also checks already-*delivered* notifications for today (via `UNUserNotificationCenter.deliveredNotifications()`) to avoid piling one on top of a hero/digest that already landed. It cannot gate the hero/digest channels themselves — those are pre-scheduled `UNCalendarNotificationTrigger`s delivered by the OS with no app code running at delivery time to consult it.
-- `SmartReminderService.scheduleReengagementReminder` is the one channel keyed to user *inactivity* rather than a task due-date — rescheduled forward every time the dashboard loads, so it only fires during a real gap in engagement. `schedulePostMoveCheckIn` is the one channel that must NOT depend on continued engagement (its purpose is winning back someone who's stopped opening the app), so it's scheduled once, T+14 days from `move.anchorDate`, as a single already-queued OS trigger.
-- `Move.completionCelebratedAt` gates the one-time whole-move finale (confetti-free, an animated checkmark overlay + `SKStoreReviewController.requestReview`) in `ZenDashboardView` — fires once per move when `pendingTasks` first becomes empty, not on every dashboard load while still at 100%.
+- `ReminderPolicy` centralizes eligibility, revision inputs and explicit consent. Location consent has an explicit 30-day request; customers may stop immediately or explicitly start another window after stopping/expiry. Authorization callbacks never silently extend it.
+- `LocationConsentRenewal` prequeues one expiry invitation per consent cycle while eligible critical tasks remain. It reserves one notification slot, honors quiet hours and uses an explicitly zoned trigger. Already-past notice dates are not requeued; the dashboard offers review instead. Dedicated delegate/router handling opens Reminders and never opts in. Explicit Stop suppresses invitations. Successful grant/stop saves reconcile the schedule.
+- `ReminderControlsView` keeps notification settings accessible without location consent and displays consent expiry, schedule coverage, deferred alerts and errors. `TaskReminderControls` exposes mute/unmute and snooze recovery.
+- `LocationPlaceTarget` resolves named catalog providers, financial institutions and explicitly entered provider names. Unsupported/unknown generic personal providers remain regular checklist reminders. Certain government/mechanic checks intentionally match a place type.
+- `LocationRegionPlan` produces all eligible account targets sorted by due date. The coordinator deduplicates destination zones by provider/target and monitors at most 20. Accounts sharing a provider share a zone; the earliest eligible account is selected. Visit matching searches all eligible unique targets instead of truncating to the destination-region limit.
+- `GeofenceCoordinator` uses injected place-search/region-monitor adapters, reconciles the actual monitored system regions and invalidates stale asynchronous searches. No guessed destination zone is registered for unknown coordinates.
+- `SuppressionEngine` remains stateless and independently testable: active consent, <80% completion, daytime, task eligibility, category cooldown and destination distance where applicable. Visit events have their own recency/accuracy checks. `NotificationBudget` independently caps nearby alert submissions at two per local day; scheduled morning/date alerts do not consume that allowance, and clearing Notification Center does not reset it. It cannot universally gate already-queued OS calendar alerts.
+- `ReminderScheduleBuilder` builds finite one-shot requests within a rolling 30-day date window. Critical check-ins cover seven days. Its plan returns coverage/deferred-capacity metadata. Same-day account events batch together. The app reserves at most 60 requests, respects other pending requests, and tells customers to reopen/refresh; far-future dates stay on the checklist even when their alerts are not yet queued.
+- `SmartReminderService` serializes schedule reconciliation so the latest saved edit wins. All surfaces/notification actions must reschedule through it after a successful save. Background region/visit delivery requires Always authorization and notifications; continuous updates run only during consented foreground use. iOS controls actual delivery.
 
-### Privacy telemetry
+## Lifecycle, sharing and privacy
 
-`Models/PendingSignal.swift` is an on-device queue model (Laplace noise on embeddings, timestamps floored to the hour, persona/region buckets only — no PII). `Services/SignalEmitter.swift` is its writer — called from `AddMoreServicesView.swift` and `ZenDashboardView.swift` on every MoveImpactEngine suggestion accept/reject — so it's live, not dormant. There is still no transmission path out of the on-device queue (`isPending` stays `true` forever); that's a deliberate, not-yet-built next step, not a bug. `Move.personaKey` derives persona lazily from `LifestyleProfile` flags — there is no separate persona-from-onboarding-answers engine (an earlier one, `PersonaEngine.swift`, was unused and removed).
+`MoveLifecycleService` archives/cancels without deleting progress and removes active reminder consent. Reactivating a saved move archives any other active move and requires a fresh nearby-reminder choice. `MoveLibraryView` exposes saved moves, readable checklist sharing and versioned JSON export/restore.
 
-### Catalog/institution data files
+`MoveBackupService` exports household answers, account/task fields, notes and progress to a user-selected file. Restore validates version/size/counts and creates new archived identities; existing moves are not overwritten and restored consent/Census lookups stay off. Backups are local user-managed files, not device synchronization. Shared content can contain personal notes; preserve the UI's disclosure before export/share.
 
-October 7 expansion: `ItemCatalog+Recurring.swift` adds 52 definitions; `CatalogTopic.swift` provides 19 focused browsing topics, prompts and move guidance. Catalog search uses `CatalogItem.matchesSearch`. The recurring-account UI is catalog-driven, while `ServiceEvidenceCatalog` retains its separate 25-entry research contract. Brand flags must be explicit; generic additions require confirmation. Read `CATALOG_REVIEW.md` for sources, legacy-title/link handling and coverage limits.
+No account/login, third-party analytics or cloud sync is integrated. Background images are bundled through `CityBackgroundMapper`; live Unsplash services/models were removed. Optional Census area snapshots require saved opt-in and send entered US ZIPs to Census; cached estimates remain public area context, not household facts. MapKit/geocoding use Apple services for postal/POI lookups. `PendingSignal` is a legacy on-device queue with no transmission path. No income-based membership ranking rule is enabled; the research feature contract is not a customer study consent or data upload.
 
-`Services/ItemCatalog*.swift` and `Services/KnownInstitutions.swift` are large, flat, declarative data files (arrays of `CatalogItem`/`KnownInstitution` struct literals with brand colors, deep-link URLs, flag requirements). When adding a new addressable service or institution, follow the existing literal style in the relevant file rather than introducing new abstractions — these files are intentionally just data.
+The owner-confirmed product domain is `https://movingsoon.app` and preferred support email is `support@movingsoon.app`; GitHub Issues remains a support fallback. The website, `/support/` and `/privacy/` pages were verified live over HTTPS on October 24, 2026. Use these domain URLs in the app and store metadata, and recheck before submission. Keep `Services/SupportLinks.swift`, store metadata, README and privacy contact details aligned. Do not post externally as part of a local code/content review unless the user explicitly authorizes publication.
 
-### Design system
-
-`Theme.swift` is the single source for colors/typography ("Calm Confidence" navy + electric-blue palette, dark-mode only — `ContentView` forces `.preferredColorScheme(.dark)`). Priority/status colors (`priorityCritical`, `accentSuccess`, etc.) are defined once there and should be reused rather than hardcoded in views.
+Use `Theme.swift` for shared colors and Dynamic Type-aware typography. Follow existing accessibility semantics and avoid capping accessibility text sizes or introducing fixed-point body text. Check public store/support/privacy links and truthful scope in `APP_STORE_LISTING.md`, `PRIVACY_POLICY.md` and `CATALOG_REVIEW.md` before a release.

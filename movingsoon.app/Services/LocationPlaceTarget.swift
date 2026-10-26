@@ -16,7 +16,7 @@ struct LocationPlaceTarget: Equatable {
         }
     }
 
-    private static func normalized(_ text: String) -> String {
+    static func normalized(_ text: String) -> String {
         let folded = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .replacingOccurrences(of: "&", with: " and ")
         return " " + folded.components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -25,11 +25,19 @@ struct LocationPlaceTarget: Equatable {
 
     @MainActor static func forTask(_ task: ChecklistTask) -> LocationPlaceTarget? {
         guard let category = task.poiCategory else { return nil }
+        let item = MoveChecklistService.catalogID(for: task).flatMap { ItemCatalog.byID[$0] }
+        if let provider = task.accountProviderName?.trimmingCharacters(in: .whitespacesAndNewlines), !provider.isEmpty {
+            if let query = item?.placeSearchName, let aliases = item?.placeNameAliases,
+               ([query] + aliases).contains(where: { normalized($0) == normalized(provider) }) {
+                return LocationPlaceTarget(query: query, acceptedNames: aliases, category: category)
+            }
+            return LocationPlaceTarget(query: provider, acceptedNames: [provider], category: category)
+        }
         if let institution = task.institutionName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !institution.isEmpty {
             return LocationPlaceTarget(query: institution, acceptedNames: [institution], category: category)
         }
-        guard let id = MoveChecklistService.catalogID(for: task), let item = ItemCatalog.byID[id] else { return nil }
+        guard let id = MoveChecklistService.catalogID(for: task), let item else { return nil }
         if let query = item.placeSearchName, !item.placeNameAliases.isEmpty {
             return LocationPlaceTarget(query: query, acceptedNames: item.placeNameAliases, category: category)
         }
@@ -59,7 +67,7 @@ enum LocationRegionPlan {
     @MainActor static func requests(for move: Move, destination: CLLocationCoordinate2D,
                                     now: Date = Date()) -> [LocationRegionRequest] {
         move.tasks.filter { ReminderPolicy.isEligible($0, at: now) }
-            .sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
+            .sorted { $0.isDueBefore($1, moveDate: move.effectiveAnchorDate) }
             .compactMap { task in
                 guard let target = LocationPlaceTarget.forTask(task) else { return nil }
                 if let id = MoveChecklistService.catalogID(for: task), let item = ItemCatalog.byID[id],
@@ -67,10 +75,14 @@ enum LocationRegionPlan {
                     return nil
                 }
                 let signature = [move.id.uuidString, move.destinationZip, String(destination.latitude),
-                                 String(destination.longitude), target.query, target.acceptedNames.joined(separator: ",")]
+                                 String(destination.longitude), target.category.rawValue,
+                                 LocationPlaceTarget.normalized(target.query),
+                                 target.acceptedNames.map(LocationPlaceTarget.normalized).sorted().joined(separator: ",")]
                     .joined(separator: "|")
                 let hash = SHA256.hash(data: Data(signature.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
-                return LocationRegionRequest(identifier: "loc2|\(task.id.uuidString)|\(hash)", taskID: task.id, target: target)
+                // Accounts at the same provider share one zone. The sorted request
+                // list selects the earliest eligible account when that zone fires.
+                return LocationRegionRequest(identifier: "loc3|\(hash)", taskID: task.id, target: target)
             }
     }
 }

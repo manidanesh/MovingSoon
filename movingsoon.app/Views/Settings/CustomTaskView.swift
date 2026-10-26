@@ -3,16 +3,24 @@ import SwiftData
 
 struct CustomTaskView: View {
     let move: Move
+    let task: ChecklistTask?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var family: ReviewFamily = .home
-    @State private var note = ""
+    @State private var title: String
+    @State private var category: TaskCategory
+    @State private var note: String
     @State private var dueDate: Date
+    @State private var errorMessage: String?
+    @State private var saving = false
 
-    init(move: Move) {
+    init(move: Move, task: ChecklistTask? = nil) {
         self.move = move
-        _dueDate = State(initialValue: max(Date(), move.anchorDate))
+        self.task = task
+        _title = State(initialValue: task?.title ?? "")
+        _category = State(initialValue: task?.category ?? .utilities)
+        _note = State(initialValue: task?.customerNote ?? "")
+        _dueDate = State(initialValue: task?.baseDueDate(moveDate: move.effectiveAnchorDate)
+            ?? max(Calendar.current.startOfDay(for: Date()), move.effectiveAnchorDate))
     }
 
     var body: some View {
@@ -20,8 +28,8 @@ struct CustomTaskView: View {
             Form {
                 Section("Who needs your new address?") {
                     TextField("Service or organization", text: $title)
-                    Picker("Category", selection: $family) {
-                        ForEach(ReviewFamily.allCases) { Text($0.title).tag($0) }
+                    Picker("Category", selection: $category) {
+                        ForEach(TaskCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     DatePicker("Remind me by", selection: $dueDate, displayedComponents: .date)
                 }
@@ -32,20 +40,34 @@ struct CustomTaskView: View {
                 Section {
                     Text("Your item and note are saved on this device.")
                         .font(.caption).foregroundStyle(.secondary)
+                    if task?.status == .completed {
+                        Text("This item stays complete. Reopen it from All tasks if you need reminders again.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(Theme.priorityCritical) } }
             }
-            .navigationTitle("Add your own item")
+            .navigationTitle(task == nil ? "Add your own item" : "Edit your item")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        if MoveChecklistService.addCustom(title: String(title.prefix(160)), family: family,
-                            dueDate: dueDate, note: String(note.prefix(1000)), to: move, in: modelContext) != nil {
-                            dismiss()
-                        }
-                    }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(task == nil ? "Add" : "Save", action: save)
+                        .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
+    }
+
+    private func save() {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            try CustomTaskService.save(title: title, category: category, dueDate: dueDate, note: note,
+                                       task: task, move: move, context: modelContext)
+            SmartReminderService.shared.reschedule(for: move)
+            LocationManager.shared.attach(move, context: modelContext)
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
     }
 }

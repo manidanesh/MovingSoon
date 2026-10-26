@@ -1,43 +1,32 @@
-// NotificationBudget.swift — a soft daily cap across ALL notification channels combined
+// NotificationBudget.swift — a daily cap for immediate nearby reminders
 import Foundation
-import UserNotifications
 
-/// `SuppressionEngine`'s cooldown gate caps firing *per POI category*, but nothing
-/// previously stopped a geofence hit and a visit-triggered hit (different categories)
-/// from both firing the same day, on top of whatever the hero/digest channels already
-/// sent. This is only enforceable for the two channels fired by our own code at the
-/// moment of delivery (geofence entry, visit match) — the hero and T-minus digest
-/// channels are pre-scheduled via `UNCalendarNotificationTrigger` and delivered by the
-/// OS with no app code running at delivery time to consult this budget. So this also
-/// checks already-delivered notifications for today, to avoid piling a third
-/// immediate notification on top of a hero/digest that already landed.
+/// Date reminders are scheduled separately by iOS. A morning check-in must not
+/// disable nearby reminders, and clearing Notification Center must not reset this
+/// limit. Count successful nearby submissions in persistent local-day storage.
 enum NotificationBudget {
-    private static let maxImmediatePerDay = 2
+    static let maximumNearbyPerDay = 2
     private static let countKey = "com.movingsoon.notificationBudget.count"
     private static let dayKey = "com.movingsoon.notificationBudget.day"
 
     /// True if firing one more immediate (geofence/visit) notification today would
     /// stay within budget.
-    static func hasRoomToday(defaults: UserDefaults = .standard) async -> Bool {
-        guard countToday(defaults: defaults) < maxImmediatePerDay else { return false }
-
-        let today = Date()
-        let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
-        let heroOrDigestAlreadyDeliveredToday = delivered.contains { notification in
-            Calendar.current.isDate(notification.date, inSameDayAs: today) &&
-            (notification.request.identifier == "HeroTaskReminder" ||
-             notification.request.identifier == "HeroTaskReminderEvening" ||
-             notification.request.identifier.hasPrefix("Hero-") ||
-             notification.request.identifier.hasPrefix("Digest-"))
-        }
-        return !heroOrDigestAlreadyDeliveredToday
+    static func hasRoomToday(defaults: UserDefaults = .standard, now: Date = Date(),
+                             calendar: Calendar = .current) async -> Bool {
+        remainingToday(defaults: defaults, now: now, calendar: calendar) > 0
     }
 
-    /// Call immediately after an immediate (geofence/visit) notification is actually fired.
-    static func recordFired(defaults: UserDefaults = .standard) {
-        let today = Calendar.current.startOfDay(for: Date())
+    static func remainingToday(defaults: UserDefaults = .standard, now: Date = Date(),
+                               calendar: Calendar = .current) -> Int {
+        max(0, maximumNearbyPerDay - countToday(defaults: defaults, now: now, calendar: calendar))
+    }
+
+    /// Call after iOS accepts an immediate (geofence/visit) notification request.
+    static func recordFired(defaults: UserDefaults = .standard, now: Date = Date(),
+                            calendar: Calendar = .current) {
+        let today = calendar.startOfDay(for: now)
         if let storedDay = defaults.object(forKey: dayKey) as? Date,
-           Calendar.current.isDate(storedDay, inSameDayAs: today) {
+           calendar.isDate(storedDay, inSameDayAs: today) {
             defaults.set(defaults.integer(forKey: countKey) + 1, forKey: countKey)
         } else {
             defaults.set(today, forKey: dayKey)
@@ -45,10 +34,9 @@ enum NotificationBudget {
         }
     }
 
-    private static func countToday(defaults: UserDefaults) -> Int {
-        let today = Calendar.current.startOfDay(for: Date())
+    private static func countToday(defaults: UserDefaults, now: Date, calendar: Calendar) -> Int {
         guard let storedDay = defaults.object(forKey: dayKey) as? Date,
-              Calendar.current.isDate(storedDay, inSameDayAs: today) else { return 0 }
-        return defaults.integer(forKey: countKey)
+              calendar.isDate(storedDay, inSameDayAs: now) else { return 0 }
+        return max(0, defaults.integer(forKey: countKey))
     }
 }

@@ -10,13 +10,14 @@ enum Theme {
     // MARK: - Text
     static let textPrimary   = Color(hex: "#F9FAFB")   // Near white, slightly warm
     static let textSecondary = Color(hex: "#9CA3AF")   // Neutral grey
-    static let textTertiary  = Color(hex: "#4B5563")   // Muted
+    static let textTertiary  = Color(hex: "#94A3B8")   // Readable muted text on navy surfaces
 
     // MARK: - Dividers
     static let hairline = Color(hex: "#1F2937")
 
     // MARK: - Primary accent — Electric Blue (calm, trustworthy, actionable)
     static let accentPrimary = Color(hex: "#3B82F6")   // Blue
+    static let accentButton  = Color(hex: "#2563EB")   // White small-label contrast
 
     // MARK: - Semantic colors
     static let accentSuccess = Color(hex: "#22C55E")   // Green — "done, safe, handled"

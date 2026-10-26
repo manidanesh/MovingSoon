@@ -13,6 +13,7 @@ struct DashboardView: View {
     /// services itself. Defaults to a no-op so existing call sites still compile.
     var onTaskRemoved: (ChecklistTask) -> Void = { _ in }
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var filter: TaskFilter = .pending
     @State private var searchText: String = ""
     // Circle tap opens this instead of completing instantly — same reasoning as the
@@ -39,7 +40,7 @@ struct DashboardView: View {
         case .overdue:
             tasks = move.tasks.filter { task in
                 guard task.status != .completed else { return false }
-                let due = task.dueDate(moveDate: move.anchorDate, calendar: calendar)
+                let due = task.dueDate(moveDate: move.effectiveAnchorDate, calendar: calendar)
                 return calendar.startOfDay(for: due) < today
             }
         case .critical:
@@ -62,7 +63,7 @@ struct DashboardView: View {
             }
         }
 
-        return tasks.sorted { $0.isDueBefore($1, moveDate: move.anchorDate) }
+        return tasks.sorted { $0.isDueBefore($1, moveDate: move.effectiveAnchorDate) }
     }
 
     var body: some View {
@@ -83,6 +84,7 @@ struct DashboardView: View {
                                 .foregroundColor(Theme.textPrimary)
                         }
                         Spacer()
+                        if !typeSize.isAccessibilitySize {
                         ZStack {
                             Circle()
                                 .stroke(Theme.backgroundElevated, lineWidth: 5)
@@ -102,6 +104,8 @@ struct DashboardView: View {
                             }
                         }
                         .frame(width: 54, height: 54)
+                        .accessibilityHidden(true)
+                        }
                     }
 
                     // Progress bar
@@ -190,7 +194,7 @@ struct DashboardView: View {
                             ForEach(allTasks) { task in
                                 UnifiedTaskRow(
                                     task: task,
-                                    moveDate: move.anchorDate,
+                                    moveDate: move.effectiveAnchorDate,
                                     onTap: { selectedTask = task },
                                     onComplete: { toggleTask(task) }
                                 )
@@ -206,7 +210,6 @@ struct DashboardView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.backgroundPrimary, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .dynamicTypeSize(...(.accessibility1))
         .sheet(item: $selectedTask) { task in
             TaskActionSheet(
                 task: task,
@@ -217,7 +220,7 @@ struct DashboardView: View {
                 onUpdateNow: {
                     // Opens the link only — does not auto-complete, matching the main
                     // dashboard's Update Now, which likewise only starts the process.
-                    if let url = task.deepLinkURL {
+                    if let url = task.actionURL {
                         UIApplication.shared.open(url)
                     }
                     selectedTask = nil
@@ -228,7 +231,7 @@ struct DashboardView: View {
                     selectedTask = nil
                 }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
@@ -243,13 +246,7 @@ struct DashboardView: View {
     private func removeTaskNotApplicable(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
-        MoveChecklistService.recordDismissal(task, for: move)
-        withAnimation {
-            move.tasks.removeAll { $0.id == task.id }
-            modelContext.delete(task)
-            modelContext.saveOrLog()
-        }
-        onTaskRemoved(task)
+        if ChecklistActions.remove(task, from: move, in: modelContext) { onTaskRemoved(task) }
     }
 
     private func countFor(_ tab: TaskFilter) -> Int {
@@ -260,7 +257,7 @@ struct DashboardView: View {
         case .overdue:
             return move.tasks.filter { task in
                 guard task.status != .completed else { return false }
-                let due = task.dueDate(moveDate: move.anchorDate, calendar: calendar)
+                let due = task.dueDate(moveDate: move.effectiveAnchorDate, calendar: calendar)
                 return calendar.startOfDay(for: due) < today
             }.count
         case .critical:  return move.tasks.filter { $0.priority == .critical && $0.status != .completed }.count
@@ -289,16 +286,8 @@ struct DashboardView: View {
     private func toggleTask(_ task: ChecklistTask) {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
-        withAnimation {
-            if task.status == .completed {
-                task.resetStatus()
-                move.completionCelebratedAt = nil
-            } else {
-                task.advanceStatus()
-                if task.status == .pendingVerification { task.advanceStatus() }
-            }
-            modelContext.saveOrLog()
-        }
+        if task.status == .completed { ChecklistActions.reopen(task, in: modelContext) }
+        else { ChecklistActions.complete(task, in: modelContext) }
     }
 }
 
@@ -365,7 +354,7 @@ struct UnifiedTaskRow: View {
 
             // Icon
             if let emoji = task.institutionInitials, task.institutionName == nil {
-                Text(emoji).themeText(22).frame(width: 36, height: 36)
+                Text(emoji).themeText(22).frame(width: 44, height: 44)
             } else if task.institutionName != nil {
                 InstitutionBadgeView(
                     initials: task.institutionInitials ?? "?",
@@ -378,7 +367,7 @@ struct UnifiedTaskRow: View {
                         .fill(Color(hex: task.institutionColorHex ?? "#626567").opacity(0.15))
                     Text(task.category.emoji).themeText(16)
                 }
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
             }
 
             // Title + subtitle
@@ -407,7 +396,7 @@ struct UnifiedTaskRow: View {
 
             // Deep link — a distinct, explicitly link-shaped affordance, separate
             // from the row's own "open the action sheet" tap target below.
-            if let url = task.deepLinkURL, task.status != .completed {
+            if let url = task.actionURL, task.status != .completed {
                 Button {
                     UIApplication.shared.open(url)
                 } label: {

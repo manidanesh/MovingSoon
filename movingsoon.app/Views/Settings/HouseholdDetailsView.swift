@@ -85,7 +85,7 @@ struct HouseholdDetailsView: View {
                     Button("Save") {
                         guard let profile = move.lifestyleProfile else { return }
                         vm.saveHousehold(to: profile)
-                        MoveChecklistService.addRelevantTasks(for: move, in: modelContext)
+                        guard MoveChecklistService.addRelevantTasks(for: move, in: modelContext) else { return }
                         dismiss()
                     }
                 }

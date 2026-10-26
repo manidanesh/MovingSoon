@@ -352,8 +352,8 @@ struct LocationRegionRegressionTests {
         let move = ReminderFixtures.move(tasks: (0..<25).map { _ in ReminderFixtures.task() })
         let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
         await coordinator.syncGeofences(requests: plan, destination: ReminderFixtures.destination, manager: monitor)
-        #expect(monitor.monitoredRegions.count == 20)
-        #expect(monitor.peakCount == 20)
+        #expect(monitor.monitoredRegions.count == 1)
+        #expect(monitor.peakCount == 1)
         #expect(search.calls.count == 1)
     }
 
@@ -442,8 +442,11 @@ struct ReminderScheduleRegressionTests {
             return task
         }
         let move = ReminderFixtures.move(tasks: tasks)
-        let requests = ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now, calendar: ReminderFixtures.calendar)
-        #expect(requests.count == 60)
+        let plan = ReminderScheduleBuilder.plan(for: move, now: ReminderFixtures.now, calendar: ReminderFixtures.calendar)
+        let requests = plan.requests
+        #expect(!requests.isEmpty && requests.count <= ReminderScheduleBuilder.maximumRequests)
+        #expect(requests.allSatisfy { (ReminderFixtures.fireDate($0) ?? .distantFuture) <= plan.coverage.horizonEnd })
+        #expect(plan.coverage.deferredRequestCount > 0)
         #expect(Set(requests.map(\.identifier)).count == requests.count)
         move.phaseRaw = MovePhase.archived.rawValue
         #expect(ReminderScheduleBuilder.requests(for: move, now: ReminderFixtures.now).isEmpty)
@@ -1338,7 +1341,7 @@ struct ChecklistGeneratorCoreTests {
 
     @Test func minimumTaskCount_baselineAmericanUser() {
         let tasks = ChecklistGenerator.generate(for: makeMove(), profile: makeProfile(flags: [.isAmerican]), institutions: [])
-        #expect(tasks.count > 10, "Should generate at least 10 tasks for a baseline US user")
+        #expect(tasks.count >= 10, "Should generate at least 10 tasks for a baseline US user; eligibility-sensitive services require confirmation")
     }
 
     @Test func taskCount_increasesWithMoreFlags() {
@@ -2281,5 +2284,1300 @@ struct ServiceUseResponseTests {
         #expect(restored.tasks.count == 1)
         #expect(restored.tasks.first?.status == .completed)
         #expect(restored.serviceResponses["lifetime"]?.decision == .confirmed)
+    }
+}
+
+// MARK: - Calendar-only dates and transactional account/custom editing
+
+private enum CalendarDateFixtures {
+    static func calendar(_ zone: String) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        return calendar
+    }
+    static let east = calendar("America/New_York")
+    static let west = calendar("America/Los_Angeles")
+    static func date(_ key: String, calendar: Calendar = east) -> Date {
+        DateOnly.date(from: key, calendar: calendar)!
+    }
+    @MainActor static func move() -> Move {
+        Move(anchorDate: date("2026-12-15"), originZip: "10001", destinationZip: "90001",
+             destinationStateBucket: "CA", destinationCityBucket: "LOS_ANGELES", calendar: east)
+    }
+    @MainActor static func container(url: URL? = nil) throws -> ModelContainer {
+        let schema = Schema([Move.self, ChecklistTask.self, LifestyleProfile.self,
+                             FinancialInstitution.self, VerificationEvent.self, PendingSignal.self])
+        let config = url.map { ModelConfiguration(schema: schema, url: $0) }
+            ?? ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [config])
+    }
+}
+
+@Suite("DateOnly — stable calendar components")
+struct DateOnlyRegressionTests {
+    @Test func validatesLeapDaysAndRejectsMalformedDates() {
+        #expect(DateOnly.date(from: "2028-02-29") != nil)
+        for value in ["2026-02-29", "2026-02-30", "2026-13-01", "2026-00-10", "2026-1-02", "0000-01-01", "2026-10-20extra", "２０２６-10-20"] {
+            #expect(DateOnly.date(from: value) == nil)
+        }
+    }
+
+    @Test func maintainsCalendarDayWhenMovingWestAcrossDST() throws {
+        let entered = CalendarDateFixtures.date("2026-11-02")
+        let key = DateOnly.string(from: entered, calendar: CalendarDateFixtures.east)
+        let moved = try #require(DateOnly.date(from: key, calendar: CalendarDateFixtures.west))
+        #expect(DateOnly.string(from: moved, calendar: CalendarDateFixtures.west) == "2026-11-02")
+        let lead = try #require(CalendarDateFixtures.west.date(byAdding: .day, value: -3, to: moved))
+        #expect(DateOnly.string(from: lead, calendar: CalendarDateFixtures.west) == "2026-10-30")
+    }
+
+    @Test func preferredCalendarDoesNotChangeGregorianStorage() throws {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = CalendarDateFixtures.east.timeZone
+        let date = CalendarDateFixtures.date("2026-11-02")
+        #expect(DateOnly.string(from: date, calendar: buddhist) == "2026-11-02")
+        #expect(DateOnly.date(from: "2026-11-02", calendar: buddhist) == date)
+    }
+}
+
+@MainActor @Suite("Dates and accounts — persistence and editing")
+struct DateAccountRegressionTests {
+    @Test func moveGetterSetterAndEventDeadlinesKeepTheirCalendarDay() throws {
+        let move = CalendarDateFixtures.move()
+        #expect(move.anchorDateOnly == "2026-12-15")
+        #expect(DateOnly.string(from: move.moveDate(calendar: CalendarDateFixtures.west), calendar: CalendarDateFixtures.west) == "2026-12-15")
+        move.setMoveDate(CalendarDateFixtures.date("2027-01-20", calendar: CalendarDateFixtures.west), calendar: CalendarDateFixtures.west)
+        #expect(move.anchorDateOnly == "2027-01-20")
+        move.effectiveAnchorDate = DateOnly.date(from: "2027-02-20")!
+        #expect(DateOnly.string(from: move.effectiveAnchorDate) == "2027-02-20")
+        let task = ChecklistTask(title: "Delivery", category: .subscriptions, priority: .medium, tMinusDays: 0)
+        task.setShipmentDate(CalendarDateFixtures.date("2026-11-02"), calendar: CalendarDateFixtures.east)
+        task.accountReminderLeadDays = 3
+        let due = task.dueDate(moveDate: move.moveDate(calendar: CalendarDateFixtures.west), calendar: CalendarDateFixtures.west)
+        #expect(DateOnly.string(from: due, calendar: CalendarDateFixtures.west) == "2026-10-30")
+        task.setShipmentDate(nil)
+        #expect(task.nextShipmentDate == nil && task.nextShipmentDateOnly == nil)
+    }
+
+    @Test func legacyBackfillUsesExplicitSourceTimezoneAndIsIdempotent() {
+        let move = CalendarDateFixtures.move()
+        move.anchorDateOnly = nil
+        let task = ChecklistTask(title: "Legacy", category: .other, priority: .medium, tMinusDays: 0, isUserAdded: true)
+        task.nextShipmentDate = CalendarDateFixtures.date("2026-11-02")
+        task.nextRenewalDate = CalendarDateFixtures.date("2026-11-04")
+        task.absoluteDueDate = CalendarDateFixtures.date("2026-11-01")
+        task.move = move
+        move.tasks = [task]
+        #expect(move.backfillDateOnlyValues(calendar: CalendarDateFixtures.east))
+        #expect(move.dateOnlyBackfillTimeZoneIdentifier == "America/New_York")
+        #expect(task.nextShipmentDateOnly == "2026-11-02")
+        #expect(task.nextRenewalDateOnly == "2026-11-04")
+        #expect(task.absoluteDueDateOnly == "2026-11-01")
+        #expect(!move.backfillDateOnlyValues(calendar: CalendarDateFixtures.west))
+        #expect(DateOnly.string(from: task.shipmentDate(calendar: CalendarDateFixtures.west)!, calendar: CalendarDateFixtures.west) == "2026-11-02")
+    }
+
+    @Test func accountCreateEditDuplicateValidationAndClearDates() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["amazon"])
+        var draft = ServiceAccountDraft(item: item)
+        draft.providerName = "Delivery provider"
+        draft.nickname = "Family"
+        draft.website = "example.com"
+        draft.shipmentDate = CalendarDateFixtures.date("2026-11-02")
+        draft.renewalDate = CalendarDateFixtures.date("2026-12-01")
+        draft.leadDays = 7
+        let task = try ServiceAccountService.save(draft, task: nil, item: item, move: move, context: context, calendar: CalendarDateFixtures.east)
+        #expect(task.nextShipmentDateOnly == "2026-11-02")
+        #expect(task.nextRenewalDateOnly == "2026-12-01")
+        #expect(task.deepLinkURLString == "https://example.com")
+        #expect(throws: ServiceAccountService.SaveError.self) {
+            try ServiceAccountService.save(draft, task: nil, item: item, move: move, context: context, calendar: CalendarDateFixtures.east)
+        }
+        #expect(move.tasks.count == 1)
+        task.advanceStatus(); task.advanceStatus()
+        var edited = ServiceAccountDraft(task: task, item: item, calendar: CalendarDateFixtures.west)
+        #expect(DateOnly.string(from: edited.shipmentDate!, calendar: CalendarDateFixtures.west) == "2026-11-02")
+        edited.providerName = "New provider"
+        edited.shipmentDate = nil
+        edited.renewalDate = nil
+        let same = try ServiceAccountService.save(edited, task: task, item: item, move: move, context: context, calendar: CalendarDateFixtures.west)
+        #expect(same.id == task.id && same.status == .completed)
+        #expect(task.accountProviderName == "New provider")
+        #expect(task.nextShipmentDateOnly == nil && task.nextShipmentDate == nil)
+        #expect(task.nextRenewalDateOnly == nil && task.nextRenewalDate == nil)
+    }
+
+    @Test func invalidAccountInputNeverPartiallyRenamesTask() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["amazon"])
+        let task = MoveChecklistService.confirm(item, for: move, in: context)
+        let title = task.title
+        var draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "Changed"
+        draft.website = "javascript:alert(1)"
+        #expect(throws: ServiceAccountService.SaveError.self) {
+            try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        }
+        #expect(task.title == title && task.accountProviderName == nil)
+    }
+
+    @Test func customEditorChangesAllDetailsWhileKeepingStatusAndAbsoluteDate() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let task = try CustomTaskService.save(title: "Old title", category: .utilities,
+            dueDate: CalendarDateFixtures.date("2026-11-02"), note: "Old note", move: move, context: context, calendar: CalendarDateFixtures.east)
+        task.advanceStatus(); task.advanceStatus()
+        let edited = try CustomTaskService.save(title: "  New title  ", category: .healthcare,
+            dueDate: CalendarDateFixtures.date("2026-11-09", calendar: CalendarDateFixtures.west), note: "  New note  ",
+            task: task, move: move, context: context, calendar: CalendarDateFixtures.west)
+        #expect(edited.id == task.id && edited.status == .completed)
+        #expect(task.title == "New title" && task.category == .healthcare && task.customerNote == "New note")
+        #expect(task.absoluteDueDateOnly == "2026-11-09")
+        move.setMoveDate(CalendarDateFixtures.date("2027-03-01"), calendar: CalendarDateFixtures.east)
+        #expect(DateOnly.string(from: task.baseDueDate(moveDate: move.moveDate(calendar: CalendarDateFixtures.east), calendar: CalendarDateFixtures.east), calendar: CalendarDateFixtures.east) == "2026-11-09")
+        #expect(throws: CustomTaskService.SaveError.self) {
+            try CustomTaskService.save(title: "  ", category: .other, dueDate: Date(), note: "", task: task, move: move, context: context)
+        }
+        #expect(task.title == "New title")
+    }
+
+    @Test func dateOnlyAndEditedDetailsSurviveOnDiskStoreReopen() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("movingsoon-date-store-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("Checklist.store")
+        func write() throws {
+            let container = try CalendarDateFixtures.container(url: url)
+            let context = ModelContext(container)
+            let move = CalendarDateFixtures.move()
+            context.insert(move)
+            let task = try CustomTaskService.save(title: "Records", category: .healthcare,
+                dueDate: CalendarDateFixtures.date("2026-11-02"), note: "Confirmation ABC", move: move,
+                context: context, calendar: CalendarDateFixtures.east)
+            task.setRenewalDate(CalendarDateFixtures.date("2026-11-10"), calendar: CalendarDateFixtures.east)
+            try context.save()
+        }
+        try autoreleasepool { try write() }
+        let reopened = try CalendarDateFixtures.container(url: url)
+        let context = ModelContext(reopened)
+        let move = try #require(context.fetch(FetchDescriptor<Move>()).first)
+        let task = try #require(move.tasks.first)
+        #expect(move.anchorDateOnly == "2026-12-15")
+        #expect(task.absoluteDueDateOnly == "2026-11-02" && task.nextRenewalDateOnly == "2026-11-10")
+        #expect(task.category == .healthcare && task.customerNote == "Confirmation ABC")
+        #expect(DateOnly.string(from: task.renewalDate(calendar: CalendarDateFixtures.west)!, calendar: CalendarDateFixtures.west) == "2026-11-10")
+    }
+}
+
+@MainActor @Suite("Reminder controls, renewed consent, provider capacity and queue coverage")
+struct ReminderControlFixTests {
+    @Test func expiredConsentOnlyRenewsAfterAnExplicitNewRequest() {
+        let move = ReminderFixtures.move()
+        let old = ReminderFixtures.now.addingTimeInterval(-31 * 86400)
+        move.locationConsentGrantedAt = old
+        move.locationConsentRequestedAt = old
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        #expect(!ReminderPolicy.consentIsActive(for: move, now: ReminderFixtures.now))
+        ReminderPolicy.beginConsentRequest(for: move, now: ReminderFixtures.now)
+        #expect(move.locationConsentGrantedAt == old)
+        #expect(ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        #expect(move.locationConsentGrantedAt == ReminderFixtures.now)
+        #expect(ReminderPolicy.consentIsActive(for: move, now: ReminderFixtures.now))
+        let later = ReminderFixtures.now.addingTimeInterval(86400)
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: later))
+        #expect(move.locationConsentGrantedAt == ReminderFixtures.now)
+    }
+
+    @Test func stopKeepsHistoryAndRequiresAnotherExplicitChoice() {
+        let move = ReminderFixtures.move()
+        move.locationConsentGrantedAt = ReminderFixtures.now.addingTimeInterval(-86400)
+        move.locationConsentRequestedAt = move.locationConsentGrantedAt
+        ReminderPolicy.stopConsent(for: move, now: ReminderFixtures.now)
+        #expect(move.locationConsentGrantedAt != nil)
+        #expect(move.locationConsentRequestedAt == nil)
+        #expect(!ReminderPolicy.consentIsActive(for: move, now: ReminderFixtures.now))
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        let later = ReminderFixtures.now.addingTimeInterval(1)
+        ReminderPolicy.beginConsentRequest(for: move, now: later)
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .denied, now: later))
+        #expect(ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: later))
+        #expect(move.locationConsentStoppedAt == nil)
+        #expect(ReminderPolicy.consentIsActive(for: move, now: later))
+    }
+
+    @Test func activeConsentDoesNotExtendWhenPermissionsAreOpenedAgain() {
+        let move = ReminderFixtures.move()
+        let grant = ReminderFixtures.now.addingTimeInterval(-86400)
+        move.locationConsentGrantedAt = grant
+        move.locationConsentRequestedAt = grant
+        ReminderPolicy.beginConsentRequest(for: move, now: ReminderFixtures.now)
+        #expect(move.locationConsentRequestedAt == grant)
+        #expect(!ReminderPolicy.recordRequestedConsent(for: move, status: .authorizedAlways, now: ReminderFixtures.now))
+        #expect(move.locationConsentGrantedAt == grant)
+    }
+
+    @Test func failedNotificationActionRestoresReminderFields() {
+        enum SaveFailure: Error { case unavailable }
+        let task = ReminderFixtures.task()
+        let original = ReminderFixtures.now.addingTimeInterval(60)
+        task.snoozedUntil = original
+        do {
+            try NotificationTaskAction.applyAndSave("MUTE", to: task, now: ReminderFixtures.now,
+                save: { throw SaveFailure.unavailable })
+            Issue.record("A failed save must throw")
+        } catch {}
+        #expect(!task.isMuted && task.snoozedUntil == original)
+        do {
+            try NotificationTaskAction.applyAndSave("SNOOZE", to: task, now: ReminderFixtures.now,
+                save: { throw SaveFailure.unavailable })
+            Issue.record("A failed save must throw")
+        } catch {}
+        #expect(!task.isMuted && task.snoozedUntil == original)
+    }
+
+    @Test func muteAndSnoozeCanBeReversedIndependently() throws {
+        let task = ReminderFixtures.task()
+        task.isMuted = true
+        task.snoozedUntil = ReminderFixtures.now.addingTimeInterval(86400)
+        #expect(try NotificationTaskAction.applyAndSave("UNMUTE", to: task, save: {}))
+        #expect(!task.isMuted && task.snoozedUntil != nil)
+        #expect(try NotificationTaskAction.applyAndSave("CLEAR_SNOOZE", to: task, save: {}))
+        #expect(ReminderPolicy.isEligible(task, at: ReminderFixtures.now))
+    }
+
+    @Test func editedAccountProviderOverridesCatalogAndInstitution() throws {
+        let task = ReminderFixtures.task("lifetime")
+        task.institutionName = "Old institution"
+        task.accountProviderName = "Planet Fitness"
+        let target = try #require(LocationPlaceTarget.forTask(task))
+        #expect(target.query == "Planet Fitness")
+        #expect(target.matches(name: "Planet Fitness Denver"))
+        #expect(!target.matches(name: "Life Time Cherry Creek"))
+        #expect(!target.matches(name: "Old institution"))
+        task.accountProviderName = "  "
+        #expect(LocationPlaceTarget.forTask(task)?.query == "Old institution")
+    }
+
+    @Test func sharedProviderKeepsZoneWhenEarliestAccountFinishes() throws {
+        let first = ReminderFixtures.task(), second = ReminderFixtures.task()
+        first.tMinusDays = -20; second.tMinusDays = -10
+        let move = ReminderFixtures.move(tasks: [first, second])
+        let before = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        #expect(before.count == 2)
+        #expect(Set(before.map(\.identifier)).count == 1)
+        #expect(before.first?.taskID == first.id)
+        first.status = .completed
+        let after = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        #expect(after.first?.taskID == second.id)
+        #expect(after.first?.identifier == before.first?.identifier)
+    }
+
+    @Test func distinctProviderRegionsStillRespectTheSystemLimit() async {
+        let tasks = (0..<25).map { index in
+            let task = ReminderFixtures.task()
+            task.accountProviderName = "Provider \(index)"
+            task.tMinusDays = index
+            return task
+        }
+        let move = ReminderFixtures.move(tasks: tasks)
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        await coordinator.syncGeofences(requests: plan, destination: ReminderFixtures.destination, manager: monitor)
+        #expect(monitor.monitoredRegions.count == 20 && monitor.peakCount == 20)
+    }
+
+    @Test func visitMatchingIncludesProvidersBeyondTheTwentyDestinationZones() async {
+        let tasks = (0..<25).map { index in
+            let task = ReminderFixtures.task()
+            task.accountProviderName = "Provider \(index)"
+            task.tMinusDays = index
+            return task
+        }
+        let move = ReminderFixtures.move(tasks: tasks)
+        let search = FakeLocationSearch()
+        search.availableQueries = ["Provider 24"]
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let plan = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination, now: ReminderFixtures.now)
+        #expect(await coordinator.matchVisit(at: ReminderFixtures.destination, requests: plan) == tasks[24].id)
+    }
+
+    @Test func farFutureDatesHaveExplicitDeferredCoverage() {
+        let calendar = ReminderFixtures.calendar
+        let task = ReminderFixtures.task()
+        task.setShipmentDate(calendar.date(byAdding: .day, value: 120, to: ReminderFixtures.now), calendar: calendar)
+        let plan = ReminderScheduleBuilder.plan(for: ReminderFixtures.move(tasks: [task]), now: ReminderFixtures.now, calendar: calendar)
+        #expect(plan.coverage.deferredRequestCount >= 2)
+        #expect(plan.requests.allSatisfy { (ReminderFixtures.fireDate($0) ?? .distantFuture) <= plan.coverage.horizonEnd })
+        #expect(plan.coverage.refreshRecommendedAt <= plan.coverage.criticalReminderEnd)
+    }
+
+    @Test func capacityDeferralIsReportedAndEarlierAlertsWin() {
+        let calendar = ReminderFixtures.calendar
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: ReminderFixtures.now)!
+        let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: tomorrow)!
+        let tasks = (0..<100).map { index in
+            let task = ReminderFixtures.task()
+            task.snoozedUntil = start.addingTimeInterval(Double(index * 60))
+            return task
+        }
+        let plan = ReminderScheduleBuilder.plan(for: ReminderFixtures.move(tasks: tasks), now: ReminderFixtures.now, calendar: calendar)
+        #expect(plan.requests.count == ReminderScheduleBuilder.maximumRequests)
+        #expect(plan.coverage.capacityLimited && plan.coverage.deferredRequestCount > 0)
+        #expect(plan.coverage.refreshRecommendedAt < plan.coverage.criticalReminderEnd)
+        let dates = plan.requests.compactMap(ReminderFixtures.fireDate)
+        #expect(dates == dates.sorted())
+    }
+
+    @Test func notificationQueueLeavesRoomForOtherChannels() async {
+        let center = FakeReminderCenter()
+        for index in 0..<58 {
+            let request = ReminderFixtures.request("Unrelated-\(index)")
+            center.pendingRequests[request.identifier] = request
+        }
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: ReminderFixtures.move(tasks: [ReminderFixtures.task()]), now: ReminderFixtures.now)
+        await service.waitForSchedule()
+        #expect(center.pendingRequests.count <= 60)
+        #expect(service.capacityDeferredCount > 0)
+    }
+}
+
+@Suite("Paid release catalog and postal regions")
+@MainActor
+struct CatalogGeographyReleaseTests {
+    private func move(_ zip: String = "80202") -> Move {
+        Move(anchorDate: Date(), originZip: nil, destinationZip: zip,
+             destinationStateBucket: "OLD", destinationCityBucket: nil)
+    }
+
+    @Test func eachStateAndDistrictUsesItsOwnRegion() {
+        let cases: [(String, String)] = [
+            ("35203","AL"),("99501","AK"),("85001","AZ"),("72201","AR"),("90210","CA"),
+            ("80202","CO"),("06103","CT"),("19801","DE"),("20001","DC"),("33101","FL"),
+            ("30303","GA"),("96813","HI"),("83702","ID"),("60601","IL"),("46204","IN"),
+            ("50309","IA"),("66603","KS"),("40202","KY"),("70112","LA"),("04101","ME"),
+            ("21201","MD"),("02108","MA"),("48201","MI"),("55401","MN"),("39201","MS"),
+            ("63101","MO"),("59601","MT"),("68508","NE"),("89101","NV"),("03301","NH"),
+            ("07102","NJ"),("87501","NM"),("10001","NY"),("27601","NC"),("58501","ND"),
+            ("43215","OH"),("73102","OK"),("97201","OR"),("19103","PA"),("02903","RI"),
+            ("29201","SC"),("57501","SD"),("37201","TN"),("78701","TX"),("84101","UT"),
+            ("05602","VT"),("23219","VA"),("98101","WA"),("25301","WV"),("53703","WI"),("82001","WY")
+        ]
+        for (zip, expected) in cases { #expect(ZipBucketService.bucket(zip: zip).state == expected) }
+    }
+
+    @Test func exceptionalBoundariesAndPacificDestinationsDoNotCollapse() {
+        let cases: [(String, String)] = [
+            ("00501","NY"),("05501","MA"),("06390","NY"),("20190","VA"),("20601","MD"),
+            ("39815","GA"),("39901","GA"),("71601","AR"),("73301","TX"),("88510","TX"),
+            ("83101","WY"),("83201","ID"),("88901","NV"),("00601","PR"),("00802","VI"),
+            ("96799","AS"),("96910","GU"),("96940","PW"),("96941","FM"),("96950","MP"),("96960","MH"),
+            ("09012","AE"),("34002","AA"),("96201","AP"),("X0A 0H0","NU"),("X0B0C0","NU"),
+            ("X0C0A0","NU"),("X1A2P7","NT"),("Y1A1A1","YT"),("K1A0B1","ON")
+        ]
+        for (zip, expected) in cases { #expect(ZipBucketService.bucket(zip: zip).state == expected) }
+        for zip in ["", "90210junk", "00000", "98701", "89901", "96999"] {
+            #expect(ZipBucketService.bucket(zip: zip).state == "US")
+        }
+    }
+
+    @Test func persistedRepairKeepsExistingWorkAndIsIdempotent() {
+        let value = move("99501")
+        let task = ChecklistTask(title: "Already finished", category: .other, priority: .medium, tMinusDays: 0)
+        task.status = .completed
+        task.customerNote = "Keep this note"
+        value.tasks = [task]
+        #expect(ZipBucketService.repairRegionBuckets(for: value))
+        #expect(value.destinationStateBucket == "AK")
+        #expect(!ZipBucketService.repairRegionBuckets(for: value))
+        #expect(value.tasks.first?.id == task.id)
+        #expect(task.status == .completed)
+        #expect(task.customerNote == "Keep this note")
+    }
+
+    @Test func passportAndEligibilitySensitiveTasksNeedExplicitReview() throws {
+        for id in ["passport","ssa","voter","medicare","va","dmv_license","elections_canada","service_canada"] {
+            let item = try #require(ItemCatalog.byID[id])
+            #expect(item.requiresConfirmation)
+            #expect(!ChecklistGenerator.shouldInclude(item, flags: [.isAmerican,.isCanadian,.isRetired,.hasMedicare,.isVeteran]))
+        }
+        let task = ChecklistGenerator.task(from: try #require(ItemCatalog.byID["passport"]))
+        let guidance = CatalogGuidance.guidance(for: task, move: move())
+        #expect(guidance.eligibility.contains("application"))
+        #expect(guidance.eligibility.contains("does not require"))
+    }
+
+    @Test func importantTasksHaveHonestActionGuidance() throws {
+        #expect(CatalogGuidance.importantReviewedIDs.count >= 30)
+        for id in CatalogGuidance.importantReviewedIDs {
+            let item = try #require(ItemCatalog.byID[id])
+            let guidance = CatalogGuidance.guidance(for: ChecklistGenerator.task(from: item), move: move())
+            #expect(!guidance.eligibility.isEmpty)
+            #expect(!guidance.preparation.isEmpty)
+            #expect(!guidance.steps.isEmpty)
+            #expect(!guidance.timing.isEmpty)
+            #expect(!guidance.reviewedOn.isEmpty)
+            #expect(!guidance.sourceNote.isEmpty)
+        }
+        let neutral = CatalogGuidance.guidance(for: ChecklistGenerator.task(from: try #require(ItemCatalog.byID["wine_club"])), move: move())
+        #expect(neutral.sourceNote.contains("Provider-neutral"))
+    }
+
+    @Test func legacyDMVLinksResolveToOfficialDestinationAgencies() throws {
+        let value = move("80202")
+        value.destinationStateBucket = "CO"
+        let task = ChecklistGenerator.task(from: try #require(ItemCatalog.byID["dmv_license"]))
+        task.deepLinkURLString = "https://dmv.org"
+        #expect(CatalogGuidance.actionURL(for: task, move: value)?.host == "dmv.colorado.gov")
+        #expect(CatalogGuidance.motorVehicleURL(for: "TX", registration: true).host == "www.txdmv.gov")
+        #expect(CatalogGuidance.motorVehicleURL(for: "UNKNOWN").host == "www.usa.gov")
+    }
+}
+
+private final class LegacyStoreFixtureBundleMarker: NSObject {}
+
+@MainActor @Suite("Previous release — SwiftData migration")
+struct LegacyStoreMigrationRegressionTests {
+    @Test func previousCommitStoreMigratesWithoutLosingProgressOrAccountDates() throws {
+        let bundle = Bundle(for: LegacyStoreFixtureBundleMarker.self)
+        let fixture = try #require(bundle.url(forResource: "Legacy-7aff543", withExtension: "store", subdirectory: "Fixtures")
+            ?? bundle.url(forResource: "Legacy-7aff543", withExtension: "store"))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("movingsoon-legacy-migration-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = directory.appendingPathComponent("Checklist.store")
+        try FileManager.default.copyItem(at: fixture, to: store)
+        func openAndBackfill() throws {
+            let container = try CalendarDateFixtures.container(url: store)
+            let context = ModelContext(container)
+            let move = try #require(context.fetch(FetchDescriptor<Move>()).first)
+            #expect(move.id == UUID(uuidString: "F0000000-0000-4000-8000-000000000001"))
+            #expect(move.anchorDateOnly == nil)
+            #expect(move.tasks.count == 2 && move.institutions.count == 1)
+            #expect(move.lifestyleProfile?.childCount == 2 && move.lifestyleProfile?.managesUtilities == false)
+            #expect(move.institutions.first?.name == "Fixture Bank")
+            let account = try #require(move.tasks.first { $0.catalogItemID == "amazon" })
+            #expect(account.status == .completed && account.accountProviderName == "Legacy delivery")
+            #expect(account.nextShipmentDateOnly == nil && account.nextRenewalDateOnly == nil)
+            #expect(account.verificationEvents.count == 1)
+            #expect(account.verificationEvents.first?.notes == "Synthetic legacy confirmation")
+            let custom = try #require(move.tasks.first { $0.isUserAdded })
+            #expect(custom.status == .toDo && custom.isMuted && custom.absoluteDueDateOnly == nil)
+            #expect(custom.customerNote == "Synthetic note retained through migration")
+            #expect(move.backfillDateOnlyValues(calendar: CalendarDateFixtures.east))
+            try context.save()
+        }
+        try autoreleasepool { try openAndBackfill() }
+        let reopened = try CalendarDateFixtures.container(url: store)
+        let context = ModelContext(reopened)
+        let move = try #require(context.fetch(FetchDescriptor<Move>()).first)
+        #expect(move.anchorDateOnly == "2026-12-15")
+        #expect(move.dateOnlyBackfillTimeZoneIdentifier == "America/New_York")
+        let account = try #require(move.tasks.first { $0.catalogItemID == "amazon" })
+        #expect(account.nextShipmentDateOnly == "2026-11-02" && account.nextRenewalDateOnly == "2026-11-10")
+        #expect(account.status == .completed && account.verificationEvents.count == 1)
+        #expect(DateOnly.string(from: account.shipmentDate(calendar: CalendarDateFixtures.west)!, calendar: CalendarDateFixtures.west) == "2026-11-02")
+        #expect(move.tasks.first { $0.isUserAdded }?.absoluteDueDateOnly == "2026-11-09")
+        #expect(!move.backfillDateOnlyValues(calendar: CalendarDateFixtures.west))
+    }
+}
+
+@MainActor @Suite("Backup, recovery copies and move lifecycle")
+struct BackupLifecycleFixTests {
+    private func context() throws -> ModelContext {
+        let container = try ModelContainer(for: Move.self, ChecklistTask.self, LifestyleProfile.self,
+            FinancialInstitution.self, VerificationEvent.self, PendingSignal.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        return context
+    }
+
+    private func fixture(in context: ModelContext) throws -> Move {
+        let task = ReminderFixtures.task("lifetime")
+        task.accountProviderName = "Life Time"
+        task.accountNickname = "Family"
+        task.assignee = "Alex"
+        task.customerNote = "Keep the renewal receipt"
+        task.accountReminderLeadDays = 5
+        task.setShipmentDate(ReminderFixtures.now.addingTimeInterval(4 * 86400), calendar: ReminderFixtures.calendar)
+        task.setRenewalDate(ReminderFixtures.now.addingTimeInterval(20 * 86400), calendar: ReminderFixtures.calendar)
+        task.status = .completed
+        let event = VerificationEvent(method: .manualConfirm, notes: "Confirmed online")
+        event.timestamp = ReminderFixtures.now
+        task.verificationEvents = [event]
+        let move = ReminderFixtures.move(tasks: [task])
+        move.originLatitude = 34.07; move.originLongitude = -118.4
+        move.lifestyleProfile?.activeFlags = [.hasCar, .hasPets]
+        move.lifestyleProfile?.householdSize = 3
+        move.lifestyleProfile?.childrenAnswer = false
+        move.locationConsentGrantedAt = ReminderFixtures.now
+        move.locationConsentRequestedAt = ReminderFixtures.now
+        move.areaInsightsEnabled = true
+        let institution = FinancialInstitution(name: "Chase", initials: "CH", colorHex: "#117ACA", type: .bank,
+            websiteURL: URL(string: "https://www.chase.com"))
+        institution.move = move
+        move.institutions = [institution]
+        context.insert(move)
+        try context.save()
+        return move
+    }
+
+    @Test func backupRoundTripPreservesProgressAndCreatesPrivateArchivedCopies() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        let originalTask = original.tasks[0]
+        let data = try MoveBackupService.export([original])
+        let restored = try #require(MoveBackupService.restore(MoveBackupService.decode(data), in: context).first)
+        #expect(restored.id != original.id && restored.phase == .archived)
+        #expect(original.phase == .active && original.tasks[0].id == originalTask.id)
+        #expect(try context.fetch(FetchDescriptor<Move>()).count == 2)
+        #expect(restored.locationConsentGrantedAt == nil && restored.locationConsentRequestedAt == nil)
+        #expect(restored.areaInsightsEnabled == false)
+        #expect(restored.destinationLatitude == original.destinationLatitude)
+        #expect(restored.originLongitude == original.originLongitude)
+        #expect(restored.lifestyleProfile?.activeFlags == original.lifestyleProfile?.activeFlags)
+        #expect(restored.lifestyleProfile?.householdSize == 3)
+        #expect(restored.institutions.first?.name == "Chase")
+        let copied = try #require(restored.tasks.first)
+        #expect(copied.id != originalTask.id && copied.status == .completed)
+        #expect(copied.accountNickname == "Family" && copied.assignee == "Alex")
+        #expect(copied.customerNote == originalTask.customerNote)
+        #expect(copied.nextShipmentDateOnly == originalTask.nextShipmentDateOnly)
+        #expect(copied.nextRenewalDateOnly == originalTask.nextRenewalDateOnly)
+        #expect(copied.reminderLeadDays == 5)
+        #expect(copied.verificationEvents.count == 1)
+        #expect(copied.verificationEvents.first?.notes == "Confirmed online")
+        #expect(copied.verificationEvents.first?.timestamp == ReminderFixtures.now)
+    }
+
+    @Test func minimumIntegerOffsetIsRejectedWithoutChangingExistingMoves() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        var backup = try MoveBackupService.decode(MoveBackupService.export([original]))
+        backup.moves[0].tasks[0].fields["tMinusDays"] = String(Int.min)
+        #expect(throws: BackupError.self) { try MoveBackupService.restore(backup, in: context) }
+        #expect(try context.fetch(FetchDescriptor<Move>()).count == 1)
+        #expect(original.phase == .active && original.tasks.first?.status == .completed)
+    }
+
+    @Test func duplicateSignalsAreRejectedBeforeTheyCanCreateAnUnreadableProfile() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        var backup = try MoveBackupService.decode(MoveBackupService.export([original]))
+        let signal = Signal(flag: .hasCar, confidence: 1, source: .selfReported, rationale: nil, lastUpdated: ReminderFixtures.now)
+        let json = String(data: try JSONEncoder().encode([signal, signal]), encoding: .utf8)!
+        backup.moves[0].profile?["signalRecordsJSON"] = json
+        #expect(throws: BackupError.self) { try MoveBackupService.restore(backup, in: context) }
+        #expect(try context.fetch(FetchDescriptor<Move>()).count == 1)
+    }
+
+    @Test func unsafeImportedLinksAreRemoved() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        var backup = try MoveBackupService.decode(MoveBackupService.export([original]))
+        backup.moves[0].tasks[0].fields["deepLinkURLString"] = "javascript:alert(1)"
+        backup.moves[0].institutions[0]["websiteURLString"] = "https://name:password@example.com/account"
+        let restored = try #require(MoveBackupService.restore(backup, in: context).first)
+        #expect(restored.tasks.first?.deepLinkURL == nil)
+        #expect(restored.institutions.first?.websiteURL == nil)
+    }
+
+    @Test func unsupportedAndOversizedBackupsAreRejected() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        var backup = try MoveBackupService.decode(MoveBackupService.export([original]))
+        backup.version = 99
+        #expect(throws: BackupError.self) { try MoveBackupService.restore(backup, in: context) }
+        #expect(throws: BackupError.self) {
+            try MoveBackupService.decode(Data(repeating: 32, count: MoveBackupService.maximumFileSize + 1))
+        }
+        #expect(try context.fetch(FetchDescriptor<Move>()).count == 1)
+    }
+
+    @Test func fileImportReadsTheSameVersionedBackup() throws {
+        let context = try context()
+        let original = try fixture(in: context)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try MoveBackupService.export([original]).write(to: url)
+        let backup = try MoveBackupService.readBackup(at: url)
+        #expect(backup.moves.count == 1 && backup.moves[0].tasks.count == 1)
+    }
+
+    @Test func recoveryCopyPreservesStoreAndSidecarsWithoutReadingOtherFiles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = directory.appendingPathComponent("default.store")
+        let expected = ["default.store": Data("unreadable store bytes".utf8),
+                        "default.store-wal": Data("uncheckpointed progress".utf8),
+                        "default.store-shm": Data("sidecar bytes".utf8)]
+        for (name, data) in expected { try data.write(to: directory.appendingPathComponent(name)) }
+        try Data("unrelated private file".utf8).write(to: directory.appendingPathComponent("other.txt"))
+        let archive = try JSONDecoder().decode(StoreRecoveryCopy.self, from: StoreRecoveryService.export(storeURL: store))
+        #expect(archive.format == "app.movingsoon.store-recovery")
+        #expect(archive.files == expected)
+        for (name, data) in expected { #expect(try Data(contentsOf: directory.appendingPathComponent(name)) == data) }
+    }
+
+    @Test func missingRecoveryStoreFailsWithoutCreatingFiles() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".store")
+        #expect(throws: BackupError.self) { try StoreRecoveryService.export(storeURL: url) }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test func activationUsesStoredMovesEvenWhenThePassedListIsIncomplete() throws {
+        let context = try context()
+        let current = try fixture(in: context)
+        let archived = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        archived.phaseRaw = MovePhase.archived.rawValue
+        archived.locationConsentGrantedAt = ReminderFixtures.now
+        context.insert(archived)
+        try context.save()
+        #expect(MoveLifecycleService.activate(archived, among: [], in: context, updateReminders: false))
+        #expect(current.phase == .archived && current.tasks[0].status == .completed)
+        #expect(archived.phase == .active && archived.locationConsentGrantedAt == nil)
+        #expect(current.locationConsentGrantedAt == nil)
+        #expect(ChecklistActions.activeMove(in: context, preferred: current)?.id == archived.id)
+        #expect(try context.fetch(FetchDescriptor<Move>()).filter { $0.phase == .active }.count == 1)
+    }
+
+    @Test func editingOrCancellingArchivedMovesKeepsTheCurrentActiveMove() throws {
+        let context = try context()
+        let current = try fixture(in: context)
+        let archived = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        archived.phaseRaw = MovePhase.archived.rawValue
+        context.insert(archived)
+        try context.save()
+        #expect(ChecklistActions.perform(in: context, move: archived, updateReminders: false) {
+            archived.tasks[0].assignee = "Alex"
+        })
+        #expect(ChecklistActions.activeMove(in: context, preferred: archived)?.id == current.id)
+        #expect(MoveLifecycleService.archive(archived, cancelled: true, in: context, updateReminders: false))
+        #expect(archived.phase == .cancelled && current.phase == .active)
+        #expect(ChecklistActions.activeMove(in: context)?.id == current.id)
+    }
+}
+
+@MainActor @Suite("Account providers — retained website identity")
+struct AccountProviderWebsiteRegressionTests {
+    @Test func changedProviderClearsPrefilledBrandWebsiteAndAcceptsNewWebsite() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["planetfitness"])
+        let task = MoveChecklistService.confirm(item, for: move, in: context)
+        var draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "Different Fitness Club"
+        try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        #expect(task.deepLinkURL == nil)
+        #expect(!ServiceAccountService.usesCatalogProvider(task, item: item))
+        #expect(ServiceAccountService.providerWebsite(for: task, item: item) == nil)
+        #expect(CatalogGuidance.actionURL(for: task, move: move) == nil)
+        draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "Another Fitness Club"
+        draft.website = "https://new-provider.example/account"
+        try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        #expect(task.deepLinkURL?.host == "new-provider.example")
+        #expect(ServiceAccountService.providerWebsite(for: task, item: item)?.host == "new-provider.example")
+        #expect(CatalogGuidance.actionURL(for: task, move: move)?.host == "new-provider.example")
+    }
+
+    @Test func sameProviderAliasKeepsDefaultAndLegacyRenamedAccountCannotOpenIt() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["planetfitness"])
+        let task = MoveChecklistService.confirm(item, for: move, in: context)
+        var draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "planet fitness"
+        draft.nickname = "Family"
+        try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        #expect(task.deepLinkURL == item.deepLinkURL)
+        #expect(ServiceAccountService.usesCatalogProvider(task, item: item))
+        let netflix = try #require(ItemCatalog.byID["netflix"])
+        let onlineAccount = ChecklistGenerator.task(from: netflix)
+        onlineAccount.accountProviderName = "Netflix"
+        #expect(ServiceAccountService.usesCatalogProvider(onlineAccount, item: netflix))
+        // An earlier release could have saved a changed provider with its old URL.
+        task.accountProviderName = "Legacy Custom Gym"
+        #expect(ServiceAccountService.providerWebsite(for: task, item: item) == nil)
+        #expect(CatalogGuidance.actionURL(for: task, move: move) == nil)
+    }
+
+    @Test func explicitlyDifferentCustomerWebsiteSurvivesProviderRename() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let item = try #require(ItemCatalog.byID["planetfitness"])
+        let task = MoveChecklistService.confirm(item, for: move, in: context)
+        var draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "First Custom Gym"
+        draft.website = "https://my-club.example/account"
+        try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        draft = ServiceAccountDraft(task: task, item: item)
+        draft.providerName = "Renamed Custom Gym"
+        try ServiceAccountService.save(draft, task: task, item: item, move: move, context: context)
+        #expect(task.deepLinkURL?.host == "my-club.example")
+    }
+}
+
+@MainActor @Suite("Persistence — failed saves preserve committed progress")
+struct PersistenceFailureRegressionTests {
+    private enum SimulatedFailure: Error { case diskFull }
+
+    @Test func failedSaveReturnsFalseRollsBackAndReportsIssue() async throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let task = try CustomTaskService.save(title: "Saved item", category: .healthcare,
+            dueDate: CalendarDateFixtures.date("2026-11-02"), note: "Saved note", move: move,
+            context: context, calendar: CalendarDateFixtures.east)
+        let taskID = task.id
+        task.title = "Uncommitted edit"
+        task.status = .completed
+        PersistenceIssueCenter.shared.message = nil
+        let saved = context.saveOrLog(using: { throw SimulatedFailure.diskFull })
+        #expect(!saved)
+        #expect(task.title == "Saved item")
+        #expect(task.status == .toDo)
+        #expect(!context.hasChanges)
+        let freshContext = ModelContext(container)
+        let restored = try #require(freshContext.fetch(FetchDescriptor<ChecklistTask>()).first { $0.id == taskID })
+        #expect(restored.title == "Saved item" && restored.status == .toDo)
+        #expect(restored.customerNote == "Saved note")
+        for _ in 0..<10 where PersistenceIssueCenter.shared.message == nil { await Task.yield() }
+        #expect(PersistenceIssueCenter.shared.message != nil)
+        PersistenceIssueCenter.shared.message = nil
+    }
+}
+
+@MainActor @Suite("Backup aggregate restore limits")
+struct BackupAggregateLimitTests {
+    @Test func manyIndividuallyValidTaskHistoriesCannotExceedTheImportEventBudget() throws {
+        let container = try ModelContainer(for: Move.self, ChecklistTask.self, LifestyleProfile.self,
+            FinancialInstitution.self, VerificationEvent.self, PendingSignal.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let original = ReminderFixtures.move(tasks: [ReminderFixtures.task()])
+        context.insert(original)
+        try context.save()
+        var backup = try MoveBackupService.decode(MoveBackupService.export([original]))
+        var record = backup.moves[0].tasks[0]
+        let event = ["timestamp": String(ReminderFixtures.now.timeIntervalSince1970),
+                     "methodRaw": VerificationMethod.manualConfirm.rawValue]
+        record.events = Array(repeating: event, count: 1_000)
+        // Each task satisfies the per-task limit; the combined 21,000 events do not.
+        backup.moves[0].tasks = Array(repeating: record, count: 21)
+        #expect(throws: BackupError.self) { try MoveBackupService.restore(backup, in: context) }
+        #expect(try context.fetch(FetchDescriptor<Move>()).count == 1)
+        #expect(original.phase == .active && original.tasks.count == 1)
+    }
+}
+
+@MainActor @Suite("Persistence — failed relationship mutations")
+struct RelationshipPersistenceFailureRegressionTests {
+    private enum SimulatedFailure: Error { case diskFull }
+
+    @Test func failedDeleteAndInsertRestoresLiveMoveProfileAndTaskRelationship() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let profile = LifestyleProfile()
+        profile.activeFlags = [.hasChildren]
+        profile.childCount = 2
+        profile.childrenAnswer = true
+        profile.householdSize = 3
+        profile.move = move
+        context.insert(profile)
+        move.lifestyleProfile = profile
+        let savedTask = try CustomTaskService.save(title: "Committed family task", category: .education,
+            dueDate: CalendarDateFixtures.date("2026-11-02"), note: "Keep this note", move: move,
+            context: context, calendar: CalendarDateFixtures.east)
+        let savedTaskID = savedTask.id
+
+        move.setMoveDate(CalendarDateFixtures.date("2027-02-15"), calendar: CalendarDateFixtures.east)
+        profile.activeFlags = [.hasPets]
+        profile.childCount = 4
+        profile.childrenAnswer = false
+        profile.householdSize = 9
+        move.tasks.removeAll { $0.id == savedTaskID }
+        context.delete(savedTask)
+        let newTask = ChecklistTask(title: "Uncommitted child", category: .other, priority: .medium,
+                                    tMinusDays: 0, isUserAdded: true)
+        let newTaskID = newTask.id
+        newTask.move = move
+        context.insert(newTask)
+        move.tasks.append(newTask)
+
+        #expect(!context.saveOrLog(using: { throw SimulatedFailure.diskFull }))
+        #expect(move.anchorDateOnly == "2026-12-15")
+        #expect(profile.childCount == 2 && profile.childrenAnswer == true && profile.householdSize == 3)
+        #expect(profile.activeFlags == [.hasChildren])
+        #expect(move.lifestyleProfile === profile)
+        #expect(move.tasks.count == 1)
+        #expect(move.tasks.first === savedTask)
+        #expect(move.tasks.first?.id == savedTaskID)
+        #expect(!move.tasks.contains { $0.id == newTaskID })
+        #expect(savedTask.title == "Committed family task" && savedTask.status == .toDo)
+        #expect(savedTask.modelContext == context)
+        #expect(!context.hasChanges)
+
+        let fresh = ModelContext(container)
+        let restoredMove = try #require(fresh.fetch(FetchDescriptor<Move>()).first)
+        #expect(restoredMove.anchorDateOnly == "2026-12-15")
+        #expect(restoredMove.lifestyleProfile?.childCount == 2)
+        #expect(restoredMove.lifestyleProfile?.activeFlags == [.hasChildren])
+        #expect(restoredMove.tasks.count == 1 && restoredMove.tasks.first?.id == savedTaskID)
+        #expect(try fresh.fetch(FetchDescriptor<ChecklistTask>()).count == 1)
+    }
+
+    @Test func failedCompletionRestoresLiveStatusAndRemovesNewVerificationEvent() throws {
+        let container = try CalendarDateFixtures.container()
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let move = CalendarDateFixtures.move()
+        context.insert(move)
+        let task = try CustomTaskService.save(title: "Committed open task", category: .healthcare,
+            dueDate: CalendarDateFixtures.date("2026-11-02"), note: "Saved details", move: move,
+            context: context, calendar: CalendarDateFixtures.east)
+        task.advanceStatus()
+        task.advanceStatus()
+        #expect(task.status == .completed && task.verificationEvents.count == 1)
+        #expect(!context.saveOrLog(using: { throw SimulatedFailure.diskFull }))
+        #expect(task.status == .toDo)
+        #expect(task.verificationEvents.isEmpty)
+        #expect(move.tasks.first === task)
+        #expect(move.completedCount == 0 && !move.allTasksCompleted)
+        #expect(!context.hasChanges)
+
+        let fresh = ModelContext(container)
+        let restoredTask = try #require(fresh.fetch(FetchDescriptor<ChecklistTask>()).first)
+        #expect(restoredTask.status == .toDo && restoredTask.verificationEvents.isEmpty)
+        #expect(try fresh.fetch(FetchDescriptor<VerificationEvent>()).isEmpty)
+    }
+}
+
+
+@MainActor @Suite("Nearby notification budget — independent of scheduled reminders")
+struct NearbyNotificationBudgetRegressionTests {
+    @Test(arguments: [0, 1, 3])
+    func morningAndDateAlertsNeverUseNearbyAllowance(_ scheduledCount: Int) async {
+        let suite = "MovingSoon.NearbyBudget." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = ReminderFixtures.now, calendar = ReminderFixtures.calendar
+        let center = FakeReminderCenter()
+        center.deliveredRequests = (0..<scheduledCount).map {
+            ReminderFixtures.request($0 == 0 ? "Hero-morning" : "Digest-\($0)")
+        }
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { await NotificationBudget.hasRoomToday(defaults: defaults, now: now, calendar: calendar) },
+            recordLocationDelivery: { NotificationBudget.recordFired(defaults: defaults, now: now, calendar: calendar) })
+        #expect(NotificationBudget.remainingToday(defaults: defaults, now: now, calendar: calendar) == 2)
+        #expect(await service.fireLocationNotification(task: ReminderFixtures.task(), poiCategory: .gym, stillRelevant: { true }))
+        #expect(NotificationBudget.remainingToday(defaults: defaults, now: now, calendar: calendar) == 1)
+        // Removing a morning notification does not replenish nearby allowance.
+        center.deliveredRequests.removeAll()
+        #expect(await service.fireLocationNotification(task: ReminderFixtures.task("costco"), poiCategory: .grocery, stillRelevant: { true }))
+        #expect(NotificationBudget.remainingToday(defaults: defaults, now: now, calendar: calendar) == 0)
+        #expect(await !service.fireLocationNotification(task: ReminderFixtures.task(), poiCategory: .gym, stillRelevant: { true }))
+        #expect(center.pendingRequests.count == 2)
+    }
+
+    @Test func failedSubmissionDoesNotUseNearbyAllowance() async {
+        let suite = "MovingSoon.NearbyBudget." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = ReminderFixtures.now, calendar = ReminderFixtures.calendar
+        let center = FakeReminderCenter()
+        let service = SmartReminderService(center: center, registerCategories: false,
+            hasLocationBudget: { await NotificationBudget.hasRoomToday(defaults: defaults, now: now, calendar: calendar) },
+            recordLocationDelivery: { NotificationBudget.recordFired(defaults: defaults, now: now, calendar: calendar) })
+        center.failAdds = true
+        #expect(await !service.fireLocationNotification(task: ReminderFixtures.task(), poiCategory: .gym, stillRelevant: { true }))
+        #expect(NotificationBudget.remainingToday(defaults: defaults, now: now, calendar: calendar) == 2)
+        center.failAdds = false
+        #expect(await service.fireLocationNotification(task: ReminderFixtures.task(), poiCategory: .gym, stillRelevant: { true }))
+        #expect(NotificationBudget.remainingToday(defaults: defaults, now: now, calendar: calendar) == 1)
+    }
+
+    @Test func allowanceSurvivesRelaunchAndResetsAtLocalMidnight() async throws {
+        let suite = "MovingSoon.NearbyBudget." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let beforeMidnight = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 23, minute: 59)))
+        let afterMidnight = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 0, minute: 1)))
+        NotificationBudget.recordFired(defaults: defaults, now: beforeMidnight, calendar: calendar)
+        NotificationBudget.recordFired(defaults: defaults, now: beforeMidnight, calendar: calendar)
+        let reopened = try #require(UserDefaults(suiteName: suite))
+        #expect(await !NotificationBudget.hasRoomToday(defaults: reopened, now: beforeMidnight, calendar: calendar))
+        #expect(NotificationBudget.remainingToday(defaults: reopened, now: afterMidnight, calendar: calendar) == 2)
+        NotificationBudget.recordFired(defaults: reopened, now: afterMidnight, calendar: calendar)
+        #expect(NotificationBudget.remainingToday(defaults: reopened, now: afterMidnight, calendar: calendar) == 1)
+    }
+}
+
+
+@MainActor @Suite("Location reminders — sparse destination matches")
+struct SparseLocationRegionRegressionTests {
+    private func providerTasks(count: Int) -> [ChecklistTask] {
+        (0..<count).map { index in
+            let task = ReminderFixtures.task()
+            task.accountProviderName = "Provider \(index)"
+            task.tMinusDays = index
+            return task
+        }
+    }
+
+    @Test func missingProvidersDoNotConsumeSlotsAndLaterMatchesKeepDuePriority() async {
+        var tasks = providerTasks(count: 45)
+        let sharedAccount = ReminderFixtures.task()
+        sharedAccount.accountProviderName = "Provider 20"
+        sharedAccount.tMinusDays = 20
+        tasks.append(sharedAccount)
+        let move = ReminderFixtures.move(tasks: tasks)
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        search.availableQueries = Set((20..<45).map { "Provider \($0)" })
+        let coordinator = GeofenceCoordinator(searcher: search)
+        let requests = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination,
+                                                   now: ReminderFixtures.now)
+
+        await coordinator.syncGeofences(requests: requests, destination: ReminderFixtures.destination,
+                                       manager: monitor)
+
+        let selectedQueries = Set((20..<40).map { "Provider \($0)" })
+        let expected = Set(requests.filter { selectedQueries.contains($0.target.query) }.map(\.identifier))
+        #expect(expected.count == 20)
+        #expect(Set(monitor.monitoredRegions.map(\.identifier)) == expected)
+        #expect(coordinator.registeredRegionIDs == expected)
+        #expect(monitor.peakCount == 20)
+        // Neither the duplicate account nor lower-priority matches use another slot/search.
+        #expect(search.calls == (0..<40).map { "Provider \($0)" })
+    }
+
+    @Test func higherPriorityMatchReplacesLaterRetainedZoneWithoutExceedingTwenty() async {
+        let move = ReminderFixtures.move(tasks: providerTasks(count: 21))
+        let requests = LocationRegionPlan.requests(for: move, destination: ReminderFixtures.destination,
+                                                   now: ReminderFixtures.now)
+        let search = FakeLocationSearch(), monitor = FakeRegionMonitor()
+        search.availableQueries = ["Provider 0"]
+        // Simulate twenty unchanged system regions carried over from an earlier launch.
+        for request in requests.dropFirst() {
+            monitor.startMonitoring(for: CLCircularRegion(center: ReminderFixtures.destination,
+                radius: 200, identifier: request.identifier))
+        }
+        monitor.started.removeAll()
+        let coordinator = GeofenceCoordinator(searcher: search)
+
+        await coordinator.syncGeofences(requests: requests, destination: ReminderFixtures.destination,
+                                       manager: monitor)
+
+        let expected = Set(requests.prefix(20).map(\.identifier))
+        #expect(Set(monitor.monitoredRegions.map(\.identifier)) == expected)
+        #expect(coordinator.registeredRegionIDs == expected)
+        #expect(monitor.peakCount == 20)
+        #expect(monitor.stopped == [requests[20].identifier])
+        #expect(monitor.started == [requests[0].identifier])
+        #expect(search.calls == ["Provider 0"])
+    }
+}
+
+// MARK: - Consent renewal regression tests (append once to the wired test suite)
+
+@MainActor @Suite("Location consent renewal — explicit, one-shot, and cancellable")
+struct LocationConsentRenewalRegressionTests {
+    private var calendar: Calendar { ReminderFixtures.calendar }
+
+    private func date(_ year: Int = 2026, _ month: Int = 10, _ day: Int = 1,
+                      _ hour: Int = 12, _ minute: Int = 0, _ second: Int = 0,
+                      calendar: Calendar? = nil) -> Date {
+        (calendar ?? self.calendar).date(from: DateComponents(year: year, month: month, day: day,
+            hour: hour, minute: minute, second: second))!
+    }
+
+    private func move(grantedAt: Date? = nil, tasks: [ChecklistTask]? = nil) -> Move {
+        let value = ReminderFixtures.move(tasks: tasks ?? [ReminderFixtures.task()])
+        value.locationConsentGrantedAt = grantedAt ?? date()
+        return value
+    }
+
+    /// Decode either an absolute interval or an explicitly zoned calendar trigger
+    /// without depending on the real wall clock used by nextTriggerDate().
+    private func fireDate(_ request: UNNotificationRequest, scheduledAt: Date,
+                          calendar: Calendar? = nil) -> Date? {
+        if let trigger = request.trigger as? UNTimeIntervalNotificationTrigger {
+            return scheduledAt.addingTimeInterval(trigger.timeInterval)
+        }
+        guard let trigger = request.trigger as? UNCalendarNotificationTrigger else { return nil }
+        var resolver = trigger.dateComponents.calendar ?? calendar ?? self.calendar
+        if let zone = trigger.dateComponents.timeZone { resolver.timeZone = zone }
+        return resolver.date(from: trigger.dateComponents)
+    }
+
+    @Test func offerStartsOnlyAfterExpiryAndNeverChangesConsent() throws {
+        let value = move(), granted = try #require(value.locationConsentGrantedAt)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        #expect(expiry == calendar.date(byAdding: .day, value: 30, to: granted))
+        #expect(!ReminderPolicy.shouldOfferConsentRenewal(for: value, now: granted, calendar: calendar))
+        #expect(!ReminderPolicy.shouldOfferConsentRenewal(for: value, now: expiry, calendar: calendar))
+        #expect(ReminderPolicy.shouldOfferConsentRenewal(for: value, now: expiry.addingTimeInterval(1), calendar: calendar))
+        _ = LocationConsentRenewal.request(for: value, now: granted, calendar: calendar)
+        #expect(value.locationConsentGrantedAt == granted)
+        #expect(value.locationConsentRequestedAt == nil)
+        #expect(value.locationConsentStoppedAt == nil)
+        #expect(!ReminderPolicy.consentIsActive(for: value, now: expiry.addingTimeInterval(1)))
+    }
+
+    @Test func scheduledRequestIsOneShotAndRoutesToConsentReviewWithoutTaskActions() throws {
+        let value = move(), now = date().addingTimeInterval(1)
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        #expect(try #require(fireDate(request, scheduledAt: now)) == expiry.addingTimeInterval(1))
+        #expect(request.trigger?.repeats == false)
+        #expect(LocationConsentRenewal.owns(request.identifier))
+        #expect(ReminderScheduleBuilder.owns(request.identifier))
+        #expect(!LocationConsentRenewal.owns("Hero-123"))
+        #expect(request.content.categoryIdentifier == "LocationConsentRenewal")
+        #expect(request.content.userInfo["action"] as? String == "reviewLocationConsent")
+        #expect(request.content.userInfo["moveID"] as? String == value.id.uuidString)
+        #expect(request.content.userInfo["taskID"] == nil)
+        #expect(request.content.userInfo["taskIDs"] == nil)
+        #expect(request.content.userInfo["url"] == nil)
+        #expect(!LocationConsentRenewal.isRelevant(request, for: value, now: expiry, calendar: calendar))
+        #expect(LocationConsentRenewal.isRelevant(request, for: value, now: expiry.addingTimeInterval(1), calendar: calendar))
+        #expect(!LocationConsentRenewal.isRelevant(request, for: nil, now: expiry.addingTimeInterval(1), calendar: calendar))
+    }
+
+    @Test(arguments: [8, 19, 22])
+    func quietHoursMoveNoticeToNineWithoutPrecedingExpiry(_ hour: Int) throws {
+        let granted = date(2026, 10, 1, hour, 12, 30)
+        let value = move(grantedAt: granted), now = granted.addingTimeInterval(1)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        let fire = try #require(fireDate(request, scheduledAt: now))
+        #expect(fire > expiry)
+        #expect(calendar.component(.hour, from: fire) == 9)
+        #expect(calendar.component(.minute, from: fire) == 0)
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: expiry),
+                                          to: calendar.startOfDay(for: fire)).day
+        #expect(days == (hour < 9 ? 0 : 1))
+    }
+
+    @Test func secondAfterEveningBoundaryDefersUntilNextMorning() throws {
+        let granted = date(2026, 10, 1, 18, 59, 59)
+        let value = move(grantedAt: granted), now = granted.addingTimeInterval(1)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        let fire = try #require(fireDate(request, scheduledAt: now))
+        #expect(calendar.component(.hour, from: fire) == 9)
+        #expect(calendar.dateComponents([.day], from: calendar.startOfDay(for: expiry),
+                                       to: calendar.startOfDay(for: fire)).day == 1)
+    }
+
+    @Test(arguments: [2, 10])
+    func thirtyCalendarDaysRemainCorrectAcrossDST(_ month: Int) throws {
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let granted = date(2026, month, 20, 11, calendar: local)
+        let value = move(grantedAt: granted), now = granted.addingTimeInterval(1)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: local))
+        #expect(local.dateComponents([.day], from: granted, to: expiry).day == 30)
+        #expect(local.component(.hour, from: expiry) == 11)
+        #expect(expiry.timeIntervalSince(granted) == Double(30 * 86400 + (month == 2 ? -3600 : 3600)))
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: local))
+        #expect(try #require(fireDate(request, scheduledAt: now, calendar: local)) == expiry.addingTimeInterval(1))
+    }
+
+    @Test func triggerKeepsItsDeadlineWhenTheViewingTimeZoneChanges() throws {
+        let granted = date(), value = move(grantedAt: date()), now = granted.addingTimeInterval(1)
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        var otherZone = calendar
+        otherZone.timeZone = try #require(TimeZone(secondsFromGMT: 14 * 3600))
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        #expect(try #require(fireDate(request, scheduledAt: now, calendar: otherZone)) == expiry.addingTimeInterval(1))
+    }
+
+    @Test func replanningKeepsTheSameCycleAndNeverCreatesCatchUpAlerts() throws {
+        let value = move(), firstNow = date().addingTimeInterval(1)
+        let first = try #require(LocationConsentRenewal.request(for: value, now: firstNow, calendar: calendar))
+        let laterNow = firstNow.addingTimeInterval(86400)
+        let second = try #require(LocationConsentRenewal.request(for: value, now: laterNow, calendar: calendar))
+        let fire = try #require(fireDate(first, scheduledAt: firstNow))
+        #expect(first.identifier == second.identifier)
+        #expect(fireDate(second, scheduledAt: laterNow) == fire)
+        #expect(LocationConsentRenewal.request(for: value, now: fire, calendar: calendar) == nil)
+        #expect(LocationConsentRenewal.request(for: value, now: fire.addingTimeInterval(86400), calendar: calendar) == nil)
+        #expect(ReminderPolicy.shouldOfferConsentRenewal(for: value, now: fire.addingTimeInterval(86400), calendar: calendar))
+    }
+
+    @Test func expiredWindowBeforeItsFixedMorningSlotStillQueuesTheOriginalNotice() throws {
+        let granted = date(2026, 10, 1, 22), value = move(grantedAt: date(2026, 10, 1, 22))
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        let now = expiry.addingTimeInterval(8 * 3600)
+        #expect(ReminderPolicy.shouldOfferConsentRenewal(for: value, now: now, calendar: calendar))
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        let fire = try #require(fireDate(request, scheduledAt: now))
+        #expect(calendar.component(.hour, from: fire) == 9)
+        #expect(fire > now)
+        #expect(value.locationConsentGrantedAt == granted)
+    }
+
+    @Test(arguments: ["completed", "pending", "high", "muted", "snoozed", "review", "stopped", "archived", "cancelled", "profile", "unconsented"])
+    func ineligibleMoveOrTaskNeverCreatesARenewalNotice(_ reason: String) throws {
+        let task = ReminderFixtures.task(), value = move(tasks: [ReminderFixtures.task()])
+        value.tasks = [task]; task.move = value
+        let now = date().addingTimeInterval(1)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        switch reason {
+        case "completed": task.status = .completed
+        case "pending": task.status = .pendingVerification
+        case "high": task.priorityRaw = TaskPriority.high.rawValue
+        case "muted": task.isMuted = true
+        case "snoozed": task.snoozedUntil = expiry.addingTimeInterval(60)
+        case "review": task.needsLocationReview = true
+        case "stopped": value.locationConsentStoppedAt = now
+        case "archived": value.phaseRaw = MovePhase.archived.rawValue
+        case "cancelled": value.phaseRaw = MovePhase.cancelled.rawValue
+        case "profile": value.lifestyleProfile = nil
+        default: value.locationConsentGrantedAt = nil
+        }
+        #expect(LocationConsentRenewal.request(for: value, now: now, calendar: calendar) == nil)
+        #expect(!ReminderPolicy.shouldOfferConsentRenewal(for: value, now: expiry.addingTimeInterval(1), calendar: calendar))
+    }
+
+    @Test func snoozeEndingAtDeliveryIsEligibleEvenWhenItIsNotEligibleNow() throws {
+        let task = ReminderFixtures.task(), value = move(tasks: [ReminderFixtures.task()])
+        value.tasks = [task]; task.move = value
+        let now = date().addingTimeInterval(1)
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        task.snoozedUntil = expiry.addingTimeInterval(1)
+        #expect(!ReminderPolicy.isEligible(task, at: now))
+        #expect(LocationConsentRenewal.request(for: value, now: now, calendar: calendar) != nil)
+    }
+
+    @Test func criticalTaskCanOfferRenewalAtEightyPercentWithoutEnablingLocation() throws {
+        let open = ReminderFixtures.task()
+        let finished = (0..<4).map { _ in ReminderFixtures.task() }
+        finished.forEach { $0.status = .completed }
+        let value = move(tasks: finished + [open])
+        let expiry = try #require(ReminderPolicy.consentExpiry(for: value, calendar: calendar))
+        #expect(value.completionFraction == 0.8)
+        #expect(ReminderPolicy.shouldOfferConsentRenewal(for: value, now: expiry.addingTimeInterval(1), calendar: calendar))
+        #expect(!ReminderPolicy.consentIsActive(for: value, now: expiry.addingTimeInterval(1)))
+        #expect(value.locationConsentRequestedAt == nil)
+    }
+
+    @Test func deliveredNoticeRequiresCurrentMoveCycleAndAnyRemainingCriticalTask() throws {
+        let first = ReminderFixtures.task(), second = ReminderFixtures.task("costco")
+        let value = move(tasks: [first, second]), now = date().addingTimeInterval(1)
+        let request = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        let fire = try #require(fireDate(request, scheduledAt: now))
+        first.status = .completed
+        #expect(LocationConsentRenewal.isRelevant(request, for: value, now: fire, calendar: calendar))
+        #expect(!LocationConsentRenewal.isRelevant(request, for: move(), now: fire, calendar: calendar))
+        let oldGrant = value.locationConsentGrantedAt
+        value.locationConsentGrantedAt = fire
+        #expect(!LocationConsentRenewal.isRelevant(request, for: value, now: fire.addingTimeInterval(31 * 86400), calendar: calendar))
+        value.locationConsentGrantedAt = oldGrant
+        second.isMuted = true
+        #expect(!LocationConsentRenewal.isRelevant(request, for: value, now: fire, calendar: calendar))
+    }
+
+    @Test func fullPlanReservesOneSlotEvenBeyondTheDateReminderHorizon() throws {
+        let granted = date(2026, 10, 1, 22), now = granted.addingTimeInterval(1)
+        let tasks = (0..<100).map { index in
+            let task = ReminderFixtures.task()
+            task.snoozedUntil = granted.addingTimeInterval(Double(86400 + index * 60))
+            return task
+        }
+        let value = move(grantedAt: granted, tasks: tasks)
+        let plan = ReminderScheduleBuilder.plan(for: value, now: now, calendar: calendar)
+        let renewal = try #require(plan.requests.first { LocationConsentRenewal.owns($0.identifier) })
+        #expect(plan.requests.count == ReminderScheduleBuilder.maximumRequests)
+        #expect(plan.requests.filter { LocationConsentRenewal.owns($0.identifier) }.count == 1)
+        #expect(Set(plan.requests.map(\.identifier)).count == plan.requests.count)
+        #expect(try #require(fireDate(renewal, scheduledAt: now)) > plan.coverage.horizonEnd)
+        #expect(plan.coverage.capacityLimited)
+    }
+
+    @Test(arguments: [58, 59, 60])
+    func serviceKeepsRenewalInTheLastAvailableSlotWithoutDeletingOtherChannels(_ unrelatedCount: Int) async throws {
+        let center = FakeReminderCenter(), value = move(), now = date().addingTimeInterval(1)
+        for index in 0..<unrelatedCount {
+            let request = ReminderFixtures.request("Unrelated-\(index)")
+            center.pendingRequests[request.identifier] = request
+        }
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: value, now: now, calendar: calendar)
+        await service.waitForSchedule()
+        #expect(center.pendingRequests.keys.filter { $0.hasPrefix("Unrelated-") }.count == unrelatedCount)
+        #expect(center.pendingRequests.count <= 60)
+        #expect(center.pendingRequests.keys.filter(LocationConsentRenewal.owns).count == (unrelatedCount < 60 ? 1 : 0))
+        #expect(service.capacityDeferredCount > 0)
+    }
+
+    @Test(arguments: ["completed", "muted", "stopped", "archived", "newGrant", "noActiveMove"])
+    func reschedulingCancelsAnObsoletePendingCycle(_ reason: String) async throws {
+        let center = FakeReminderCenter(), task = ReminderFixtures.task()
+        let value = move(tasks: [task]), now = date().addingTimeInterval(1)
+        let old = try #require(LocationConsentRenewal.request(for: value, now: now, calendar: calendar))
+        center.pendingRequests[old.identifier] = old
+        switch reason {
+        case "completed": task.status = .completed
+        case "muted": task.isMuted = true
+        case "stopped": value.locationConsentStoppedAt = now
+        case "archived": value.phaseRaw = MovePhase.archived.rawValue
+        case "newGrant": value.locationConsentGrantedAt = now
+        default: break
+        }
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: reason == "noActiveMove" ? nil : value, now: now, calendar: calendar)
+        await service.waitForSchedule()
+        #expect(center.pendingRequests[old.identifier] == nil)
+        if reason == "newGrant" {
+            #expect(center.pendingRequests.keys.filter(LocationConsentRenewal.owns).count == 1)
+        } else {
+            #expect(center.pendingRequests.keys.allSatisfy { !LocationConsentRenewal.owns($0) })
+        }
+    }
+
+    @Test func deliveredCleanupRetainsTheCurrentOfferUntilTheLastCriticalTaskIsDone() async throws {
+        let first = ReminderFixtures.task(), second = ReminderFixtures.task("costco")
+        let value = move(tasks: [first, second]), scheduledAt = date().addingTimeInterval(1)
+        let notice = try #require(LocationConsentRenewal.request(for: value, now: scheduledAt, calendar: calendar))
+        let now = try #require(fireDate(notice, scheduledAt: scheduledAt)).addingTimeInterval(1)
+        let center = FakeReminderCenter()
+        center.deliveredRequests = [notice]
+        first.status = .completed
+        let service = SmartReminderService(center: center, registerCategories: false)
+        service.reschedule(for: value, now: now, calendar: calendar)
+        await service.waitForSchedule()
+        #expect(center.deliveredRequests.map(\.identifier) == [notice.identifier])
+        #expect(center.pendingRequests.keys.allSatisfy { !LocationConsentRenewal.owns($0) })
+        second.status = .completed
+        service.reschedule(for: value, now: now, calendar: calendar)
+        await service.waitForSchedule()
+        #expect(center.deliveredRequests.isEmpty)
     }
 }

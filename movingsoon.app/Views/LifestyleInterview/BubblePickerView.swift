@@ -22,7 +22,12 @@ struct BubblePickerView: View {
     let sections: [ChipSection]
     let onToggle: (BubbleChip) -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 10)]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumChipWidth = 140.0
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: minimumChipWidth), spacing: 10)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
@@ -31,11 +36,12 @@ struct BubblePickerView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if !section.title.isEmpty {
                             Text(section.title)
-                                .font(.system(size: 14, weight: .semibold))
+                                .themeText(14, weight: .semibold)
                                 .foregroundColor(Theme.textSecondary)
                                 .textCase(.uppercase)
                                 .tracking(1.2)
                                 .padding(.horizontal, 24)
+                                .accessibilityAddTraits(.isHeader)
                         }
                         
                         LazyVGrid(columns: columns, spacing: 10) {
@@ -59,12 +65,12 @@ private struct ChipView: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Text(chip.emoji)
-                    .font(.system(size: 20))
+                    .themeText(20, weight: .regular)
+                    .accessibilityHidden(true)
                 Text(chip.label)
-                    .font(.system(size: 14, weight: .medium, design: .default))
+                    .themeText(14, weight: .medium)
                     .foregroundColor(chip.isSelected ? .white : Theme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if chip.isSelected {
                     Circle()
@@ -74,6 +80,7 @@ private struct ChipView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(chip.isSelected ? Theme.accentPrimary.opacity(0.1) : Color.clear)
@@ -87,6 +94,8 @@ private struct ChipView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(chip.label)
+        .accessibilityAddTraits(chip.isSelected ? .isSelected : [])
         .scaleEffect(chip.isSelected ? 0.98 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: chip.isSelected)
     }
@@ -117,6 +126,7 @@ struct InterviewScreenView<Content: View>: View {
                     }
                 }
                 .frame(height: 1)
+                .accessibilityHidden(true)
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 24) {
@@ -124,13 +134,15 @@ struct InterviewScreenView<Content: View>: View {
                         HStack {
                             Button(action: onBack) {
                                 Image(systemName: "arrow.left")
-                                    .font(.system(size: 16, weight: .light))
+                                    .themeText(16, weight: .light)
                                     .foregroundColor(Theme.textSecondary)
+                                    .frame(minWidth: 44, minHeight: 44)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Back")
                             Spacer()
                             Text("\(stepIndex + 1) / \(totalSteps)")
-                                .font(.system(size: 11, weight: .bold))
+                                .themeText(11, weight: .bold)
                                 .tracking(1.5)
                                 .foregroundColor(Theme.textTertiary)
                         }
@@ -139,16 +151,19 @@ struct InterviewScreenView<Content: View>: View {
 
                         // Title block (Editorial Typography)
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(emoji).font(.system(size: 32)).padding(.horizontal, 24)
+                            Text(emoji).themeText(32, weight: .regular).padding(.horizontal, 24).accessibilityHidden(true)
                             Text(title)
-                                .font(.system(size: 30, weight: .semibold, design: .serif))
+                                .themeSerif(30, weight: .semibold)
                                 .foregroundColor(Theme.textPrimary)
                                 .padding(.horizontal, 24)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
                             Text(subtitle)
-                                .font(.system(size: 15, weight: .regular))
+                                .themeText(15, weight: .regular)
                                 .foregroundColor(Theme.textSecondary)
                                 .lineSpacing(4)
                                 .padding(.horizontal, 24)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
 
                         content()
@@ -162,9 +177,9 @@ struct InterviewScreenView<Content: View>: View {
             Button(action: onNext) {
                 HStack(spacing: 8) {
                     Text("Continue")
-                        .font(.system(size: 15, weight: .semibold))
+                        .themeText(15, weight: .semibold)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 14, weight: .medium))
+                        .themeText(14, weight: .medium)
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 32)

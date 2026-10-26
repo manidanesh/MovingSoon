@@ -302,7 +302,7 @@ private struct AddFinancialAccountsView: View {
                                 move.tasks.append(task)
                                 move.completionCelebratedAt = nil
                             }
-                            modelContext.saveOrLog()
+                            guard modelContext.saveOrLog() else { return }
                             dismiss()
                         }.disabled(selected.isEmpty)
                     }
